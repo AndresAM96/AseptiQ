@@ -176,6 +176,7 @@ function activarNavItem(tab){
   document.querySelectorAll('.nav-item').forEach(function(b){
     b.classList.toggle('active', b.dataset.tab===tab);
   });
+  if(typeof abrirGrupoDelTab==='function') abrirGrupoDelTab(tab);
 }
 
 /* ============ ROLES Y PERMISOS ============ */
@@ -821,11 +822,48 @@ document.addEventListener('click',async function(ev){
 })();
 
 /* ============ NAVEGACIÓN SIDEBAR ============ */
+
+/* ============ NAVEGACIÓN CON GRUPOS ============ */
+function abrirGrupoDelTab(tab){
+  const item=document.querySelector('.nav-item[data-tab="'+tab+'"]');
+  if(!item) return;
+  const grupo=item.closest('.nav-group');
+  if(!grupo) return;
+  document.querySelectorAll('.nav-group').forEach(function(g){
+    g.classList.toggle('open', g===grupo);
+  });
+  /* Asegura que el item quede visible dentro del nav con scroll */
+  setTimeout(function(){
+    const nav=document.getElementById('sidebarNav');
+    if(nav && item){
+      const itemTop=item.offsetTop;
+      const itemBottom=itemTop+item.offsetHeight;
+      if(itemTop<nav.scrollTop || itemBottom>nav.scrollTop+nav.clientHeight){
+        item.scrollIntoView({block:'nearest',behavior:'smooth'});
+      }
+    }
+  }, 50);
+}
+
+document.querySelectorAll('.nav-group-title').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    const grupo=btn.closest('.nav-group');
+    const estabaAbierto=grupo.classList.contains('open');
+    document.querySelectorAll('.nav-group').forEach(function(g){
+      g.classList.remove('open');
+    });
+    if(!estabaAbierto){
+      grupo.classList.add('open');
+    }
+  });
+});
+
 document.querySelectorAll('.nav-item').forEach(function(btn){
   btn.addEventListener('click',function(){
     document.querySelectorAll('.nav-item').forEach(function(b){b.classList.remove('active');});
     btn.classList.add('active');
     try{localStorage.setItem('aseptiq_tab',btn.dataset.tab);}catch(e){}
+    abrirGrupoDelTab(btn.dataset.tab);
     renderTab(btn.dataset.tab);
   });
 });

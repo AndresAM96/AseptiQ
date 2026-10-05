@@ -63,7 +63,22 @@
   .check-row span{font-size:12.5px;color:var(--text-secondary);}
   #app{display:none;min-height:100vh;}
   .shell{display:flex;min-height:100vh;}
-  .sidebar{width:220px;flex-shrink:0;background:var(--surface-1);border-right:1px solid var(--border);padding:20px 12px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;transition:width .2s ease,padding .2s ease;}
+  .sidebar{width:220px;flex-shrink:0;background:var(--surface-1);border-right:1px solid var(--border);padding:20px 12px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden;transition:width .2s ease,padding .2s ease;}
+  .sidebar-top{flex-shrink:0;}
+  .sidebar-nav{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    margin:4px -12px 4px;
+    padding:0 12px;
+    scrollbar-width:thin;
+    scrollbar-color:var(--border) transparent;
+  }
+  .sidebar-nav::-webkit-scrollbar{width:6px;}
+  .sidebar-nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+  .sidebar-nav::-webkit-scrollbar-track{background:transparent;}
+  .sidebar-footer{flex-shrink:0;}
   .sidebar-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 20px;}
   .brand{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;letter-spacing:-.01em;flex:1;overflow:hidden;white-space:nowrap;}
   .brand{cursor:pointer;}
@@ -76,12 +91,36 @@
   .login-logo svg{width:32px;height:32px;display:block;}
   .sidebar-toggle{background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;width:26px;height:26px;padding:0;font-size:11px;line-height:1;flex-shrink:0;cursor:pointer;transition:transform .2s ease,background .15s ease,color .15s ease;}
   .sidebar-toggle:hover{background:var(--surface-2);color:var(--text-primary);}
-  .nav-item{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text-secondary);font-family:inherit;font-size:13.5px;font-weight:500;padding:9px 10px;border-radius:8px;margin-bottom:2px;cursor:pointer;position:relative;}
+  .nav-item{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text-secondary);font-family:inherit;font-size:13.5px;font-weight:500;padding:7px 10px;border-radius:8px;margin-bottom:1px;cursor:pointer;position:relative;}
+
+  /* --- Grupos (acordeón) --- */
+  .nav-group{margin-bottom:2px;}
+  .nav-group-title{
+    display:flex;align-items:center;justify-content:space-between;
+    width:100%;
+    background:none;border:none;
+    color:var(--text-muted);
+    font-family:inherit;font-size:11px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.08em;
+    padding:9px 10px 7px;
+    border-radius:6px;cursor:pointer;
+    transition:color .15s,background .15s;
+  }
+  .nav-group-title:hover{color:var(--text-secondary);background:var(--surface-2);}
+  .nav-group-arrow{
+    font-size:10px;
+    color:var(--text-muted);
+    transition:transform .18s ease;
+    line-height:1;
+  }
+  .nav-group.open .nav-group-arrow{transform:rotate(180deg);}
+  .nav-group-items{display:none;}
+  .nav-group.open .nav-group-items{display:block;}
+  .nav-group-items .nav-item{padding-left:14px;}
   .nav-item:hover{background:var(--surface-2);color:var(--text-primary);}
   .nav-item.active{background:var(--surface-2);color:var(--text-primary);}
   .nav-badge{position:absolute;top:6px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;line-height:1;pointer-events:none;}
   .sidebar.collapsed .nav-badge{top:4px;right:2px;min-width:14px;height:14px;padding:0 3px;font-size:9px;}
-  .nav-sep{height:1px;background:var(--border);margin:8px 10px;}
   .sidebar-footer{margin-top:auto;padding:10px;font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px;}
   .user-info{width:100%;}
   .user-email{font-size:11.5px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;}
@@ -121,7 +160,6 @@
   .sidebar.collapsed .nav-item[data-tab="rentabilidad"]{--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='m3 17 6-6 4 4 8-8'/><path d='M15 7h6v6'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="config"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="usuarios"]   {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><circle cx='12' cy='10' r='3'/><path d='M6.2 19a6 6 0 0 1 11.6 0'/></svg>");}
-  .sidebar.collapsed .nav-sep{margin:8px 4px;}
   .sidebar.collapsed .sidebar-footer{justify-content:center;padding:10px 0;}
   .sidebar.collapsed .user-email{display:none;}
   .sidebar.collapsed .user-role-row .badge{display:none;}
@@ -137,6 +175,11 @@
     mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><path d='M16 17l5-5-5-5'/><path d='M21 12H9'/></svg>") center/contain no-repeat;
     vertical-align:middle;
   }
+  /* --- Colapsado: sin grupos, todos los items visibles --- */
+  .sidebar.collapsed .nav-group-title{display:none;}
+  .sidebar.collapsed .nav-group{margin-bottom:0;}
+  .sidebar.collapsed .nav-group-items{display:block !important;}
+  .sidebar.collapsed .nav-group-items .nav-item{padding-left:0;}
   .main{flex:1;padding:28px 36px;max-width:1280px;}
   .page-title{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;}
   .page-sub{color:var(--text-secondary);font-size:13px;margin:0 0 24px;}
@@ -354,22 +397,62 @@
         </div>
         <button class="sidebar-toggle" id="btnToggleSidebar" title="Minimizar menú">◀</button>
       </div>
-      <button class="nav-item active" data-tab="dashboard" title="Ver indicadores y existencias">Dashboard</button>
-      <button class="nav-item" data-tab="orden" title="Crear y gestionar órdenes de producción">Cargar orden</button>
-      <button class="nav-item" data-tab="novedades" title="Historial de órdenes activas">Novedades</button>
-      <button class="nav-item" data-tab="insumos" title="Materia prima y material de empaque">Insumos<span class="nav-badge" id="navBadgeInsumos" style="display:none;">0</span></button>
-      <button class="nav-item" data-tab="productos" title="Subproductos y paquetes con BOM">Productos &amp; BOM</button>
-      <button class="nav-item" data-tab="entradas" title="Registrar recepción de mercancía">Entrada mercancía</button>
-      <button class="nav-item" data-tab="devoluciones" title="Devoluciones a proveedor">Devoluciones</button>
-      <button class="nav-item" data-tab="proveedores" title="Maestro de proveedores">Proveedores</button>
-      <button class="nav-item" data-tab="auditoria" title="Informes y salidas manuales">Auditoría</button>
-      <button class="nav-item" data-tab="kardex" title="Historial de movimientos por insumo">Kardex</button>
-      <button class="nav-item" data-tab="historico" title="Gráficos y tendencias">Histórico</button>
-      <button class="nav-item" data-tab="costos" title="Costo real vs teórico por OP">Costos OP</button>
-      <button class="nav-item" data-tab="rentabilidad" title="Margen y rentabilidad por producto">Rentabilidad</button>
-      <div class="nav-sep"></div>
-      <button class="nav-item" data-tab="config" title="Configuración global del sistema">Configuración</button>
-      <button class="nav-item" data-tab="usuarios" data-rol-requerido="admin" title="Gestión de usuarios y roles">Usuarios</button>
+
+      <nav class="sidebar-nav" id="sidebarNav">
+
+        <div class="nav-group open" data-group="operacion">
+          <button class="nav-group-title" type="button">
+            <span>Operación</span>
+            <span class="nav-group-arrow">▾</span>
+          </button>
+          <div class="nav-group-items">
+            <button class="nav-item active" data-tab="dashboard" title="Ver indicadores y existencias">Dashboard</button>
+            <button class="nav-item" data-tab="orden" title="Crear y gestionar órdenes de producción">Cargar orden</button>
+            <button class="nav-item" data-tab="novedades" title="Historial de órdenes activas">Novedades</button>
+            <button class="nav-item" data-tab="entradas" title="Registrar recepción de mercancía">Entrada mercancía</button>
+            <button class="nav-item" data-tab="devoluciones" title="Devoluciones a proveedor">Devoluciones</button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="catalogo">
+          <button class="nav-group-title" type="button">
+            <span>Catálogo</span>
+            <span class="nav-group-arrow">▾</span>
+          </button>
+          <div class="nav-group-items">
+            <button class="nav-item" data-tab="insumos" title="Materia prima y material de empaque">Insumos<span class="nav-badge" id="navBadgeInsumos" style="display:none;">0</span></button>
+            <button class="nav-item" data-tab="productos" title="Subproductos y paquetes con BOM">Productos &amp; BOM</button>
+            <button class="nav-item" data-tab="proveedores" title="Maestro de proveedores">Proveedores</button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="analisis">
+          <button class="nav-group-title" type="button">
+            <span>Análisis</span>
+            <span class="nav-group-arrow">▾</span>
+          </button>
+          <div class="nav-group-items">
+            <button class="nav-item" data-tab="auditoria" title="Informes y salidas manuales">Auditoría</button>
+            <button class="nav-item" data-tab="kardex" title="Historial de movimientos por insumo">Kardex</button>
+            <button class="nav-item" data-tab="historico" title="Gráficos y tendencias">Histórico</button>
+            <button class="nav-item" data-tab="costos" title="Costo real vs teórico por OP">Costos OP</button>
+            <button class="nav-item" data-tab="rentabilidad" title="Margen y rentabilidad por producto">Rentabilidad</button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="sistema">
+          <button class="nav-group-title" type="button">
+            <span>Sistema</span>
+            <span class="nav-group-arrow">▾</span>
+          </button>
+          <div class="nav-group-items">
+            <button class="nav-item" data-tab="config" title="Configuración global del sistema">Configuración</button>
+            <button class="nav-item" data-tab="usuarios" data-rol-requerido="admin" title="Gestión de usuarios y roles">Usuarios</button>
+          </div>
+        </div>
+
+      </nav>
+
       <div class="sidebar-footer">
         <div class="user-info">
           <div id="sidebarUserEmail" class="user-email">—</div>
