@@ -450,6 +450,110 @@ function saveConfig(c){
   if(typeof _invalidateConfigCache==='function') _invalidateConfigCache();
 }
 
+/* ============ PANELES COLAPSABLES ============ */
+function _slug(str){
+  return String(str||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40);
+}
+function prepararPaneles(){
+  const main=document.getElementById('mainContent');
+  if(!main) return;
+  const tabActivo=(document.querySelector('.nav-item.active')||{}).dataset ?
+                  (document.querySelector('.nav-item.active').dataset.tab||'') : '';
+  let idx=0;
+  main.querySelectorAll('.panel').forEach(function(panel){
+    /* Evitar doble preparación */
+    if(panel.dataset.panelReady==='1'){idx++;return;}
+
+    const header=panel.querySelector('.panel-header');
+    if(!header){idx++;return;}
+
+    /* Envolver el contenido posterior al header en .panel-body */
+    const body=document.createElement('div');
+    body.className='panel-body';
+    let node=header.nextSibling;
+    while(node){
+      const next=node.nextSibling;
+      body.appendChild(node);
+      node=next;
+    }
+    panel.appendChild(body);
+
+    /* Identificador estable por panel */
+    const titulo=header.querySelector('h3') ? header.querySelector('h3').textContent : ('panel'+idx);
+    const key='aseptiq_panel_'+tabActivo+'_'+_slug(titulo);
+    panel.dataset.panelKey=key;
+
+    /* Envolver todas las acciones del header en un contenedor alineado a la derecha.
+       Así el header queda con exactamente 2 grupos: título (izq) y acciones (der). */
+    const childrenNoTitulo=Array.from(header.children).filter(function(c){
+      return c.tagName!=='H3';
+    });
+    let actionsWrap=header.querySelector('.panel-actions');
+    if(!actionsWrap){
+      actionsWrap=document.createElement('div');
+      actionsWrap.className='panel-actions';
+      childrenNoTitulo.forEach(function(c){ actionsWrap.appendChild(c); });
+      header.appendChild(actionsWrap);
+    }
+
+    /* Botón toggle */
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='panel-toggle';
+    btn.title='Colapsar / expandir';
+    btn.setAttribute('aria-label','Colapsar panel');
+    btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+    actionsWrap.appendChild(btn);
+
+    /* Si el panel contiene una tabla grande, marcarlo como scrollable */
+    if(body.querySelector('table') && !panel.classList.contains('no-scroll')){
+      panel.classList.add('panel--scroll');
+    }
+
+    /* ¿Tiene tabla? entonces por defecto expandido. Si no, colapsado si es formulario */
+    const tieneTabla=!!body.querySelector('table');
+
+    /* Restaurar estado guardado, o elegir por default */
+    let estadoGuardado=null;
+    try{ estadoGuardado=localStorage.getItem(key); }catch(e){}
+    if(estadoGuardado==='collapsed'){ panel.classList.add('collapsed'); }
+    else if(estadoGuardado==='expanded'){ panel.classList.remove('collapsed'); }
+    else {
+      /* Default: formularios (sin tabla) colapsados, listados (con tabla) expandidos */
+      if(!tieneTabla) panel.classList.add('collapsed');
+    }
+
+    /* Click del toggle */
+    btn.addEventListener('click',function(ev){
+      ev.stopPropagation();
+      const colapsado=panel.classList.toggle('collapsed');
+      try{ localStorage.setItem(key, colapsado?'collapsed':'expanded'); }catch(e){}
+    });
+
+    panel.dataset.panelReady='1';
+    idx++;
+  });
+}
+
+/* Atajo: Esc colapsa el panel activo (el primero sin colapsar) */
+document.addEventListener('keydown',function(ev){
+  if(ev.key!=='Escape') return;
+  const modal=document.querySelector('.modal-overlay.open');
+  if(modal) return;
+  const enCampo=ev.target && (ev.target.tagName==='INPUT'||ev.target.tagName==='TEXTAREA'||ev.target.tagName==='SELECT');
+  if(enCampo) return;
+  /* Si hay algún panel expandido que no sea listado (formulario), colapsarlo */
+  const formularios=Array.from(document.querySelectorAll('.panel:not(.collapsed)'))
+    .filter(function(p){ return !p.classList.contains('panel--scroll'); });
+  if(formularios.length){
+    const p=formularios[formularios.length-1];
+    p.classList.add('collapsed');
+    if(p.dataset.panelKey){
+      try{ localStorage.setItem(p.dataset.panelKey,'collapsed'); }catch(e){}
+    }
+  }
+});
+
 /* ============ BOTÓN ACTUALIZAR ============ */
 function botonRefreshHTML(tab){
   return '<button class="btn-refresh" data-refresh-tab="'+tab+'" title="Actualizar datos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.3"/><path d="M3 12a9 9 0 0 1 15.5-6.3"/><path d="M3 4v5h5"/><path d="M21 20v-5h-5"/></svg></button>';
@@ -465,6 +569,7 @@ document.addEventListener('click',function(ev){
   Promise.resolve(renderTab(tab))
     .finally(function(){
       hideLoader();
+      prepararPaneles();
       setTimeout(function(){btn.classList.remove('spinning');},350);
     });
 });
@@ -667,6 +772,50 @@ document.getElementById('rememberCreds').addEventListener('change',function(e){
   document.getElementById('credsWarning').style.display=e.target.checked?'block':'none';
 });
 
+/* ============ DRAWER MÓVIL ============ */
+function esMobile(){
+  return window.matchMedia('(max-width: 640px)').matches;
+}
+function abrirDrawer(){
+  const sb=document.getElementById('sidebarPrincipal');
+  const ov=document.getElementById('drawerOverlay');
+  if(sb) sb.classList.add('drawer-open');
+  if(ov) ov.classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function cerrarDrawer(){
+  const sb=document.getElementById('sidebarPrincipal');
+  const ov=document.getElementById('drawerOverlay');
+  if(sb) sb.classList.remove('drawer-open');
+  if(ov) ov.classList.remove('open');
+  document.body.style.overflow='';
+}
+(function initDrawer(){
+  const btn=document.getElementById('btnMobileMenu');
+  const ov=document.getElementById('drawerOverlay');
+  if(btn){
+    btn.addEventListener('click',function(){
+      const sb=document.getElementById('sidebarPrincipal');
+      if(sb && sb.classList.contains('drawer-open')) cerrarDrawer();
+      else abrirDrawer();
+    });
+  }
+  if(ov){
+    ov.addEventListener('click',cerrarDrawer);
+  }
+  /* Cerrar drawer con Escape */
+  document.addEventListener('keydown',function(ev){
+    if(ev.key==='Escape'){
+      const sb=document.getElementById('sidebarPrincipal');
+      if(sb && sb.classList.contains('drawer-open')) cerrarDrawer();
+    }
+  });
+  /* Al cambiar de tamaño: si pasamos a desktop, cerramos drawer por las dudas */
+  window.addEventListener('resize', debounce(function(){
+    if(!esMobile()) cerrarDrawer();
+  }, 200));
+})();
+
 /* ============ SIDEBAR COLAPSABLE ============ */
 function getSidebarColapsado(){
   try{return localStorage.getItem('aseptiq_sidebar_collapsed')==='1';}
@@ -680,6 +829,12 @@ function setSidebarColapsado(v){
   if(btn) btn.title = v?'Expandir menú':'Minimizar menú';
 }
 function aplicarSidebarColapsado(){
+  /* En móvil el sidebar es drawer, no se colapsa */
+  if(typeof esMobile==='function' && esMobile()){
+    const sb=document.getElementById('sidebarPrincipal');
+    if(sb) sb.classList.remove('collapsed');
+    return;
+  }
   setSidebarColapsado(getSidebarColapsado());
 }
 (function(){
@@ -865,6 +1020,10 @@ document.querySelectorAll('.nav-item').forEach(function(btn){
     try{localStorage.setItem('aseptiq_tab',btn.dataset.tab);}catch(e){}
     abrirGrupoDelTab(btn.dataset.tab);
     renderTab(btn.dataset.tab);
+    /* Cerrar drawer en móvil tras elegir un módulo */
+    if(typeof esMobile==='function' && esMobile() && typeof cerrarDrawer==='function'){
+      cerrarDrawer();
+    }
   });
 });
 
@@ -931,6 +1090,7 @@ async function renderTab(tab){
   }finally{
     hideLoader();
     aplicarPermisos();
+    prepararPaneles();
     /* Refrescar el badge en segundo plano. No bloquea el render. */
     setTimeout(actualizarIndicadorStock, 0);
   }
@@ -1317,7 +1477,7 @@ async function renderInsumos(){
         <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${editando?editando.nombre:''}"></div>
         <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(opcional)</span></label><input id="ins_existencia" type="number" step="0.0001" value="${editando?editando.existencia_actual:''}" placeholder="0"></div>
         <div><label>Stock objetivo</label><input id="ins_reorden" type="number" step="0.0001" min="0.0001" value="${editando?editando.punto_reorden:''}" placeholder="Ej: 100" title="El sistema calcula los umbrales de urgente y reorden como % de este valor (configurable en Configuración)"></div>
-        <div><label>Costo unitario (por unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${editando?editando.costo_unitario:0}"></div>
+        <div><label>Costo Und. (Unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${editando?editando.costo_unitario:0}"></div>
       </div>
       <div class="divider-label">Cadena de conversiones</div>
       <div class="conv-chain">
@@ -1932,9 +2092,10 @@ async function renderOrden(){
       <div class="panel-header"><h3>Nueva OP</h3></div>
       <div class="form-grid">
         <div>
-          <label>Número de OP <span style="color:var(--danger);">*</span> <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">— sugerido: <b class="mono" id="orden_sugerido">…</b> <button type="button" class="subtle-toggle" id="btnUsarSugerido" title="Rellenar con el número sugerido">usar</button></span></label>
+          <label>Número de OP <span style="color:var(--danger);">*</span></label>
           <div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoOP}</span><input id="orden_numero" placeholder="Ej: 045" title="Obligatorio. No se puede repetir." required autocomplete="off"></div>
           <div class="field-validate" id="orden_numero_status"></div>
+          <div class="field-hint">Sugerido: <b class="mono" id="orden_sugerido">…</b> <button type="button" class="subtle-toggle" id="btnUsarSugerido" title="Rellenar con el número sugerido">usar</button></div>
         </div>
         <div>
           <label>Lote <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional, único si se llena)</span></label>
