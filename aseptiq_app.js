@@ -1580,8 +1580,19 @@ async function renderInsumos(){
           await api('insumos?id=eq.'+editando.id,{method:'PATCH',body:JSON.stringify(body)});
           editandoInsumoId=null;
         }else{
-          let n2;try{n2=await rpc('siguiente_codigo',{p_prefijo:cAct.prefijoInsumo,p_tabla:'insumos'});}catch(e){n2=siguienteCodigoLocal(cAct.prefijoInsumo,insumos);}
-          body.codigo=cAct.prefijoInsumo+n2;
+          const numManual=(document.getElementById('ins_codigo_num').value||'').trim();
+          if(numManual){
+            /* Si el usuario escribió el prefijo completo, lo sacamos para no duplicarlo */
+            let limpio=numManual;
+            if(limpio.indexOf(cAct.prefijoInsumo)===0){
+              limpio=limpio.slice(cAct.prefijoInsumo.length);
+            }
+            if(!limpio){toast('El código no puede estar vacío.','error');return;}
+            body.codigo=cAct.prefijoInsumo+limpio;
+          }else{
+            let n2;try{n2=await rpc('siguiente_codigo',{p_prefijo:cAct.prefijoInsumo,p_tabla:'insumos'});}catch(e){n2=siguienteCodigoLocal(cAct.prefijoInsumo,insumos);}
+            body.codigo=cAct.prefijoInsumo+n2;
+          }
           await api('insumos',{method:'POST',body:JSON.stringify(body)});
         }
       });
@@ -1928,7 +1939,17 @@ async function renderProductos(){
     try{
       await withLoading(ev.currentTarget,async function(){
         let cod=editandoSub?editandoSub.codigo:null;
-        if(!cod){try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,subproductos);}}
+        if(!cod){
+          const numManual=(document.getElementById('sub_codigo_num').value||'').trim();
+          if(numManual){
+            let limpio=numManual;
+            if(limpio.indexOf(cfg.prefijoSubproducto)===0){limpio=limpio.slice(cfg.prefijoSubproducto.length);}
+            if(!limpio){toast('El código no puede estar vacío.','error');return;}
+            cod=cfg.prefijoSubproducto+limpio;
+          }else{
+            try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,subproductos);}
+          }
+        }
         /* v11: p_punto_reorden = 0 (subproductos ya no lo usan) */
         await rpc('guardar_subproducto',{p_id:editandoSub?editandoSub.id:null,p_codigo:cod,p_nombre:nombre,p_existencia:parseFloat(document.getElementById('sub_existencia').value)||0,p_punto_reorden:0,p_receta:receta,p_hijos:hijos,p_tipo:tipo});
       });
@@ -1953,7 +1974,17 @@ async function renderProductos(){
     try{
       await withLoading(ev.currentTarget,async function(){
         let cod=editandoProd?editandoProd.codigo_pt:null;
-        if(!cod){try{cod=cfg.prefijoProducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){cod=cfg.prefijoProducto+siguienteCodigoLocal(cfg.prefijoProducto,productos);}}
+        if(!cod){
+          const numManual=(document.getElementById('prod_codigo_num').value||'').trim();
+          if(numManual){
+            let limpio=numManual;
+            if(limpio.indexOf(cfg.prefijoProducto)===0){limpio=limpio.slice(cfg.prefijoProducto.length);}
+            if(!limpio){toast('El código no puede estar vacío.','error');return;}
+            cod=cfg.prefijoProducto+limpio;
+          }else{
+            try{cod=cfg.prefijoProducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){cod=cfg.prefijoProducto+siguienteCodigoLocal(cfg.prefijoProducto,productos);}
+          }
+        }
         await rpc('guardar_paquete',{p_codigo_pt:cod,p_es_nuevo:!editandoProd,p_nombre:nombre,p_subproductos:subs,p_insumos:ins,p_unidades_por_caja:pc,p_precio_venta:precio});
       });
       toast(editandoProd?'Paquete actualizado.':'Paquete creado.','success');
