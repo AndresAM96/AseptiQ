@@ -155,6 +155,8 @@
   .sidebar.collapsed .nav-item[data-tab="devoluciones"]{--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9 14 4 9l5-5'/><path d='M4 9h10a6 6 0 0 1 6 6v5'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="auditoria"]  {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='4' width='14' height='17' rx='2'/><path d='M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1'/><path d='m8.5 13.5 2.5 2.5 4.5-5'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="kardex"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M4 4a2 2 0 0 1 2-2h12v18H6a2 2 0 0 0-2 2V4z'/><path d='M4 20a2 2 0 0 1 2-2h12'/><path d='M9 7h5M9 11h5'/></svg>");}
+  .sidebar.collapsed .nav-item[data-tab="compras"]    {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3 5h2l2.4 12.6a1 1 0 0 0 1 .8h10.2a1 1 0 0 0 1-.8L21 8H6'/><circle cx='9' cy='20' r='1.5'/><circle cx='18' cy='20' r='1.5'/></svg>");}
+  .sidebar.collapsed .nav-item[data-tab="mermas"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3 6h18'/><path d='M6 6v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6'/><path d='M10 11v6M14 11v6'/><path d='M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="historico"]  {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3 3v18h18'/><path d='m7 15 4-4 3 3 5-7'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="costos"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><path d='M12 7v10M14.5 9.5c0-1-1-1.5-2.5-1.5s-2.5.5-2.5 1.5 1 1.5 2.5 1.5 2.5.5 2.5 1.5-1 1.5-2.5 1.5-2.5-.5-2.5-1.5'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="rentabilidad"]{--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='m3 17 6-6 4 4 8-8'/><path d='M15 7h6v6'/></svg>");}
@@ -656,6 +658,8 @@
           <div class="nav-group-items">
             <button class="nav-item" data-tab="auditoria" title="Informes y salidas manuales">Auditoría</button>
             <button class="nav-item" data-tab="kardex" title="Historial de movimientos por insumo">Kardex</button>
+            <button class="nav-item" data-tab="compras" title="Compras por proveedor">Compras</button>
+            <button class="nav-item" data-tab="mermas" title="Mermas y ajustes de inventario">Mermas</button>
             <button class="nav-item" data-tab="historico" title="Gráficos y tendencias">Histórico</button>
             <button class="nav-item" data-tab="costos" title="Costo real vs teórico por OP">Costos OP</button>
             <button class="nav-item" data-tab="rentabilidad" title="Margen y rentabilidad por producto">Rentabilidad</button>
@@ -750,6 +754,8 @@
         <tr><td>Proveedores</td><td><span class="kbd">G</span><span class="kbd">V</span></td></tr>
         <tr><td>Auditoría</td><td><span class="kbd">G</span><span class="kbd">A</span></td></tr>
         <tr><td>Kardex</td><td><span class="kbd">G</span><span class="kbd">K</span></td></tr>
+        <tr><td>Compras por proveedor</td><td><span class="kbd">G</span><span class="kbd">B</span></td></tr>
+        <tr><td>Mermas y ajustes</td><td><span class="kbd">G</span><span class="kbd">M</span></td></tr>
         <tr><td>Histórico</td><td><span class="kbd">G</span><span class="kbd">H</span></td></tr>
         <tr><td>Costos OP</td><td><span class="kbd">G</span><span class="kbd">C</span></td></tr>
         <tr><td>Rentabilidad</td><td><span class="kbd">G</span><span class="kbd">R</span></td></tr>

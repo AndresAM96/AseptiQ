@@ -516,11 +516,13 @@ function prepararPaneles(){
     /* Restaurar estado guardado, o elegir por default */
     let estadoGuardado=null;
     try{ estadoGuardado=localStorage.getItem(key); }catch(e){}
+    const forceExpand=panel.classList.contains('force-expanded');
     if(estadoGuardado==='collapsed'){ panel.classList.add('collapsed'); }
     else if(estadoGuardado==='expanded'){ panel.classList.remove('collapsed'); }
     else {
-      /* Default: formularios (sin tabla) colapsados, listados (con tabla) expandidos */
-      if(!tieneTabla) panel.classList.add('collapsed');
+      /* Default: formularios (sin tabla) colapsados, listados (con tabla) expandidos.
+         Los paneles con .force-expanded siempre arrancan abiertos. */
+      if(!tieneTabla && !forceExpand) panel.classList.add('collapsed');
     }
 
     /* Click del toggle */
@@ -892,7 +894,7 @@ document.addEventListener('keydown',function(ev){
   if(window._gPressed){
     window._gPressed=false;
     clearTimeout(window._gTimeout);
-    const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',h:'historico',c:'costos',r:'rentabilidad',u:'usuarios'};
+    const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',b:'compras',m:'mermas',h:'historico',c:'costos',r:'rentabilidad',u:'usuarios'};
     const tab=mapa[k];
     if(tab){
       const btn=document.querySelector('.nav-item[data-tab="'+tab+'"]');
@@ -1079,8 +1081,8 @@ document.getElementById('btnCerrarSesion').addEventListener('click',async functi
 
 async function renderTab(tab){
   const main=document.getElementById('mainContent');
-  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
-  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,usuarios:renderUsuarios,config:renderConfig};
+  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
+  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,usuarios:renderUsuarios,config:renderConfig};
   main.innerHTML='<div class="empty-state">Cargando…</div>';
   showLoader(nombres[tab]||'Cargando…');
   try{
@@ -3259,6 +3261,533 @@ async function mostrarComparativoOP(analisis,insumos,subproductos,costos){
   }catch(e){
     box.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
   }
+}
+
+/* ============ COMPRAS POR PROVEEDOR ============ */
+let comprasFiltroCache=null;
+
+async function renderCompras(){
+  const main=document.getElementById('mainContent');
+  const proveedores=await api('sys_proveedores?select=id,razon_social&order=razon_social');
+
+  main.innerHTML=`
+    <div class="page-header-flex">
+      <div>
+        <h2 class="page-title">Compras por proveedor</h2>
+        <p class="page-sub">Análisis de todas las entradas de mercancía agrupadas por proveedor.</p>
+      </div>
+      ${botonRefreshHTML('compras')}
+    </div>
+
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header"><h3>Filtros</h3></div>
+      <div class="form-grid">
+        <div><label>Desde</label><input id="comp_desde" type="date"></div>
+        <div><label>Hasta</label><input id="comp_hasta" type="date"></div>
+        <div><label>Proveedor</label>
+          <select id="comp_proveedor">
+            <option value="">— Todos —</option>
+            ${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="padding:0 18px 12px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" class="ghost small" data-comp-rango="mes">Mes actual</button>
+        <button type="button" class="ghost small" data-comp-rango="mes_ant">Mes anterior</button>
+        <button type="button" class="ghost small" data-comp-rango="90d">Últimos 90 días</button>
+        <button type="button" class="ghost small" data-comp-rango="anio">Año actual</button>
+        <button type="button" class="ghost small" data-comp-rango="limpiar">Limpiar</button>
+      </div>
+      <div class="form-actions">
+        <button id="btnCompGenerar">Generar reporte</button>
+        <button class="secondary" id="btnCompExport" style="display:none;">Exportar CSV</button>
+        <button class="secondary" id="btnCompPrint" style="display:none;">Imprimir / PDF</button>
+      </div>
+    </div>
+
+    <div id="compResultado"><div class="empty-state">Elegí un rango y presioná "Generar reporte".</div></div>`;
+
+  /* Rangos rápidos */
+  document.querySelectorAll('[data-comp-rango]').forEach(function(b){
+    b.addEventListener('click',function(){
+      const r=b.dataset.compRango;
+      const inpD=document.getElementById('comp_desde');
+      const inpH=document.getElementById('comp_hasta');
+      const hoy=new Date();
+      const iso=function(d){return d.toISOString().slice(0,10);};
+      if(r==='limpiar'){inpD.value='';inpH.value='';return;}
+      if(r==='mes'){const d=new Date(hoy.getFullYear(),hoy.getMonth(),1);inpD.value=iso(d);inpH.value=iso(hoy);}
+      else if(r==='mes_ant'){const ini=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);const fin=new Date(hoy.getFullYear(),hoy.getMonth(),0);inpD.value=iso(ini);inpH.value=iso(fin);}
+      else if(r==='90d'){const d=new Date(hoy);d.setDate(d.getDate()-90);inpD.value=iso(d);inpH.value=iso(hoy);}
+      else if(r==='anio'){const d=new Date(hoy.getFullYear(),0,1);inpD.value=iso(d);inpH.value=iso(hoy);}
+    });
+  });
+
+  document.getElementById('btnCompGenerar').addEventListener('click',async function(ev){
+    const desde=document.getElementById('comp_desde').value;
+    const hasta=document.getElementById('comp_hasta').value;
+    const proveedorFiltro=document.getElementById('comp_proveedor').value;
+    const box=document.getElementById('compResultado');
+    box.innerHTML='<div class="empty-state">Generando reporte…</div>';
+
+    await withLoading(ev.currentTarget,async function(){
+      try{
+        let q='movimientos_inventario?select=id,fecha,cantidad,cantidad_compra,unidad_compra,costo_unitario_momento,motivo,insumo_id,proveedor_id,insumos(id,codigo,nombre,unidad_consumo,unidad_medida),sys_proveedores(id,razon_social)&tipo=eq.Entrada&proveedor_id=not.is.null&order=fecha.desc&limit=10000';
+        if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
+        if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
+        if(proveedorFiltro) q+='&proveedor_id=eq.'+proveedorFiltro;
+        const movs=await api(q);
+
+        if(!movs.length){
+          box.innerHTML='<div class="empty-state">No hay compras para estos filtros.</div>';
+          document.getElementById('btnCompExport').style.display='none';
+          document.getElementById('btnCompPrint').style.display='none';
+          return;
+        }
+
+        /* Agrupación por proveedor */
+        const porProv={};
+        let totalGlobal=0;
+        let entradasGlobal=0;
+        movs.forEach(function(m){
+          const provId=m.proveedor_id;
+          const provNombre=m.sys_proveedores?m.sys_proveedores.razon_social:'—';
+          const costoUnit=Number(m.costo_unitario_momento)||0;
+          const cant=Number(m.cantidad)||0;
+          const sub=costoUnit*cant;
+          totalGlobal+=sub;
+          entradasGlobal++;
+          if(!porProv[provId]){
+            porProv[provId]={id:provId,nombre:provNombre,total:0,entradas:0,ultimaFecha:null,insumos:new Set(),movs:[]};
+          }
+          const p=porProv[provId];
+          p.total+=sub;
+          p.entradas++;
+          if(!p.ultimaFecha||new Date(m.fecha)>new Date(p.ultimaFecha)) p.ultimaFecha=m.fecha;
+          if(m.insumo_id) p.insumos.add(m.insumo_id);
+          p.movs.push(m);
+        });
+        const proveedoresArr=Object.values(porProv).sort(function(a,b){return b.total-a.total;});
+        const nProv=proveedoresArr.length;
+        const promedio=entradasGlobal?totalGlobal/entradasGlobal:0;
+        const topProv=proveedoresArr[0];
+        comprasFiltroCache={movs:movs,proveedores:proveedoresArr,desde:desde,hasta:hasta};
+
+        const filas=proveedoresArr.map(function(p){
+          const ultima=p.ultimaFecha?new Date(p.ultimaFecha).toLocaleDateString('es-CO'):'—';
+          return '<tr>'
+            +'<td>'+p.nombre+'</td>'
+            +'<td class="num">'+money(p.total)+'</td>'
+            +'<td class="num">'+p.entradas+'</td>'
+            +'<td class="num">'+p.insumos.size+'</td>'
+            +'<td class="num">'+money(p.total/p.entradas)+'</td>'
+            +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+ultima+'</td>'
+            +'<td class="actions"><button class="ghost small" data-comp-ver="'+p.id+'">Ver detalle</button></td>'
+            +'</tr>';
+        }).join('');
+
+        box.innerHTML=`
+          <div class="grid-cards">
+            <div class="stat-card info"><p class="stat-label">Total comprado</p><p class="stat-value" style="font-size:18px;">${money(totalGlobal)}</p></div>
+            <div class="stat-card neutral"><p class="stat-label">Entradas registradas</p><p class="stat-value">${entradasGlobal}</p></div>
+            <div class="stat-card neutral"><p class="stat-label">Proveedores activos</p><p class="stat-value">${nProv}</p></div>
+            <div class="stat-card neutral"><p class="stat-label">Promedio por entrada</p><p class="stat-value" style="font-size:18px;">${money(promedio)}</p></div>
+          </div>
+
+          ${topProv?'<div class="panel"><div class="panel-header"><h3>Proveedor principal</h3></div><div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;"><div><div style="font-size:14px;font-weight:600;">'+topProv.nombre+'</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">'+topProv.entradas+' entradas · '+topProv.insumos.size+' insumos distintos</div></div><div class="stat-value" style="color:var(--accent);font-size:20px;">'+money(topProv.total)+'</div></div></div>':''}
+
+          <div class="panel">
+            <div class="panel-header"><h3>Resumen por proveedor · ${nProv}</h3></div>
+            <div class="search-box"><input id="comp_buscar" placeholder="Buscar proveedor…"></div>
+            <table id="tablaComprasProv">
+              <thead><tr>
+                <th>Proveedor</th>
+                <th class="num">Total comprado</th>
+                <th class="num">Entradas</th>
+                <th class="num">Insumos</th>
+                <th class="num">Promedio</th>
+                <th>Última compra</th>
+                <th class="actions"></th>
+              </tr></thead>
+              <tbody>${filas}</tbody>
+            </table>
+          </div>
+
+          <div id="compDetalle"></div>`;
+
+        document.getElementById('btnCompExport').style.display='inline-block';
+        document.getElementById('btnCompPrint').style.display='inline-block';
+        document.getElementById('btnCompExport').onclick=function(){
+          const headers=['Proveedor','Total comprado','Entradas','Insumos distintos','Promedio por entrada','Última compra'];
+          const filasCSV=proveedoresArr.map(function(p){
+            return [
+              p.nombre,
+              fmtCSV(p.total,2),
+              p.entradas,
+              p.insumos.size,
+              fmtCSV(p.total/p.entradas,2),
+              p.ultimaFecha?new Date(p.ultimaFecha).toLocaleDateString('es-CO'):''
+            ];
+          });
+          exportarCSV('compras_por_proveedor',headers,filasCSV);
+        };
+
+        /* Bind de búsqueda */
+        const inpBuscar=document.getElementById('comp_buscar');
+        if(inpBuscar){
+          inpBuscar.addEventListener('input',debounce(function(){
+            const q=inpBuscar.value.toLowerCase();
+            document.querySelectorAll('#tablaComprasProv tbody tr').forEach(function(tr){
+              tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';
+            });
+          },150));
+        }
+
+        /* Bind de drill-down */
+        document.querySelectorAll('[data-comp-ver]').forEach(function(btn){
+          btn.addEventListener('click',function(){
+            const id=btn.dataset.compVer;
+            const p=proveedoresArr.find(function(x){return x.id===id;});
+            mostrarDetalleProveedor(p);
+          });
+        });
+      }catch(e){
+        box.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+      }
+    });
+  });
+
+  document.getElementById('btnCompPrint').addEventListener('click',function(){window.print();});
+}
+
+function mostrarDetalleProveedor(prov){
+  if(!prov)return;
+  const box=document.getElementById('compDetalle');
+  const movs=prov.movs.slice().sort(function(a,b){return new Date(b.fecha)-new Date(a.fecha);});
+
+  const filas=movs.map(function(m){
+    const ins=m.insumos||{};
+    const unidad=ins.unidad_consumo||ins.unidad_medida||'';
+    const cu=Number(m.costo_unitario_momento)||0;
+    const cant=Number(m.cantidad)||0;
+    const total=cu*cant;
+    return '<tr>'
+      +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td>'
+      +'<td>'+(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+ins.codigo+'</span>':'')+'</td>'
+      +'<td class="num">'+num(cant,4)+' '+unidad+'</td>'
+      +'<td class="num">'+money(cu)+'</td>'
+      +'<td class="num"><b>'+money(total)+'</b></td>'
+      +'<td style="color:var(--text-secondary);font-size:12px;">'+(m.motivo||'—')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  const totalProv=movs.reduce(function(acc,m){return acc+(Number(m.costo_unitario_momento)||0)*(Number(m.cantidad)||0);},0);
+
+  box.innerHTML=`
+    <div class="panel">
+      <div class="panel-header">
+        <h3>Detalle · ${prov.nombre}</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="badge info">${movs.length} entradas</span>
+          <span class="badge success">${money(totalProv)}</span>
+          <button class="ghost small" id="btnCompCerrarDetalle">Cerrar</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Fecha</th>
+          <th>Insumo</th>
+          <th class="num">Cantidad</th>
+          <th class="num">Costo u.</th>
+          <th class="num">Total</th>
+          <th>Motivo</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('btnCompCerrarDetalle').addEventListener('click',function(){
+    box.innerHTML='';
+  });
+  box.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+/* ============ MERMAS Y AJUSTES ============ */
+async function renderMermas(){
+  const main=document.getElementById('mainContent');
+  const insumos=await api('insumos?select=id,codigo,nombre,unidad_consumo,unidad_medida&order=nombre');
+
+  main.innerHTML=`
+    <div class="page-header-flex">
+      <div>
+        <h2 class="page-title">Mermas y ajustes</h2>
+        <p class="page-sub">Pérdidas de inventario: salidas manuales y ajustes por conteo físico, sin incluir devoluciones a proveedor.</p>
+      </div>
+      ${botonRefreshHTML('mermas')}
+    </div>
+
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header"><h3>Filtros</h3></div>
+      <div class="form-grid">
+        <div><label>Desde</label><input id="mer_desde" type="date"></div>
+        <div><label>Hasta</label><input id="mer_hasta" type="date"></div>
+        <div><label>Insumo</label>
+          <select id="mer_insumo">
+            <option value="">— Todos —</option>
+            ${insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+'</option>';}).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="padding:0 18px 12px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" class="ghost small" data-mer-rango="mes">Mes actual</button>
+        <button type="button" class="ghost small" data-mer-rango="mes_ant">Mes anterior</button>
+        <button type="button" class="ghost small" data-mer-rango="90d">Últimos 90 días</button>
+        <button type="button" class="ghost small" data-mer-rango="anio">Año actual</button>
+        <button type="button" class="ghost small" data-mer-rango="limpiar">Limpiar</button>
+      </div>
+      <div class="form-actions">
+        <button id="btnMerGenerar">Generar reporte</button>
+        <button class="secondary" id="btnMerExport" style="display:none;">Exportar CSV</button>
+        <button class="secondary" id="btnMerPrint" style="display:none;">Imprimir / PDF</button>
+      </div>
+    </div>
+
+    <div id="merResultado"><div class="empty-state">Elegí un rango y presioná "Generar reporte".</div></div>`;
+
+  /* Rangos rápidos */
+  document.querySelectorAll('[data-mer-rango]').forEach(function(b){
+    b.addEventListener('click',function(){
+      const r=b.dataset.merRango;
+      const inpD=document.getElementById('mer_desde');
+      const inpH=document.getElementById('mer_hasta');
+      const hoy=new Date();
+      const iso=function(d){return d.toISOString().slice(0,10);};
+      if(r==='limpiar'){inpD.value='';inpH.value='';return;}
+      if(r==='mes'){const d=new Date(hoy.getFullYear(),hoy.getMonth(),1);inpD.value=iso(d);inpH.value=iso(hoy);}
+      else if(r==='mes_ant'){const ini=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);const fin=new Date(hoy.getFullYear(),hoy.getMonth(),0);inpD.value=iso(ini);inpH.value=iso(fin);}
+      else if(r==='90d'){const d=new Date(hoy);d.setDate(d.getDate()-90);inpD.value=iso(d);inpH.value=iso(hoy);}
+      else if(r==='anio'){const d=new Date(hoy.getFullYear(),0,1);inpD.value=iso(d);inpH.value=iso(hoy);}
+    });
+  });
+
+  document.getElementById('btnMerGenerar').addEventListener('click',async function(ev){
+    const desde=document.getElementById('mer_desde').value;
+    const hasta=document.getElementById('mer_hasta').value;
+    const insumoFiltro=document.getElementById('mer_insumo').value;
+    const box=document.getElementById('merResultado');
+    box.innerHTML='<div class="empty-state">Generando reporte…</div>';
+
+    await withLoading(ev.currentTarget,async function(){
+      try{
+        /* Salidas manuales y ajustes, sin proveedor (excluye devoluciones), sin OP (excluye consumos) */
+        let q='movimientos_inventario?select=id,fecha,cantidad,costo_unitario_momento,motivo,insumo_id,insumos(id,codigo,nombre,unidad_consumo,unidad_medida,conversiones)&tipo=eq.Salida&proveedor_id=is.null&order=fecha.desc&limit=10000';
+        if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
+        if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
+        if(insumoFiltro) q+='&insumo_id=eq.'+insumoFiltro;
+        const movs=await api(q);
+
+        if(!movs.length){
+          box.innerHTML='<div class="empty-state">No hay mermas ni ajustes para estos filtros.</div>';
+          document.getElementById('btnMerExport').style.display='none';
+          document.getElementById('btnMerPrint').style.display='none';
+          return;
+        }
+
+        /* Clasificar motivo */
+        function clasificarMotivo(motivo){
+          const m=String(motivo||'').toLowerCase();
+          if(m.indexOf('ajuste por inventario')>=0) return 'Ajuste por conteo físico';
+          if(m.indexOf('merma')>=0) return 'Merma';
+          if(m.indexOf('uso interno')>=0) return 'Uso interno';
+          if(m.indexOf('vencim')>=0) return 'Vencimiento';
+          if(m.indexOf('dañ')>=0 || m.indexOf('deterior')>=0) return 'Daño / deterioro';
+          if(m.indexOf('error')>=0 || m.indexOf('digitac')>=0) return 'Error de digitación';
+          return motivo?String(motivo):'Sin motivo';
+        }
+
+        /* KPIs y agrupaciones */
+        let totalValor=0;
+        let totalMovimientos=0;
+        const porInsumo={};
+        const porMotivo={};
+
+        movs.forEach(function(m){
+          const ins=m.insumos||{};
+          const cant=Number(m.cantidad)||0;
+          const cu=Number(m.costo_unitario_momento)||0;
+          const valor=cu*cant;
+          totalValor+=valor;
+          totalMovimientos++;
+          const motivoGrupo=clasificarMotivo(m.motivo);
+
+          const keyIns=m.insumo_id;
+          if(!porInsumo[keyIns]){
+            porInsumo[keyIns]={id:keyIns,nombre:ins.nombre||'?',codigo:ins.codigo||'',unidad:ins.unidad_consumo||ins.unidad_medida||'',cantidad:0,valor:0,movs:[]};
+          }
+          porInsumo[keyIns].cantidad+=cant;
+          porInsumo[keyIns].valor+=valor;
+          porInsumo[keyIns].movs.push(m);
+
+          if(!porMotivo[motivoGrupo]) porMotivo[motivoGrupo]={motivo:motivoGrupo,cantidad:0,valor:0,movs:0};
+          porMotivo[motivoGrupo].cantidad+=cant;
+          porMotivo[motivoGrupo].valor+=valor;
+          porMotivo[motivoGrupo].movs++;
+        });
+
+        const insumosArr=Object.values(porInsumo).sort(function(a,b){return b.valor-a.valor;});
+        const motivosArr=Object.values(porMotivo).sort(function(a,b){return b.valor-a.valor;});
+        const topInsumo=insumosArr[0];
+
+        /* Tabla por motivo */
+        const filasMotivo=motivosArr.map(function(mt){
+          const pct=totalValor>0?(mt.valor/totalValor*100):0;
+          return '<tr>'
+            +'<td>'+mt.motivo+'</td>'
+            +'<td class="num">'+mt.movs+'</td>'
+            +'<td class="num">'+money(mt.valor)+'</td>'
+            +'<td class="num">'+num(pct,1)+'%</td>'
+            +'</tr>';
+        }).join('');
+
+        /* Tabla por insumo */
+        const filasInsumo=insumosArr.map(function(ins){
+          return '<tr>'
+            +'<td>'+(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+ins.codigo+'</span>':'')+'</td>'
+            +'<td class="num">'+num(ins.cantidad,4)+' '+ins.unidad+'</td>'
+            +'<td class="num">'+ins.movs.length+'</td>'
+            +'<td class="num"><b>'+money(ins.valor)+'</b></td>'
+            +'<td class="actions"><button class="ghost small" data-mer-ver="'+ins.id+'">Ver detalle</button></td>'
+            +'</tr>';
+        }).join('');
+
+        box.innerHTML=`
+          <div class="grid-cards">
+            <div class="stat-card danger"><p class="stat-label">Pérdida total estimada</p><p class="stat-value" style="font-size:18px;">${money(totalValor)}</p></div>
+            <div class="stat-card neutral"><p class="stat-label">Movimientos</p><p class="stat-value">${totalMovimientos}</p></div>
+            <div class="stat-card neutral"><p class="stat-label">Insumos afectados</p><p class="stat-value">${insumosArr.length}</p></div>
+            <div class="stat-card warning"><p class="stat-label">Motivo principal</p><p class="stat-value" style="font-size:14px;line-height:1.3;padding-top:4px;">${motivosArr[0].motivo}</p></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>Pérdidas por motivo · ${motivosArr.length}</h3></div>
+            <table id="tablaMerMotivos">
+              <thead><tr>
+                <th>Motivo</th>
+                <th class="num">Movimientos</th>
+                <th class="num">Valor</th>
+                <th class="num">% del total</th>
+              </tr></thead>
+              <tbody>${filasMotivo}</tbody>
+            </table>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>Pérdidas por insumo · ${insumosArr.length}</h3></div>
+            <div class="search-box"><input id="mer_buscar" placeholder="Buscar insumo…"></div>
+            <table id="tablaMerInsumos">
+              <thead><tr>
+                <th>Insumo</th>
+                <th class="num">Cantidad total</th>
+                <th class="num">Movimientos</th>
+                <th class="num">Valor perdido</th>
+                <th class="actions"></th>
+              </tr></thead>
+              <tbody>${filasInsumo}</tbody>
+            </table>
+          </div>
+
+          <div id="merDetalle"></div>`;
+
+        /* Export CSV */
+        document.getElementById('btnMerExport').style.display='inline-block';
+        document.getElementById('btnMerPrint').style.display='inline-block';
+        document.getElementById('btnMerExport').onclick=function(){
+          const headers=['Insumo','Código','Cantidad total','Unidad','Movimientos','Valor perdido'];
+          const filasCSV=insumosArr.map(function(ins){
+            return [
+              ins.nombre,
+              ins.codigo,
+              fmtCSV(ins.cantidad,4),
+              ins.unidad,
+              ins.movs.length,
+              fmtCSV(ins.valor,2)
+            ];
+          });
+          exportarCSV('mermas_por_insumo',headers,filasCSV);
+        };
+
+        /* Búsqueda */
+        const inpBuscar=document.getElementById('mer_buscar');
+        if(inpBuscar){
+          inpBuscar.addEventListener('input',debounce(function(){
+            const q=inpBuscar.value.toLowerCase();
+            document.querySelectorAll('#tablaMerInsumos tbody tr').forEach(function(tr){
+              tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';
+            });
+          },150));
+        }
+
+        /* Drill-down */
+        document.querySelectorAll('[data-mer-ver]').forEach(function(btn){
+          btn.addEventListener('click',function(){
+            const id=btn.dataset.merVer;
+            const ins=insumosArr.find(function(x){return x.id===id;});
+            mostrarDetalleMermas(ins);
+          });
+        });
+      }catch(e){
+        box.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+      }
+    });
+  });
+
+  document.getElementById('btnMerPrint').addEventListener('click',function(){window.print();});
+}
+
+function mostrarDetalleMermas(ins){
+  if(!ins)return;
+  const box=document.getElementById('merDetalle');
+  const movs=ins.movs.slice().sort(function(a,b){return new Date(b.fecha)-new Date(a.fecha);});
+
+  const filas=movs.map(function(m){
+    const cant=Number(m.cantidad)||0;
+    const cu=Number(m.costo_unitario_momento)||0;
+    const valor=cu*cant;
+    return '<tr>'
+      +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td>'
+      +'<td class="num">'+num(cant,4)+' '+ins.unidad+'</td>'
+      +'<td class="num">'+money(cu)+'</td>'
+      +'<td class="num">'+money(valor)+'</td>'
+      +'<td style="color:var(--text-secondary);font-size:12.5px;">'+(m.motivo||'—')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  box.innerHTML=`
+    <div class="panel">
+      <div class="panel-header">
+        <h3>Detalle · ${ins.nombre} ${ins.codigo?'<span class="mono" style="color:var(--text-muted);font-size:11px;">'+ins.codigo+'</span>':''}</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="badge info">${movs.length} movimientos</span>
+          <span class="badge danger">${money(ins.valor)}</span>
+          <button class="ghost small" id="btnMerCerrarDetalle">Cerrar</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Fecha</th>
+          <th class="num">Cantidad</th>
+          <th class="num">Costo u.</th>
+          <th class="num">Valor perdido</th>
+          <th>Motivo</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('btnMerCerrarDetalle').addEventListener('click',function(){
+    box.innerHTML='';
+  });
+  box.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 /* ============ KARDEX ============ */
