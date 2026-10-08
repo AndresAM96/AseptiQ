@@ -93,7 +93,7 @@ document.addEventListener('click',function(ev){
     t.dataset.editInsumo||t.dataset.editSub||t.dataset.editProd||t.dataset.editProv||t.dataset.editUnidad||
     t.dataset.ordenCompletar||t.dataset.ordenCancelar||
     t.dataset.toggleActivo||t.dataset.editRol||
-    ['btnRegistrarEntrada','btnRegistrarSalida','btnAplicarAjustes','btnConfirmarOrden',
+    ['btnRegistrarEntrada','btnRegistrarSalida','btnAplicarAjustes','btnConfirmarOrden','entregaConfirmar',
      'btnGuardarInsumo','btnGuardarSubproducto','btnGuardarProducto','btnGuardarProveedor',
      'btnGuardarPrefijos','btnGuardarUmbrales','btnGuardarPrefijoOP','btnAgregarFilaInsumoSub',
      'btnAgregarFilaSubHijo','btnAgregarFilaSub','btnAgregarFilaInsumo','btnAgregarContacto',
@@ -1098,6 +1098,31 @@ async function renderTab(tab){
   }
 }
 
+/* ============ PRIORIDADES DE OP ============ */
+const PRIORIDADES_OP={
+  1:{label:'Muy alta',badge:'danger'},
+  2:{label:'Alta',    badge:'warning'},
+  3:{label:'Normal',  badge:'info'},
+  4:{label:'Baja',    badge:'success'}
+};
+function prioridadLabel(v){
+  if(v===null||v===undefined) return null;
+  const p=PRIORIDADES_OP[Number(v)];
+  return p?p.label:('#'+v);
+}
+function prioridadBadge(v){
+  if(v===null||v===undefined) return '<span style="color:var(--text-muted);">—</span>';
+  const p=PRIORIDADES_OP[Number(v)];
+  if(!p) return '<span class="badge neutral">#'+v+'</span>';
+  return '<span class="badge '+p.badge+'">'+p.label+'</span>';
+}
+function prioridadOptionsHTML(selected){
+  return [1,2,3,4].map(function(n){
+    const p=PRIORIDADES_OP[n];
+    return '<option value="'+n+'" '+(Number(selected)===n?'selected':'')+'>'+p.label+'</option>';
+  }).join('');
+}
+
 /* ============ BADGES ============ */
 
 function badgeFor(e){const m={Cubierto:'success',Cubierta:'success',Reorden:'warning',Urgente:'danger'};return '<span class="badge '+(m[e]||'neutral')+'">'+e+'</span>';}
@@ -1784,7 +1809,10 @@ async function renderProductos(){
         <button class="ghost small" id="btnCrearSubproductoInline" title="Crear un subproducto nuevo">+ Crear subproducto nuevo</button>
       </div>
       <div id="inlineSubproductoContainer"></div>
-      <div class="divider-label">Receta de insumos directa del paquete (opcional)</div>
+      <div class="divider-label">Receta de insumos directa del paquete (cantidad por unidad individual, no por caja)</div>
+      <div style="font-size:11.5px;color:var(--text-muted);padding:0 18px 8px;line-height:1.5;">
+        <b>Ejemplo:</b> si un paquete se entrega en cajas ×1000 y cada unidad individual consume 1 bolsa, aquí va <b>1</b>, no 1000.
+      </div>
       <div id="filasInsumoContainer"></div>
       <div class="dyn-row-add"><button class="secondary small" id="btnAgregarFilaInsumo" title="Agregar insumo directo">+ Agregar insumo</button></div>
       <div class="form-actions" style="padding-top:16px;">
@@ -2072,7 +2100,7 @@ function renderFilasSubproducto(disponibles){
 function renderFilasInsumo(disponibles){
   const cont=document.getElementById('filasInsumoContainer');if(!cont)return;
   cont.innerHTML=filasInsumoBom.map(function(fila,idx){
-    return '<div class="dyn-row">'+comboInput('insbom',idx,disponibles,fila.insumo_id,'Buscar insumo…')+'<input id="insbom_cant_'+idx+'" type="number" step="0.0001" placeholder="Cantidad por unidad" value="'+fila.cantidad+'"><button type="button" class="ghost small" data-remove-fila-ins="'+idx+'" title="Quitar">×</button></div>';
+    return '<div class="dyn-row">'+comboInput('insbom',idx,disponibles,fila.insumo_id,'Buscar insumo…')+'<input id="insbom_cant_'+idx+'" type="number" step="0.0001" placeholder="Por unidad de PT" value="'+fila.cantidad+'"><button type="button" class="ghost small" data-remove-fila-ins="'+idx+'" title="Quitar">×</button></div>';
   }).join('');
   cont.querySelectorAll('[data-remove-fila-ins]').forEach(function(btn){btn.addEventListener('click',function(){sincronizarInsBom();filasInsumoBom.splice(parseInt(btn.dataset.removeFilaIns,10),1);if(filasInsumoBom.length===0)filasInsumoBom=[{insumo_id:'',cantidad:''}];renderFilasInsumo(disponibles);});});
 }
@@ -2084,7 +2112,7 @@ function renderFilasInsumoSub(disponibles){
     const unidad=m?m[1]:'u';
     const conv=fila.conversion===true;
     const extra=conv?'<input id="inssub_u_'+idx+'" type="text" placeholder="'+unidad+'" value="'+(fila.unidad_receta||'')+'" title="Unidad de receta"><input id="inssub_f_'+idx+'" type="number" step="0.0001" placeholder="1" value="'+(fila.factor_receta||1)+'" title="Factor de conversión">':'<input type="hidden" id="inssub_u_'+idx+'" value=""><input type="hidden" id="inssub_f_'+idx+'" value="1">';
-    return '<div class="dyn-row conv-recipe">'+comboInput('inssub',idx,disponibles,fila.insumo_id,'Buscar insumo…')+'<input id="inssub_cant_'+idx+'" type="number" step="0.0001" placeholder="Cantidad" value="'+fila.cantidad+'"><label class="conv-check" style="justify-self:start;"><input type="checkbox" id="inssub_conv_'+idx+'" '+(conv?'checked':'')+'> conversión</label>'+extra+'<button type="button" class="ghost small" data-remove-fila-inssub="'+idx+'" title="Quitar">×</button></div>';
+    return '<div class="dyn-row conv-recipe">'+comboInput('inssub',idx,disponibles,fila.insumo_id,'Buscar insumo…')+'<input id="inssub_cant_'+idx+'" type="number" step="0.0001" placeholder="Por unidad del subproducto" value="'+fila.cantidad+'"><label class="conv-check" style="justify-self:start;"><input type="checkbox" id="inssub_conv_'+idx+'" '+(conv?'checked':'')+'> conversión</label>'+extra+'<button type="button" class="ghost small" data-remove-fila-inssub="'+idx+'" title="Quitar">×</button></div>';
   }).join('');
   cont.querySelectorAll('[data-remove-fila-inssub]').forEach(function(btn){btn.addEventListener('click',function(){sincronizarInsumoSub();filasInsumoSub.splice(parseInt(btn.dataset.removeFilaInssub,10),1);if(filasInsumoSub.length===0)filasInsumoSub=[{insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1}];renderFilasInsumoSub(disponibles);});});
   cont.querySelectorAll('[id^="inssub_conv_"]').forEach(function(chk){
@@ -2117,7 +2145,7 @@ async function renderOrden(){
     api('ordenes_semanales?select=*,productos_terminados(nombre,unidades_por_caja)&order=prioridad.asc.nullslast,fecha_programada.asc.nullslast,fecha_creacion.desc&limit=200'+filtro),
     api('ordenes_semanales?select=numero_op,lote,fecha_creacion,fecha_programada,prioridad,codigo_pt,productos_terminados(nombre)&order=fecha_creacion.desc&limit=5')
   ]);
-  const ordView=applySort(ordenes,'lista_ordenes',{op:function(o){return o.numero_op||'';},producto:function(o){return o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;},cantidad:function(o){return o.cantidad_proyectada;},fecha:function(o){return new Date(o.fecha_creacion).getTime();},estado:function(o){return o.estado_op||'';}});
+  const ordView=applySort(ordenes,'lista_ordenes',{op:function(o){return o.numero_op||'';},prioridad:function(o){return Number(o.prioridad)||99;},producto:function(o){return o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;},cantidad:function(o){return o.cantidad_proyectada;},fecha:function(o){return new Date(o.fecha_creacion).getTime();},estado:function(o){return o.estado_op||'';}});
   main.innerHTML=`
     <h2 class="page-title">Cargar orden semanal</h2>
     <p class="page-sub">El sistema explota insumos directos y los de cada subproducto (recursivo).</p>
@@ -2137,7 +2165,7 @@ async function renderOrden(){
         </div>
         <div><label>Producto terminado</label><select id="orden_pt">${productos.length?productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'">'+p.nombre+' (caja ×'+(p.unidades_por_caja||1)+')</option>';}).join(''):'<option value="">No hay paquetes</option>'}</select></div>
         <div><label>Cantidad (unidades) <span id="orden_cantidad_preview" style="font-weight:400;color:var(--text-muted);font-size:11.5px;"></span></label><input id="orden_cantidad" type="number" placeholder="1200"></div>
-        <div><label>Prioridad <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(menor = primero)</span></label><input id="orden_prioridad" type="number" min="1" step="1" placeholder="Ej: 1"></div>
+        <div><label>Prioridad</label><select id="orden_prioridad">${prioridadOptionsHTML(3)}</select></div>
         <div><label>Fecha programada</label><input id="orden_fecha_programada" type="date"></div>
       </div>
       <div class="form-actions"><button id="btnCalcular" title="Calcular cobertura de insumos">Calcular cobertura</button></div>
@@ -2149,7 +2177,7 @@ async function renderOrden(){
       <table><tr><th>N° OP</th><th>Lote</th><th>Producto</th><th class="num">Prior.</th><th>Programada</th><th>Fecha carga</th></tr>
         ${ultimas.map(function(o){
           const prod=o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;
-          const prioridad=o.prioridad!=null?'#'+o.prioridad:'—';
+          const prioridad=prioridadLabel(o.prioridad)||'—';
           const fechaProg=o.fecha_programada?new Date(o.fecha_programada+'T00:00:00').toLocaleDateString('es-CO'):'—';
           return '<tr><td class="mono">'+(o.numero_op||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+(o.lote||'—')+'</td><td>'+prod+'</td><td class="num">'+prioridad+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fechaProg+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td></tr>';
         }).join('')}
@@ -2162,11 +2190,10 @@ async function renderOrden(){
       ${ordenes.length===0?'<div class="empty-state">No hay órdenes para mostrar.</div>':`
       <table id="tablaOrdenes"><tr>
         ${thSort('N° OP','op','lista_ordenes')}
-        <th>Prior.</th>
+        ${thSort('Prior.','prioridad','lista_ordenes')}
         ${thSort('Producto','producto','lista_ordenes')}
         ${thSort('Cantidad','cantidad','lista_ordenes',true)}
         <th>Programada</th>
-        ${thSort('Fecha carga','fecha','lista_ordenes')}
         <th>Cobertura</th>
         ${thSort('Estado','estado','lista_ordenes')}
         <th class="actions"></th>
@@ -2176,9 +2203,14 @@ async function renderOrden(){
           const pc=o.productos_terminados?(o.productos_terminados.unidades_por_caja||1):1;
           const cajas=o.cantidad_proyectada&&pc>1?Math.ceil(o.cantidad_proyectada/pc):null;
           const fin=o.estado_op==='Terminada'||o.estado_op==='Cancelada';
-          const prioridad=o.prioridad!=null?'<span class="badge '+(o.prioridad<=3?'danger':o.prioridad<=10?'warning':'neutral')+'">#'+o.prioridad+'</span>':'<span style="color:var(--text-muted);">—</span>';
+          const producida=Number(o.cantidad_producida)||0;
+          const proyectada=Number(o.cantidad_proyectada)||0;
+          const pendiente=proyectada-producida;
+          const hayProgreso=producida>0&&producida<proyectada;
+          const progresoTxt=proyectada>0?'<br><span style="color:'+(producida>=proyectada?'var(--success)':'var(--info)')+';font-size:11px;">'+num(producida)+'/'+num(proyectada)+' entregado'+(producida>=proyectada?' ✓':'')+'</span>':'';
+          const prioridad=prioridadBadge(o.prioridad);
           const fechaProg=o.fecha_programada?new Date(o.fecha_programada+'T00:00:00').toLocaleDateString('es-CO'):'<span style="color:var(--text-muted);">—</span>';
-          return '<tr><td class="mono">'+(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+o.lote+'</span>':'')+'</td><td>'+prioridad+'</td><td>'+prod+'</td><td class="num">'+num(o.cantidad_proyectada)+(cajas?'<br><span style="color:var(--text-muted);font-size:11px;">≈ '+cajas+' cajas</span>':'')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fechaProg+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td class="actions"><button class="ghost small" data-orden-detalle="'+o.id+'" title="Ver detalle de la OP">Detalle</button><button class="success-btn small" data-orden-completar="'+o.id+'" '+(fin?'disabled':'')+' title="Marcar como terminada">Terminar</button><button class="danger-btn small" data-orden-cancelar="'+o.id+'" '+(fin?'disabled':'')+' title="Cancelar">Cancelar</button></td></tr>';
+          return '<tr><td class="mono">'+(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+o.lote+'</span>':'')+'</td><td>'+prioridad+'</td><td>'+prod+'</td><td class="num">'+num(o.cantidad_proyectada)+(cajas?'<br><span style="color:var(--text-muted);font-size:11px;">≈ '+cajas+' cajas</span>':'')+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fechaProg+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td class="actions"><button class="ghost small" data-orden-detalle="'+o.id+'" title="Ver detalle de la OP">Detalle</button><button class="success-btn small" data-orden-entregar="'+o.id+'" '+(fin||pendiente<=0?'disabled':'')+' title="Registrar entrega">'+(hayProgreso?'Entrega parcial':'Entregar')+'</button><button class="danger-btn small" data-orden-cancelar="'+o.id+'" '+(fin?'disabled':'')+' title="Cancelar">Cancelar</button></td></tr>';
         }).join('')}
       </table>`}
     </div>
@@ -2269,7 +2301,7 @@ async function renderOrden(){
       return [
         o.numero_op||'',
         o.lote||'',
-        o.prioridad!=null?o.prioridad:'',
+        o.prioridad!=null?(prioridadLabel(o.prioridad)||''):'',
         prod,
         fmtCSV(o.cantidad_proyectada,0),
         cajas,
@@ -2323,8 +2355,8 @@ async function renderOrden(){
               const numeroCompleto=cfg.prefijoOP+numOpLimpio;
               const lote=lotePrev||null;
               const detalleGuardar={insumos:detalle,subproductos:detalleSub};
-              const prioridadRaw=document.getElementById('orden_prioridad').value.trim();
-              const prioridad=prioridadRaw?parseInt(prioridadRaw,10):null;
+              const prioridadRaw=document.getElementById('orden_prioridad').value;
+              const prioridad=prioridadRaw?parseInt(prioridadRaw,10):3;
               const fechaProg=document.getElementById('orden_fecha_programada').value||null;
               await rpc('confirmar_orden',{
                 p_codigo_pt:codigo_pt,
@@ -2348,24 +2380,14 @@ async function renderOrden(){
   document.querySelectorAll('[data-orden-detalle]').forEach(function(btn){
     btn.addEventListener('click',function(){const o=ordenes.find(function(x){return x.id===btn.dataset.ordenDetalle;});mostrarDetalleOrden(o,cfg);});
   });
-  document.querySelectorAll('[data-orden-completar]').forEach(function(btn){
-    btn.addEventListener('click',async function(){
-      if(!await confirmar({title:'Terminar OP',message:'Se descontarán los insumos y subproductos del inventario, y se cargará el PT producido.',icon:'✓',variant:'info',okText:'Terminar'}))return;
-      try{
-        const r=await withLoading(btn,async function(){return await rpc('completar_orden',{p_orden_id:btn.dataset.ordenCompletar});});
-        toast('OP terminada · '+r.items_descontados+' items descontados · '+r.pt_producidos+' PT cargados.','success');
-        renderOrden();
-      }catch(e){
-        const arr=parsearFaltantes(e.message||'');
-        if(arr&&arr.length){
-          showFaltantesModal(arr);
-          toast('Faltan '+arr.length+' item(s). Ver detalle.','error');
-        } else {
-          toast(e.message,'error');
-        }
-      }
+  document.querySelectorAll('[data-orden-entregar]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      const o=ordenes.find(function(x){return x.id===btn.dataset.ordenEntregar;});
+      if(!o) return;
+      abrirModalEntrega(o);
     });
   });
+
   document.querySelectorAll('[data-orden-cancelar]').forEach(function(btn){
     btn.addEventListener('click',async function(){
       const motivo=await promptear({title:'Cancelar OP',message:'Escribe el motivo (opcional). Puedes dejarlo en blanco.',icon:'✕',variant:'warn',placeholder:'Ej: cliente canceló, error de digitación…',okText:'Cancelar OP'});
@@ -2375,22 +2397,170 @@ async function renderOrden(){
     });
   });
 }
-function mostrarDetalleOrden(orden,cfg){
+async function mostrarDetalleOrden(orden,cfg){
   if(!orden)return;
   const box=document.getElementById('detalleOrden');
   const d=orden.detalle_faltantes||{};
   const insumos=Array.isArray(d)?d:(d.insumos||[]);
   const subs=Array.isArray(d)?[]:(d.subproductos||[]);
-  const tablaIns=(insumos.length===0?'<div class="empty-state">Sin insumos.</div>':'<table><tr><th>Insumo</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+insumos.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.consumo_total)+' '+(x.unidad||'')+'</td><td class="num">'+(x.faltante>0?num(x.faltante)+' '+(x.unidad||''):'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
+  const tablaIns=(insumos.length===0?'<div class="empty-state">Sin insumos.</div>':'<table><tr><th>Insumo</th><th class="num">Consumo proyectado</th><th class="num">Faltante</th><th>Estado</th></tr>'+insumos.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.consumo_total)+' '+(x.unidad||'')+'</td><td class="num">'+(x.faltante>0?num(x.faltante)+' '+(x.unidad||''):'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
   const tablaSubs=(subs.length===0?'':'<div class="divider-label">Subproductos requeridos</div><table><tr><th>Subproducto</th><th class="num">Requerido</th><th class="num">Stock al confirmar</th><th class="num">Faltante</th><th>Estado</th></tr>'+subs.map(function(x){return '<tr><td>'+x.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+(x.codigo||'')+'</span></td><td class="num">'+num(x.requerido)+' u</td><td class="num">'+num(x.stock_actual)+'</td><td class="num">'+(x.faltante>0?num(x.faltante)+' u':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
-  box.innerHTML='<div class="panel"><div class="panel-header"><h3>'+(orden.numero_op||'')+(orden.lote?' · lote '+orden.lote:'')+' · '+(orden.productos_terminados?orden.productos_terminados.nombre:orden.codigo_pt)+' · '+num(orden.cantidad_proyectada)+' u</h3>'+badgeOP(orden.estado_op)+'</div>'+tablaIns+tablaSubs+'</div>';
+
+  /* Progreso de entregas */
+  const producida=Number(orden.cantidad_producida)||0;
+  const proyectada=Number(orden.cantidad_proyectada)||0;
+  const pendiente=proyectada-producida;
+  const pct=proyectada>0?Math.round(producida/proyectada*100):0;
+  const progresoHtml='<div class="grid-cards" style="margin:0;padding:16px 18px 0;grid-template-columns:repeat(3,minmax(0,1fr));">'+
+    '<div class="stat-card neutral"><p class="stat-label">Proyectado</p><p class="stat-value" style="font-size:18px;">'+num(proyectada)+' u</p></div>'+
+    '<div class="stat-card '+(producida>=proyectada?'success':'info')+'"><p class="stat-label">Entregado ('+pct+'%)</p><p class="stat-value" style="font-size:18px;">'+num(producida)+' u</p></div>'+
+    '<div class="stat-card '+(pendiente>0?'warning':'neutral')+'"><p class="stat-label">Pendiente</p><p class="stat-value" style="font-size:18px;">'+num(pendiente)+' u</p></div>'+
+    '</div>';
+
+  /* Historial de entregas (fetch dinámico) */
+  let entregasHtml='<div class="divider-label">Historial de entregas</div>';
+  try{
+    const entregas=await api('entregas_op?orden_id=eq.'+orden.id+'&select=*&order=fecha.asc');
+    if(entregas.length===0){
+      entregasHtml+='<div class="empty-state">Sin entregas registradas todavía.</div>';
+    } else {
+      entregasHtml+='<table><tr><th>#</th><th>Fecha</th><th class="num">Cantidad</th><th>Lote</th><th>Motivo</th><th>Usuario</th></tr>'+
+        entregas.map(function(e,idx){
+          return '<tr><td class="mono">'+(idx+1)+'</td>'+
+            '<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(e.fecha).toLocaleString('es-CO')+'</td>'+
+            '<td class="num">'+num(e.cantidad)+' u</td>'+
+            '<td class="mono" style="font-size:12px;">'+(e.lote_entrega||'—')+'</td>'+
+            '<td style="color:var(--text-secondary);font-size:12px;">'+(e.motivo||'—')+'</td>'+
+            '<td style="color:var(--text-secondary);font-size:12px;">'+(e.usuario_email||'—')+'</td>'+
+            '</tr>';
+        }).join('')+'</table>';
+    }
+  }catch(e){
+    entregasHtml+='<div class="empty-state">No se pudo cargar el historial.</div>';
+  }
+
+  box.innerHTML='<div class="panel"><div class="panel-header"><h3>'+(orden.numero_op||'')+(orden.lote?' · lote '+orden.lote:'')+' · '+(orden.productos_terminados?orden.productos_terminados.nombre:orden.codigo_pt)+'</h3>'+badgeOP(orden.estado_op)+'</div>'+progresoHtml+tablaIns+tablaSubs+entregasHtml+'</div>';
   box.scrollIntoView({behavior:'smooth',block:'start'});
 }
+
+/* ============ ENTREGA PARCIAL DE OP ============ */
+let entregaOrdenActual=null;
+
+function abrirModalEntrega(orden){
+  if(!orden) return;
+  entregaOrdenActual=orden;
+  const overlay=document.getElementById('entregaModal');
+  if(!overlay) return;
+
+  const producida=Number(orden.cantidad_producida)||0;
+  const proyectada=Number(orden.cantidad_proyectada)||0;
+  const pendiente=proyectada-producida;
+
+  if(pendiente<=0){
+    toast('Esta OP ya tiene todo entregado.','error');
+    return;
+  }
+
+  const prodNombre=orden.productos_terminados?orden.productos_terminados.nombre:orden.codigo_pt;
+  document.getElementById('entregaTitulo').textContent='Registrar entrega · '+prodNombre;
+  document.getElementById('entregaSubtitulo').textContent=
+    (orden.numero_op||'')+(orden.lote?' · lote '+orden.lote:'');
+
+  document.getElementById('entregaInfo').innerHTML=
+    '<div class="grid-cards" style="margin:0;grid-template-columns:repeat(3,minmax(0,1fr));">'+
+      '<div class="stat-card neutral"><p class="stat-label">Proyectado</p><p class="stat-value" style="font-size:16px;">'+num(proyectada)+'</p></div>'+
+      '<div class="stat-card success"><p class="stat-label">Ya entregado</p><p class="stat-value" style="font-size:16px;">'+num(producida)+'</p></div>'+
+      '<div class="stat-card warning"><p class="stat-label">Pendiente</p><p class="stat-value" style="font-size:16px;">'+num(pendiente)+'</p></div>'+
+    '</div>';
+
+  const inp=document.getElementById('entregaCantidad');
+  inp.value=String(pendiente);
+  inp.max=String(pendiente);
+  inp.min='0.0001';
+
+  document.getElementById('entregaLote').value='';
+  document.getElementById('entregaMotivo').value='';
+  document.getElementById('entregaError').style.display='none';
+  document.getElementById('entregaError').textContent='';
+
+  overlay.classList.add('open');
+  setTimeout(function(){inp.focus();inp.select();},80);
+}
+
+function cerrarModalEntrega(){
+  const overlay=document.getElementById('entregaModal');
+  if(overlay) overlay.classList.remove('open');
+  entregaOrdenActual=null;
+}
+
+(function initModalEntrega(){
+  const overlay=document.getElementById('entregaModal');
+  if(!overlay) return;
+
+  document.getElementById('entregaCancelar').addEventListener('click',cerrarModalEntrega);
+  overlay.addEventListener('click',function(ev){if(ev.target===overlay)cerrarModalEntrega();});
+  document.addEventListener('keydown',function(ev){
+    if(ev.key==='Escape' && overlay.classList.contains('open')) cerrarModalEntrega();
+  });
+
+  document.getElementById('entregaConfirmar').addEventListener('click',async function(ev){
+    if(!entregaOrdenActual) return;
+    const orden=entregaOrdenActual;
+    const cantidad=parseFloat(document.getElementById('entregaCantidad').value);
+    const lote=document.getElementById('entregaLote').value.trim()||null;
+    const motivo=document.getElementById('entregaMotivo').value.trim()||null;
+    const errBox=document.getElementById('entregaError');
+    errBox.style.display='none';
+
+    const producida=Number(orden.cantidad_producida)||0;
+    const pendiente=Number(orden.cantidad_proyectada)-producida;
+
+    if(!cantidad||cantidad<=0){
+      errBox.textContent='Ingresa una cantidad mayor a cero.';
+      errBox.style.display='block';
+      return;
+    }
+    if(cantidad>pendiente){
+      errBox.textContent='La cantidad excede el pendiente ('+num(pendiente)+').';
+      errBox.style.display='block';
+      return;
+    }
+
+    await withLoading(ev.currentTarget,async function(){
+      try{
+        const r=await rpc('registrar_entrega_op',{
+          p_orden_id:orden.id,
+          p_cantidad:cantidad,
+          p_lote_entrega:lote,
+          p_motivo:motivo
+        });
+        if(r.op_cerrada){
+          toast('Entrega registrada · OP CERRADA ('+num(r.cantidad_producida)+'/'+num(orden.cantidad_proyectada)+')','success');
+        } else {
+          toast('Entrega registrada · '+num(r.cantidad_producida)+'/'+num(orden.cantidad_proyectada)+' · Pendiente: '+num(r.cantidad_pendiente),'success');
+        }
+        cerrarModalEntrega();
+        renderOrden();
+      }catch(e){
+        const arr=parsearFaltantes(e.message||'');
+        if(arr&&arr.length){
+          const detalle=arr.map(function(f){return '· '+f.tipo+': '+f.nombre+' (req. '+num(f.requerido)+', hay '+num(f.existencia)+')';}).join('\n');
+          errBox.textContent='Stock insuficiente para esta entrega:\n'+detalle;
+          errBox.style.display='block';
+          errBox.style.whiteSpace='pre-line';
+        } else {
+          errBox.textContent=e.message;
+          errBox.style.display='block';
+        }
+      }
+    });
+  });
+})();
 
 /* ============ NOVEDADES ============ */
 async function renderNovedades(){
   const main=document.getElementById('mainContent');
-  const ordenes=await api('ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&order=fecha_creacion.desc');
+  const ordenes=await api('ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&order=prioridad.asc.nullslast,fecha_creacion.desc');
   const view=applySort(ordenes,'lista_nov',{op:function(o){return o.numero_op||'';},producto:function(o){return o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;},cantidad:function(o){return o.cantidad_proyectada;},fecha:function(o){return new Date(o.fecha_creacion).getTime();}});
   main.innerHTML=`
     <h2 class="page-title">Novedades de órdenes</h2>
@@ -2408,7 +2578,12 @@ async function renderNovedades(){
         <th>Estado</th>
         <th class="actions"></th>
       </tr>
-        ${view.map(function(o){return '<tr><td class="mono">'+(o.numero_op||'—')+'</td><td>'+(o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt)+'</td><td class="num">'+num(o.cantidad_proyectada)+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td><button class="ghost small" data-nov-detalle="'+o.id+'" title="Ver detalle">Ver detalle</button></td></tr>';}).join('')}
+        ${view.map(function(o){
+          const producida=Number(o.cantidad_producida)||0;
+          const proyectada=Number(o.cantidad_proyectada)||0;
+          const progresoTxt=proyectada>0&&producida>0?'<br><span style="color:var(--info);font-size:11px;">'+num(producida)+'/'+num(proyectada)+' entregado</span>':'';
+          return '<tr><td class="mono">'+(o.numero_op||'—')+'</td><td>'+(o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt)+'</td><td class="num">'+num(o.cantidad_proyectada)+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td><button class="ghost small" data-nov-detalle="'+o.id+'" title="Ver detalle">Ver detalle</button></td></tr>';
+        }).join('')}
       </table>`}
     </div>
     <div id="detalleNovedad"></div>`;
@@ -2419,13 +2594,8 @@ async function renderNovedades(){
     btn.addEventListener('click',function(){
       const o=ordenes.find(function(x){return x.id===btn.dataset.novDetalle;});
       const box=document.getElementById('detalleNovedad');
-      const d=o.detalle_faltantes||{};
-      const insumos=Array.isArray(d)?d:(d.insumos||[]);
-      const subs=Array.isArray(d)?[]:(d.subproductos||[]);
-      const tablaIns=(insumos.length===0?'<div class="empty-state">Sin insumos.</div>':'<table><tr><th>Insumo</th><th class="num">Consumo</th><th>Estado</th></tr>'+insumos.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.consumo_total)+' '+(x.unidad||'')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
-      const tablaSubs=(subs.length===0?'':'<div class="divider-label">Subproductos</div><table><tr><th>Subproducto</th><th class="num">Requerido</th><th class="num">Stock</th><th class="num">Faltante</th><th>Estado</th></tr>'+subs.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.requerido)+' u</td><td class="num">'+num(x.stock_actual)+'</td><td class="num">'+(x.faltante>0?num(x.faltante)+' u':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
-      box.innerHTML='<div class="panel"><div class="panel-header"><h3>'+(o.numero_op||'')+(o.lote?' · lote '+o.lote:'')+' · '+(o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt)+'</h3>'+badgeOP(o.estado_op)+'</div>'+tablaIns+tablaSubs+'</div>';
-      box.scrollIntoView({behavior:'smooth',block:'start'});
+      box.id='detalleOrden';
+      mostrarDetalleOrden(o,getConfig()).then(function(){box.id='detalleNovedad';});
     });
   });
 }
