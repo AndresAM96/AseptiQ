@@ -93,7 +93,7 @@ document.addEventListener('click',function(ev){
     t.dataset.editInsumo||t.dataset.editSub||t.dataset.editProd||t.dataset.editProv||t.dataset.editUnidad||
     t.dataset.ordenCompletar||t.dataset.ordenCancelar||
     t.dataset.toggleActivo||t.dataset.editRol||
-    ['btnRegistrarEntrada','btnRegistrarSalida','btnAplicarAjustes','btnConfirmarOrden','entregaConfirmar',
+    ['btnRegistrarEntrada','btnRegistrarSalida','btnAplicarAjustes','btnConfirmarOrden','entregaConfirmar','btnGenerarBackup',
      'btnGuardarInsumo','btnGuardarSubproducto','btnGuardarProducto','btnGuardarProveedor',
      'btnGuardarPrefijos','btnGuardarUmbrales','btnGuardarPrefijoOP','btnAgregarFilaInsumoSub',
      'btnAgregarFilaSubHijo','btnAgregarFilaSub','btnAgregarFilaInsumo','btnAgregarContacto',
@@ -894,7 +894,7 @@ document.addEventListener('keydown',function(ev){
   if(window._gPressed){
     window._gPressed=false;
     clearTimeout(window._gTimeout);
-    const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',b:'compras',m:'mermas',h:'historico',c:'costos',r:'rentabilidad',u:'usuarios'};
+    const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',b:'compras',m:'mermas',h:'historico',c:'costos',r:'rentabilidad',y:'backup',u:'usuarios'};
     const tab=mapa[k];
     if(tab){
       const btn=document.querySelector('.nav-item[data-tab="'+tab+'"]');
@@ -1081,8 +1081,8 @@ document.getElementById('btnCerrarSesion').addEventListener('click',async functi
 
 async function renderTab(tab){
   const main=document.getElementById('mainContent');
-  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
-  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,usuarios:renderUsuarios,config:renderConfig};
+  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
+  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
   main.innerHTML='<div class="empty-state">Cargando…</div>';
   showLoader(nombres[tab]||'Cargando…');
   try{
@@ -4143,6 +4143,241 @@ async function generarKardex(insumos){
   }catch(e){
     box.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
   }
+}
+
+/* ============ BACKUP ============ */
+async function renderBackup(){
+  const main=document.getElementById('mainContent');
+  if(SUPA_ROLE!=='admin'){
+    main.innerHTML='<div class="empty-state">Solo el administrador puede acceder a esta sección.</div>';
+    return;
+  }
+
+  /* Historial de backups */
+  let historial=[];
+  try{
+    historial=await api('backup_log?select=*&order=fecha.desc&limit=10');
+  }catch(e){/* tabla puede no existir si no se corrió la migración */}
+
+  main.innerHTML=`
+    <div class="page-header-flex">
+      <div>
+        <h2 class="page-title">Backup y exportación</h2>
+        <p class="page-sub">Descarga todos los datos maestros en un ZIP con archivos CSV listos para Excel, Google Sheets o Power BI.</p>
+      </div>
+      ${botonRefreshHTML('backup')}
+    </div>
+
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header"><h3>Generar backup</h3></div>
+      <div class="form-grid">
+        <div>
+          <label>Rango de movimientos</label>
+          <select id="bk_rango">
+            <option value="30d">Últimos 30 días</option>
+            <option value="6m" selected>Últimos 6 meses</option>
+            <option value="1a">Último año</option>
+            <option value="todo">Todo el histórico</option>
+            <option value="0d">Sin movimientos (solo catálogo)</option>
+          </select>
+        </div>
+        <div>
+          <label>Opciones</label>
+          <label class="check-row" style="margin:8px 0 0;"><input type="checkbox" id="bk_auditoria" checked><span>Incluir movimientos de inventario</span></label>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button id="btnGenerarBackup" title="Generar y descargar el ZIP">Generar backup (.zip)</button>
+      </div>
+      <div class="field-hint" style="padding:0 18px 14px;">
+        El backup incluye <b>13 tablas</b> en formato CSV. Un backup completo de 10.000 movimientos pesa aproximadamente 3–5 MB.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h3>Últimos backups generados</h3></div>
+      ${historial.length===0?'<div class="empty-state">Aún no se han generado backups.</div>':`
+      <table>
+        <thead><tr>
+          <th>Fecha</th>
+          <th>Usuario</th>
+          <th>Rango movimientos</th>
+          <th class="num">Registros</th>
+          <th class="num">Tamaño</th>
+        </tr></thead>
+        <tbody>
+          ${historial.map(function(h){
+            const fecha=new Date(h.fecha).toLocaleString('es-CO');
+            const tam=h.tamano_bytes?num(h.tamano_bytes/1024,1)+' KB':'—';
+            return '<tr>'
+              +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fecha+'</td>'
+              +'<td style="font-size:12px;">'+(h.usuario_email||'—')+'</td>'
+              +'<td style="font-size:12px;">'+(h.rango_movimientos||'—')+'</td>'
+              +'<td class="num">'+num(h.total_registros)+'</td>'
+              +'<td class="num">'+tam+'</td>'
+              +'</tr>';
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h3>Contenido del backup</h3></div>
+      <table>
+        <thead><tr><th>Archivo</th><th>Contenido</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">insumos.csv</td><td>Insumos con cadena de conversión, stock y costo</td></tr>
+          <tr><td class="mono">subproductos.csv</td><td>Subproductos con tipo, stock y punto de reorden</td></tr>
+          <tr><td class="mono">subproducto_recetas.csv</td><td>Recetas de cada subproducto</td></tr>
+          <tr><td class="mono">subproducto_subproductos.csv</td><td>Jerarquía entre subproductos</td></tr>
+          <tr><td class="mono">productos_terminados.csv</td><td>PT con precio, unidades por caja y stock</td></tr>
+          <tr><td class="mono">bom_recetas.csv</td><td>Recetas directas de cada PT</td></tr>
+          <tr><td class="mono">paquete_subproductos.csv</td><td>Composición de PT por subproductos</td></tr>
+          <tr><td class="mono">ordenes_semanales.csv</td><td>Todas las OPs con estado y progreso</td></tr>
+          <tr><td class="mono">entregas_op.csv</td><td>Historial de entregas parciales</td></tr>
+          <tr><td class="mono">movimientos_inventario.csv</td><td>Movimientos dentro del rango seleccionado</td></tr>
+          <tr><td class="mono">ajustes_costo_insumo.csv</td><td>Historial de ajustes manuales de costo</td></tr>
+          <tr><td class="mono">sys_proveedores.csv</td><td>Maestro de proveedores con contactos</td></tr>
+          <tr><td class="mono">profiles.csv</td><td>Usuarios con rol y estado</td></tr>
+          <tr><td class="mono">_resumen.txt</td><td>Metadata del backup (fecha, versión, conteos)</td></tr>
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('btnGenerarBackup').addEventListener('click',async function(ev){
+    const rango=document.getElementById('bk_rango').value;
+    const incluirMov=document.getElementById('bk_auditoria').checked;
+    if(typeof JSZip==='undefined'){
+      toast('No se pudo cargar JSZip. Revisá tu conexión a internet.','error');
+      return;
+    }
+
+    await withLoading(ev.currentTarget,async function(){
+      const t0=Date.now();
+      const zip=new JSZip();
+      const tablasIncluidas=[];
+      let totalRegistros=0;
+
+      try{
+        /* Determinar fecha de corte para movimientos */
+        let fechaCorte=null;
+        const ahora=new Date();
+        if(rango==='30d'){fechaCorte=new Date(ahora);fechaCorte.setDate(fechaCorte.getDate()-30);}
+        else if(rango==='6m'){fechaCorte=new Date(ahora);fechaCorte.setMonth(fechaCorte.getMonth()-6);}
+        else if(rango==='1a'){fechaCorte=new Date(ahora);fechaCorte.setFullYear(fechaCorte.getFullYear()-1);}
+        else if(rango==='0d'){fechaCorte='nunca';}
+        const isoCorte=fechaCorte==='nunca'?null:fechaCorte.toISOString();
+
+        /* Definición de tablas a exportar */
+        const tareas=[
+          {tabla:'insumos',archivo:'insumos.csv',query:'insumos?select=*&order=codigo'},
+          {tabla:'subproductos',archivo:'subproductos.csv',query:'subproductos?select=*&order=codigo'},
+          {tabla:'subproducto_recetas',archivo:'subproducto_recetas.csv',query:'subproducto_recetas?select=*'},
+          {tabla:'subproducto_subproductos',archivo:'subproducto_subproductos.csv',query:'subproducto_subproductos?select=*'},
+          {tabla:'productos_terminados',archivo:'productos_terminados.csv',query:'productos_terminados?select=*&order=codigo_pt'},
+          {tabla:'bom_recetas',archivo:'bom_recetas.csv',query:'bom_recetas?select=*'},
+          {tabla:'paquete_subproductos',archivo:'paquete_subproductos.csv',query:'paquete_subproductos?select=*'},
+          {tabla:'ordenes_semanales',archivo:'ordenes_semanales.csv',query:'ordenes_semanales?select=*&order=fecha_creacion.desc'},
+          {tabla:'entregas_op',archivo:'entregas_op.csv',query:'entregas_op?select=*&order=fecha.desc'},
+          {tabla:'ajustes_costo_insumo',archivo:'ajustes_costo_insumo.csv',query:'ajustes_costo_insumo?select=*&order=fecha.desc'},
+          {tabla:'sys_proveedores',archivo:'sys_proveedores.csv',query:'sys_proveedores?select=*&order=razon_social'},
+          {tabla:'profiles',archivo:'profiles.csv',query:'profiles?select=user_id,email,nombre,role,activo,creado_en&order=email'}
+        ];
+
+        if(incluirMov&&isoCorte){
+          tareas.push({tabla:'movimientos_inventario',archivo:'movimientos_inventario.csv',query:'movimientos_inventario?select=*&fecha=gte.'+isoCorte+'&order=fecha.desc&limit=50000'});
+        }
+
+        /* Fetch + CSV */
+        for(const t of tareas){
+          const rows=await api(t.query);
+          totalRegistros+=rows.length;
+          tablasIncluidas.push({tabla:t.tabla,registros:rows.length});
+
+          /* Generar CSV */
+          if(rows.length===0){
+            zip.file(t.archivo,'');
+            continue;
+          }
+          const headers=Object.keys(rows[0]);
+          const filas=[headers];
+          rows.forEach(function(r){
+            filas.push(headers.map(function(h){
+              const v=r[h];
+              if(v===null||v===undefined)return '';
+              if(typeof v==='object')return JSON.stringify(v);
+              if(typeof v==='number')return String(v).replace('.',',');
+              return String(v);
+            }));
+          });
+          const csv='\uFEFF'+filas.map(function(f){
+            return f.map(function(c){
+              let s=String(c);
+              if(s.indexOf('"')>=0||s.indexOf(';')>=0||s.indexOf('\n')>=0||s.indexOf('\r')>=0){
+                s='"'+s.replace(/"/g,'""')+'"';
+              }
+              return s;
+            }).join(';');
+          }).join('\r\n');
+          zip.file(t.archivo,csv);
+        }
+
+        /* Resumen */
+        const fecha=new Date().toLocaleString('es-CO');
+        const resumen=
+          'AseptiQ — Resumen de backup\n'+
+          '===============================\n'+
+          'Fecha de generación: '+fecha+'\n'+
+          'Usuario: '+(SUPA_PROFILE?SUPA_PROFILE.email:'—')+'\n'+
+          'Rango de movimientos: '+rango+'\n'+
+          'Total de registros: '+totalRegistros+'\n'+
+          '\n'+
+          'Conteo por tabla:\n'+
+          tablasIncluidas.map(function(t){return '  · '+t.tabla+': '+t.registros;}).join('\n')+'\n'+
+          '\n'+
+          'Los CSV usan ; como separador y BOM UTF-8 para que Excel respete las tildes.\n';
+        zip.file('_resumen.txt',resumen);
+
+        /* Generar ZIP */
+        const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+        const tamano=blob.size;
+
+        /* Descargar */
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        const fechaArchivo=new Date().toISOString().slice(0,10);
+        a.href=url;
+        a.download='aseptiq_backup_'+fechaArchivo+'.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        /* Registrar en auditoría */
+        try{
+          await api('backup_log',{
+            method:'POST',
+            body:JSON.stringify({
+              usuario_id:SUPA_SESSION?SUPA_SESSION.user.id:null,
+              usuario_email:SUPA_PROFILE?SUPA_PROFILE.email:null,
+              tablas_incluidas:tablasIncluidas,
+              rango_movimientos:rango,
+              total_registros:totalRegistros,
+              tamano_bytes:tamano
+            })
+          });
+        }catch(e){/* silencioso si la tabla no existe */}
+
+        const segundos=((Date.now()-t0)/1000).toFixed(1);
+        toast('Backup generado · '+num(totalRegistros)+' registros · '+num(tamano/1024,1)+' KB · '+segundos+'s','success');
+
+        /* Refrescar para mostrar en historial */
+        setTimeout(function(){renderBackup();},500);
+      }catch(e){
+        toast('Error generando backup: '+traducirError(e.message),'error');
+      }
+    });
+  });
 }
 
 /* ============ USUARIOS ============ */

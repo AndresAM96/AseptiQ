@@ -163,6 +163,7 @@
   .sidebar.collapsed .nav-item[data-tab="rentabilidad"]{--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='m3 17 6-6 4 4 8-8'/><path d='M15 7h6v6'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="config"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="usuarios"]   {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><circle cx='12' cy='10' r='3'/><path d='M6.2 19a6 6 0 0 1 11.6 0'/></svg>");}
+  .sidebar.collapsed .nav-item[data-tab="backup"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='5' rx='8' ry='3'/><path d='M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5'/><path d='M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6'/></svg>");}
   .sidebar.collapsed .sidebar-footer{justify-content:center;padding:10px 0;}
   .sidebar.collapsed .user-email{display:none;}
   .sidebar.collapsed .user-role-row .badge{display:none;}
@@ -674,6 +675,7 @@
           </button>
           <div class="nav-group-items">
             <button class="nav-item" data-tab="config" title="Configuración global del sistema">Configuración</button>
+            <button class="nav-item" data-tab="backup" data-rol-requerido="admin" title="Backup y exportación de datos">Backup</button>
             <button class="nav-item" data-tab="usuarios" data-rol-requerido="admin" title="Gestión de usuarios y roles">Usuarios</button>
           </div>
         </div>
@@ -760,6 +762,7 @@
         <tr><td>Histórico</td><td><span class="kbd">G</span><span class="kbd">H</span></td></tr>
         <tr><td>Costos OP</td><td><span class="kbd">G</span><span class="kbd">C</span></td></tr>
         <tr><td>Rentabilidad</td><td><span class="kbd">G</span><span class="kbd">R</span></td></tr>
+        <tr><td>Backup</td><td><span class="kbd">G</span><span class="kbd">Y</span></td></tr>
         <tr><td>Usuarios</td><td><span class="kbd">G</span><span class="kbd">U</span></td></tr>
         <tr class="shortcuts-sep"><td colspan="2">Acciones</td></tr>
         <tr><td>Enfocar buscador del módulo</td><td><span class="kbd">/</span></td></tr>
@@ -817,6 +820,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="aseptiq_core.js"></script>
 <script src="aseptiq_app.js"></script>
 </body>
