@@ -2,44 +2,113 @@
 
 Sistema de gestión de inventario, producción y costos desarrollado para **Proclides Soluciones Estériles S.A.S.**
 
+## Estado
+
+**v1.2.0** — Producción · Octubre 2026
+
 ## ¿Qué resuelve?
 
 AseptiQ administra el flujo completo de manufactura:
-- **Insumos** con cadena de conversiones (compra → consumo), costo promedio ponderado y punto de reorden configurable.
+
+- **Insumos** con cadena de conversiones (compra → consumo), costo promedio ponderado y stock objetivo.
 - **Subproductos** intermedios y finales, con recetas propias y jerarquía anidada.
-- **Paquetes terminados (PT)** compuestos por subproductos e insumos, con unidades por caja.
-- **Órdenes de producción (OP)** con número y lote únicos, prioridad, fecha programada y validación de cobertura.
+- **Paquetes terminados (PT)** compuestos por subproductos e insumos, con unidades por caja y precio de venta.
+- **Órdenes de producción (OP)** con número y lote únicos, prioridad cualitativa y **entregas parciales**.
 - **Movimientos de inventario** con trazabilidad completa: entradas, salidas, consumos, devoluciones y ajustes.
 - **Análisis financiero**: kardex por insumo, costos reales vs teóricos por OP, rentabilidad por producto.
+- **Reportes operativos**: compras por proveedor, mermas y ajustes.
+- **Backup** completo a un ZIP con 13 tablas en CSV.
 
 ## Stack
 
-- **Frontend**: HTML + CSS + JavaScript vanilla (sin build, sin dependencias excepto Chart.js y supabase-js por CDN).
-- **Backend**: Supabase (PostgreSQL + Auth + RLS).
-- **Gráficos**: Chart.js.
-- **Deploy**: Vercel.
+- **Frontend**: HTML + CSS + JavaScript vanilla (sin build step).
+- **Backend**: Supabase (PostgreSQL + Auth + RLS + REST).
+- **Gráficos**: Chart.js 4.
+- **Compresión ZIP**: JSZip.
+- **Deploy**: Vercel (automático desde GitHub).
 
-## Estructura
+## Estructura del repositorio
 
+```
 AseptiQ/
-├── index.html # Shell de la app
-├── aseptiq_app.js # Lógica de UI, red, estado
-├── inventario_core.js # Lógica de negocio pura (portable a .NET)
-├── migraciones/ # Scripts SQL en orden de aplicación
-│ ├── schema.sql
-│ ├── migracion_v04.sql
-│ ├── ...
-│ └── migracion_v24.sql
-├── CONTRATO_API.md # Documentación del backend (tablas, RPCs, RLS)
-└── CHANGELOG.md # Historial de versiones
+├── index.html              # Shell de la app + estilos
+├── aseptiq_app.js          # Lógica de UI, red, estado
+├── aseptiq_core.js         # Lógica de negocio pura (portable a .NET)
+├── schema.sql              # Esquema completo del backend (único archivo)
+├── migraciones/            # Historial de migraciones (solo referencia)
+├── CONTRATO_API.md         # Documentación del backend
+├── MANUAL.md               # Manual de usuario
+├── SETUP.md                # Guía de instalación
+├── PORT_DOTNET.md          # Plan de port a .NET
+├── CHANGELOG.md            # Historial de versiones
+├── .gitignore
+└── README.md
+```
 
+## Instalación
+
+Ver [`SETUP.md`](SETUP.md).
+
+Resumen rápido:
+
+1. Crear proyecto en Supabase.
+2. Correr `schema.sql` en el SQL Editor.
+3. Crear el primer usuario en Authentication → Users → Add user.
+4. Promover ese usuario a admin con un `UPDATE`.
+5. Clonar el repo, abrir `index.html`, ingresar credenciales.
+
+## Módulos
+
+| Grupo | Módulo | Descripción |
+|---|---|---|
+| Operación | Dashboard | KPIs y valorización |
+| Operación | Cargar orden | Crear OP, calcular cobertura, entregas parciales |
+| Operación | Novedades | OP activas con progreso |
+| Operación | Entrada mercancía | Insumos (compra) y subproductos (producción) |
+| Operación | Devoluciones | Devoluciones a proveedor |
+| Catálogo | Insumos | Materia prima con conversiones |
+| Catálogo | Productos & BOM | Subproductos y paquetes |
+| Catálogo | Proveedores | Maestro de proveedores |
+| Análisis | Auditoría | Informes y conteo físico |
+| Análisis | Kardex | Historial por insumo |
+| Análisis | Compras | Compras por proveedor |
+| Análisis | Mermas | Pérdidas y ajustes |
+| Análisis | Histórico | Gráficos de tendencias |
+| Análisis | Costos OP | Teórico vs real |
+| Análisis | Rentabilidad | Margen por producto |
+| Sistema | Configuración | Prefijos, unidades, umbrales |
+| Sistema | Backup | Exportación de datos |
+| Sistema | Usuarios | Gestión de roles |
+
+## Roles
+
+| Rol | Descripción |
+|---|---|
+| **Admin** | Acceso total. Gestiona usuarios. Genera backups. |
+| **Operador** | CRUD de catálogo y operación. No accede a Usuarios. |
+| **Consulta** | Solo lectura, exportación e impresión. |
 
 ## Roadmap
 
-- [x] Autenticación con email/password y roles (admin / operador / consulta)
-- [x] RLS activo en todas las tablas
-- [x] Módulos operativos completos
-- [x] Modo claro/oscuro, atajos de teclado, sidebar colapsable
-- [ ] Reportes de compras por proveedor y de mermas
-- [ ] Extracción de `inventario_core.js` como módulo ESM
-- [ ] Port a .NET 8 (Blazor o MAUI) para uso en PC y Android
+- [x] Autenticación con Supabase Auth
+- [x] RLS por rol
+- [x] Todos los módulos operativos
+- [x] Entregas parciales de OP
+- [x] Prioridad cualitativa
+- [x] Reportes de compras, mermas y costos
+- [x] Backup exportable
+- [x] Responsive (tablet + móvil)
+- [x] Modo claro/oscuro
+- [ ] Port a .NET (Blazor / MAUI)
+
+## Documentación
+
+- [`MANUAL.md`](MANUAL.md) — Guía de uso para el equipo.
+- [`SETUP.md`](SETUP.md) — Instalación desde cero.
+- [`CONTRATO_API.md`](CONTRATO_API.md) — Backend: tablas, RPCs, RLS.
+- [`PORT_DOTNET.md`](PORT_DOTNET.md) — Plan de port a .NET.
+- [`CHANGELOG.md`](CHANGELOG.md) — Historial de versiones.
+
+## Licencia
+
+Propietario. © Proclides Soluciones Estériles S.A.S.

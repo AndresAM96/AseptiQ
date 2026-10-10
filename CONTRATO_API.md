@@ -1,45 +1,39 @@
-# Contrato de API — ProLog / Control de Inventario
+# Contrato de API — AseptiQ
 
-**Versión**: v23
-**Última actualización**: 2026-09-30
-**Base de datos**: Supabase (PostgreSQL 15)
-**Backend a portar**: .NET 8 (Blazor o MAUI según decisión final)
+**Versión:** 1.2
+**Última actualización:** Octubre 2026
+**Base de datos:** Supabase (PostgreSQL 15)
+**Backend destino del port:** .NET 8 (Blazor o MAUI)
 
-Este documento describe la superficie completa del backend: tablas, RPCs,
-políticas RLS y flujos críticos. Cada entrada tiene su equivalente C#
-sugerido para que el port sea mecánico.
+Documento de referencia del backend: tablas, RPCs, políticas RLS y flujos críticos.
 
 ---
 
-## 1. TABLAS
+## 1. Tablas
 
-Todas las tablas viven en el schema `public`. Todas usan RLS activo.
+Todas en el schema `public`, todas con RLS activo.
 
 ### 1.1 `insumos`
-Materia prima y material de empaque.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
-| `id` | uuid | PK, default `gen_random_uuid()` |
+| `id` | uuid | PK |
 | `codigo` | text | NOT NULL, UNIQUE |
 | `nombre` | text | NOT NULL |
-| `unidad_medida` | text | NOT NULL — espejo legacy de la primera unidad de la cadena |
+| `unidad_medida` | text | NOT NULL — primera unidad de la cadena |
 | `existencia_actual` | numeric | NOT NULL DEFAULT 0 — en unidad de consumo |
-| `punto_reorden` | numeric | NOT NULL CHECK > 0 — **stock objetivo** |
+| `punto_reorden` | numeric | NOT NULL CHECK > 0 — stock objetivo |
 | `estado_activo` | boolean | NOT NULL DEFAULT true |
 | `creado_en` | timestamptz | NOT NULL DEFAULT now() |
-| `unidad_consumo` | text | NULL — espejo legacy de la última unidad |
-| `factor_conversion` | numeric | NULL — espejo legacy del factor total |
+| `unidad_consumo` | text | NULL — espejo legacy del último eslabón |
+| `factor_conversion` | numeric | NULL — espejo legacy |
 | `unidad_secundaria` | text | NULL |
 | `factor_secundario` | numeric | NULL |
 | `costo_unitario` | numeric | NOT NULL DEFAULT 0 CHECK >= 0 — por unidad de consumo |
 | `conversiones` | jsonb | NOT NULL DEFAULT '[]' — `[{unidad, factor, formula?}]` |
-| `tipo_conversion` | text | NOT NULL DEFAULT 'fijo' CHECK IN ('fijo','dimensional','variable') |
-
-**Equivalente C#**: clase `Insumo` con propiedades idénticas.
+| `tipo_conversion` | text | NOT NULL DEFAULT 'fijo' — `fijo` / `dimensional` / `variable` |
 
 ### 1.2 `subproductos`
-Piezas intermedias que se producen y consumen dentro de otras recetas.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
@@ -47,26 +41,22 @@ Piezas intermedias que se producen y consumen dentro de otras recetas.
 | `codigo` | text | NOT NULL, UNIQUE |
 | `nombre` | text | NOT NULL |
 | `estado_activo` | boolean | NOT NULL DEFAULT true |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
 | `existencia_actual` | numeric | NOT NULL DEFAULT 0 |
-| `punto_reorden` | numeric | NULL (v11) CHECK >= 0 |
-| `tipo` | text | NOT NULL DEFAULT 'ambos' CHECK IN ('intermedio','final','ambos') |
+| `punto_reorden` | numeric | DEFAULT 0, CHECK >= 0 |
+| `tipo` | text | NOT NULL DEFAULT 'ambos' — `intermedio` / `final` / `ambos` |
 
-### 1.3 `productos_terminados` (PT)
-Paquetes que se venden o entregan.
+### 1.3 `productos_terminados`
 
 | Columna | Tipo | Constraints |
 |---|---|---|
 | `codigo_pt` | text | PK |
 | `nombre` | text | NOT NULL |
 | `estado_activo` | boolean | NOT NULL DEFAULT true |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
-| `unidades_por_caja` | integer | NOT NULL DEFAULT 1 CHECK >= 1 |
-| `existencia_actual` | numeric | NOT NULL DEFAULT 0 (v12) CHECK >= 0 |
-| `precio_venta` | numeric | NULL CHECK >= 0 (v21) |
+| `unidades_por_caja` | integer | NOT NULL DEFAULT 1 |
+| `existencia_actual` | numeric | NOT NULL DEFAULT 0 |
+| `precio_venta` | numeric | NULL, CHECK >= 0 |
 
 ### 1.4 `bom_recetas`
-Receta de insumos directa de un PT.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
@@ -74,10 +64,8 @@ Receta de insumos directa de un PT.
 | `codigo_pt` | text | FK → productos_terminados |
 | `insumo_id` | uuid | FK → insumos |
 | `cantidad_por_unidad` | numeric | NOT NULL |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
 
 ### 1.5 `subproducto_recetas`
-Receta de insumos de un subproducto.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
@@ -85,12 +73,10 @@ Receta de insumos de un subproducto.
 | `subproducto_id` | uuid | FK → subproductos |
 | `insumo_id` | uuid | FK → insumos |
 | `cantidad_por_unidad` | numeric | NOT NULL |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
-| `unidad_receta` | text | NULL (v8) |
-| `factor_receta` | numeric | NOT NULL DEFAULT 1 (v8) |
+| `unidad_receta` | text | NULL |
+| `factor_receta` | numeric | NOT NULL DEFAULT 1 |
 
 ### 1.6 `subproducto_subproductos`
-Receta recursiva entre subproductos.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
@@ -98,10 +84,8 @@ Receta recursiva entre subproductos.
 | `subproducto_padre_id` | uuid | FK → subproductos |
 | `subproducto_hijo_id` | uuid | FK → subproductos |
 | `cantidad_por_unidad` | numeric | NOT NULL |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
 
 ### 1.7 `paquete_subproductos`
-Subproductos que componen un PT.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
@@ -109,7 +93,6 @@ Subproductos que componen un PT.
 | `codigo_pt` | text | FK → productos_terminados |
 | `subproducto_id` | uuid | FK → subproductos |
 | `cantidad` | numeric | NOT NULL |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
 
 ### 1.8 `sys_proveedores`
 
@@ -118,13 +101,10 @@ Subproductos que componen un PT.
 | `id` | uuid | PK |
 | `nit` | text | NOT NULL, UNIQUE |
 | `razon_social` | text | NOT NULL |
-| `contacto` | text | NULL (legacy) |
-| `creado_en` | timestamptz | NOT NULL DEFAULT now() |
 | `direccion` | text | NULL |
 | `contactos` | jsonb | NOT NULL DEFAULT '[]' — `[{nombre, telefono, correo}]` |
 
 ### 1.9 `ordenes_semanales`
-Órdenes de producción.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
@@ -132,239 +112,270 @@ Subproductos que componen un PT.
 | `codigo_pt` | text | FK → productos_terminados |
 | `cantidad_proyectada` | numeric | NOT NULL |
 | `estado_cobertura` | text | NOT NULL DEFAULT 'Cubierta' |
-| `detalle_faltantes` | jsonb | `{insumos:[...], subproductos:[...]}` (v17) o array legacy |
-| `fecha_creacion` | timestamptz | NOT NULL DEFAULT now() |
-| `numero_op` | text | NULL, UNIQUE parcial (v15) |
-| `estado_op` | text | NOT NULL DEFAULT 'Pendiente' CHECK IN ('Pendiente','En proceso','Terminada','Cancelada') |
-| `cantidad_cajas` | numeric | NULL |
-| `fecha_completado` | timestamptz | NULL (v7) |
-| `fecha_cancelado` | timestamptz | NULL (v7) |
-| `motivo_cancelacion` | text | NULL (v7) |
-| `lote` | text | NULL, UNIQUE parcial (v15) |
-| `prioridad` | integer | NULL (v19) — menor = más urgente |
-| `fecha_programada` | date | NULL (v19) |
+| `detalle_faltantes` | jsonb | snapshot de cobertura |
+| `numero_op` | text | UNIQUE parcial |
+| `estado_op` | text | CHECK IN (`Pendiente`,`En proceso`,`Terminada`,`Cancelada`) |
+| `lote` | text | UNIQUE parcial |
+| `prioridad` | integer | 1=Muy alta, 2=Alta, 3=Normal, 4=Baja |
+| `fecha_programada` | date | |
+| `cantidad_producida` | numeric | NOT NULL DEFAULT 0 |
+| `fecha_ultima_entrega` | timestamptz | |
 
 ### 1.10 `movimientos_inventario`
-Kardex unificado de insumos y subproductos.
 
 | Columna | Tipo | Constraints |
 |---|---|---|
 | `id` | uuid | PK |
-| `insumo_id` | uuid | FK → insumos, NULL (v15) |
-| `tipo` | text | NOT NULL DEFAULT 'Entrada' |
+| `insumo_id` | uuid | FK → insumos, NULL |
+| `subproducto_id` | uuid | FK → subproductos, NULL |
+| `tipo` | text | Entrada / Salida / Consumo |
 | `cantidad` | numeric | NOT NULL |
 | `proveedor_id` | uuid | FK → sys_proveedores, NULL |
-| `fecha` | timestamptz | NOT NULL DEFAULT now() |
-| `motivo` | text | NULL |
-| `subproducto_id` | uuid | FK → subproductos, NULL (v15) |
-| `rendimiento_real` | numeric | NULL (v6) |
-| `unidad_compra` | text | NULL (v6) |
-| `cantidad_compra` | numeric | NULL (v6) |
-| `orden_id` | uuid | FK → ordenes_semanales, NULL (v20) |
-| `costo_unitario_momento` | numeric | NULL (v20) — costo congelado al momento del consumo |
+| `orden_id` | uuid | FK → ordenes_semanales, NULL |
+| `costo_unitario_momento` | numeric | NULL — costo congelado |
+| `fecha` | timestamptz | |
 
-**Constraint**: `CHECK (insumo_id IS NOT NULL OR subproducto_id IS NOT NULL)`
+Constraint: `CHECK (insumo_id IS NOT NULL OR subproducto_id IS NOT NULL)`.
 
-### 1.11 `profiles`
-Roles y estado de cada usuario. Vinculada 1:1 con `auth.users`.
+### 1.11 `entregas_op`
 
 | Columna | Tipo | Constraints |
 |---|---|---|
-| `user_id` | uuid | PK, FK → auth.users ON DELETE CASCADE |
+| `id` | uuid | PK |
+| `orden_id` | uuid | FK → ordenes_semanales |
+| `cantidad` | numeric | CHECK > 0 |
+| `lote_entrega` | text | NULL |
+| `motivo` | text | NULL |
+| `usuario_id` | uuid | NULL |
+| `usuario_email` | text | NULL |
+| `fecha` | timestamptz | NOT NULL DEFAULT now() |
+
+### 1.12 `ajustes_costo_insumo`
+
+| Columna | Tipo | Constraints |
+|---|---|---|
+| `id` | uuid | PK |
+| `insumo_id` | uuid | FK → insumos |
+| `costo_anterior` | numeric | NOT NULL |
+| `costo_nuevo` | numeric | NOT NULL |
+| `motivo` | text | NULL |
+| `usuario_id` | uuid | NULL |
+| `usuario_email` | text | NULL |
+| `fecha` | timestamptz | NOT NULL DEFAULT now() |
+
+### 1.13 `profiles`
+
+| Columna | Tipo | Constraints |
+|---|---|---|
+| `user_id` | uuid | PK, FK → auth.users |
 | `email` | text | NULL |
 | `nombre` | text | NULL |
-| `role` | text | NOT NULL DEFAULT 'consulta' CHECK IN ('admin','operador','consulta') |
+| `role` | text | NOT NULL DEFAULT 'consulta' |
 | `activo` | boolean | NOT NULL DEFAULT true |
 | `creado_en` | timestamptz | NOT NULL DEFAULT now() |
+
+### 1.14 `backup_log`
+
+| Columna | Tipo | Constraints |
+|---|---|---|
+| `id` | uuid | PK |
+| `usuario_id` | uuid | NULL |
+| `usuario_email` | text | NULL |
+| `tablas_incluidas` | jsonb | NOT NULL DEFAULT '[]' |
+| `rango_movimientos` | text | NULL |
+| `total_registros` | integer | NOT NULL DEFAULT 0 |
+| `tamano_bytes` | bigint | NULL |
+| `fecha` | timestamptz | NOT NULL DEFAULT now() |
 
 ---
 
 ## 2. RPCs
 
-Todas las funciones viven en `public` con `SECURITY DEFINER`. Los nombres
-de parámetros son los que usa PostgREST: `p_nombre` → `nombre` en la
-llamada JSON.
+Todas con `SECURITY DEFINER`. Los parámetros usan prefijo `p_` en la firma y se llaman sin prefijo desde el cliente HTTP.
 
 ### 2.1 `siguiente_codigo(p_prefijo text, p_tabla text) → text`
-Devuelve el siguiente código secuencial con lock (advisory) para evitar
-colisiones concurrentes. `p_tabla ∈ ('insumos','subproductos','productos_terminados')`.
 
-### 2.2 `registrar_entrada(p_insumo_id uuid, p_cantidad numeric, p_proveedor_id uuid, p_costo_unitario numeric, p_motivo text, p_rendimiento_real numeric) → jsonb`
-Registra entrada de insumo. Convierte de unidad de compra a consumo,
-recalcula costo promedio ponderado, y crea el movimiento.
+Siguiente código con lock. `p_tabla ∈ ('insumos','subproductos','productos_terminados')`.
+
+### 2.2 `registrar_entrada(p_insumo_id, p_cantidad, p_proveedor_id, p_costo_unitario, p_motivo, p_rendimiento_real) → jsonb`
+
+Registra entrada de insumo. Convierte a unidad de consumo, recalcula costo promedio ponderado, guarda `costo_unitario_momento`.
 
 Retorna: `{movimiento_id, existencia_nueva, costo_unitario, cantidad_consumo, factor_usado}`
 
-### 2.3 `registrar_salida(p_insumo_id uuid, p_cantidad numeric, p_motivo text) → jsonb`
-Descuenta stock en unidad de consumo. Valida existencia suficiente.
+### 2.3 `registrar_salida(p_insumo_id, p_cantidad, p_motivo) → jsonb`
 
-Retorna: `{movimiento_id, existencia_nueva}`
+Salida manual. Valida existencia.
 
-### 2.4 `guardar_subproducto(p_id uuid, p_codigo text, p_nombre text, p_existencia numeric, p_punto_reorden numeric, p_receta jsonb, p_hijos jsonb, p_tipo text) → subproductos`
-Transaccional. Si `p_id` es NULL crea, si no actualiza. Borra receta e hijos
-previos y los recrea. Detecta ciclos en la jerarquía.
+### 2.4 `guardar_subproducto(p_id, p_codigo, p_nombre, p_existencia, p_punto_reorden, p_receta jsonb, p_hijos jsonb, p_tipo) → subproductos`
 
-`p_receta`: `[{insumo_id, cantidad, unidad_receta, factor_receta}]`
-`p_hijos`: `[{subproducto_id, cantidad}]`
+Transaccional. Crea/actualiza subproducto con receta e hijos. Detecta ciclos.
 
-### 2.5 `guardar_paquete(p_codigo_pt text, p_es_nuevo boolean, p_nombre text, p_subproductos jsonb, p_insumos jsonb, p_unidades_por_caja integer, p_precio_venta numeric) → productos_terminados`
-Transaccional. Análoga a `guardar_subproducto`.
+### 2.5 `guardar_paquete(p_codigo_pt, p_es_nuevo, p_nombre, p_subproductos jsonb, p_insumos jsonb, p_unidades_por_caja, p_precio_venta) → productos_terminados`
 
-### 2.6 `eliminar_insumo(p_id uuid) → void`
-Valida dependencias (BOM, subproducto_recetas, movimientos). Falla con
-mensaje si hay referencias.
+Transaccional. Crea/actualiza PT con composición.
 
-### 2.7 `confirmar_orden(p_codigo_pt text, p_cantidad numeric, p_estado_cobertura text, p_detalle jsonb, p_numero_op text, p_cantidad_cajas numeric, p_lote text, p_prioridad integer, p_fecha_programada date) → ordenes_semanales`
-Inserta una OP en estado Pendiente. `p_numero_op` y `p_lote` deben ser
-únicos.
+### 2.6 `eliminar_insumo(p_id) → void`
 
-`p_detalle`: `{insumos:[...], subproductos:[...]}` — snapshot del cálculo
-de cobertura al momento de confirmar.
+Valida dependencias antes de borrar.
 
-### 2.8 `completar_orden(p_orden_id uuid) → jsonb`
-**Fase 1**: valida contra el snapshot de `detalle_faltantes`. Si no existe
-snapshot, recalcula desde BOM actual.
-**Fase 2**: descuenta insumos y subproductos, inserta movimientos con
-`orden_id` y `costo_unitario_momento`, suma el PT al inventario, marca la
-OP como Terminada.
+### 2.7 `confirmar_orden(p_codigo_pt, p_cantidad, p_estado_cobertura, p_detalle jsonb, p_numero_op, p_cantidad_cajas, p_lote, p_prioridad, p_fecha_programada) → ordenes_semanales`
 
-Retorna: `{ok, items_descontados, pt_producidos, fuente}` donde
-`fuente ∈ ('snapshot','recalculo')`.
+Inserta OP en estado Pendiente.
 
-### 2.9 `cancelar_orden(p_orden_id uuid, p_motivo text) → jsonb`
-Marca la OP como Cancelada. No toca el inventario.
+### 2.8 `registrar_entrega_op(p_orden_id, p_cantidad, p_lote_entrega, p_motivo) → jsonb`
 
-### 2.10 `ajustar_inventario(p_insumo_id uuid, p_nueva_existencia numeric, p_motivo text) → jsonb`
-Ajuste por conteo físico. Registra movimiento Entrada/Salida con la
-diferencia.
+**Núcleo del sistema de entregas parciales.**
 
-Retorna: `{cambio, tipo}`
+1. Valida que no exceda `cantidad_proyectada`.
+2. Calcula factor = `p_cantidad / cantidad_proyectada`.
+3. Valida stock **de esa fracción**.
+4. Descuenta insumos y subproductos proporcionalmente.
+5. Ingresa el PT al inventario.
+6. Registra en `entregas_op`.
+7. Si cierra → `Terminada`. Si no → `En proceso`.
 
-### 2.11 `ajustar_subproducto(p_id uuid, p_nueva_existencia numeric, p_motivo text) → jsonb`
+Retorna: `{ok, items_afectados, cantidad_entregada, cantidad_producida, cantidad_pendiente, op_cerrada}`
+
+### 2.9 `cancelar_orden(p_orden_id, p_motivo) → jsonb`
+
+Cancela OP. No toca inventario.
+
+### 2.10 `ajustar_inventario(p_insumo_id, p_nueva_existencia, p_motivo) → jsonb`
+
+Ajuste por conteo físico. Registra movimiento Entrada o Salida según diferencia.
+
+### 2.11 `ajustar_subproducto(p_id, p_nueva_existencia, p_motivo) → jsonb`
+
 Análoga para subproductos.
 
-### 2.12 `producir_subproducto(p_id uuid, p_cantidad numeric, p_lote text, p_motivo text) → jsonb`
-**Fase 1**: valida stock de insumos directos e hijos directos.
-**Fase 2**: descuenta insumos e hijos, suma el subproducto al inventario,
-inserta movimiento de entrada con `subproducto_id`.
+### 2.12 `producir_subproducto(p_id, p_cantidad, p_lote, p_motivo) → jsonb`
 
-Retorna: `{ok, items_afectados, existencia_nueva}`
+Valida y descuenta insumos directos e hijos directos del subproducto.
 
-### 2.13 `subproducto_costo(p_sub_id uuid, p_visited uuid[]) → numeric`
-Cálculo recursivo. Uso interno de `costos_todos()`.
+### 2.13 `registrar_devolucion(p_insumo_id, p_cantidad, p_proveedor_id, p_motivo) → jsonb`
 
-### 2.14 `paquete_costo(p_pt text) → numeric`
-Cálculo recursivo. Uso interno de `costos_todos()`.
+Devolución a proveedor. Descuenta stock y registra Salida con `proveedor_id`.
+
+### 2.14 `ajustar_costo_insumo(p_insumo_id, p_costo_nuevo, p_motivo) → jsonb`
+
+Ajuste manual de costo con trazabilidad en `ajustes_costo_insumo`.
 
 ### 2.15 `costos_todos() → jsonb`
-Devuelve todos los costos en un solo call.
+
+Mapa completo de costos.
 
 Retorna: `{subproducto_costo: {uuid: number}, paquete_costo: {codigo_pt: number}}`
 
-### 2.16 `current_user_role() → text`
-Devuelve el rol del usuario actual (`admin`/`operador`/`consulta`). Uso
-interno de las políticas RLS.
+### 2.16 `subproducto_costo(p_sub_id, p_visited)` y `paquete_costo(p_pt)`
 
-### 2.17 `handle_new_user() → trigger`
-Trigger sobre `auth.users`. Crea el profile con rol `consulta` por defecto.
+Helpers internos para `costos_todos`.
+
+### 2.17 `current_user_role() → text`
+
+Rol del usuario actual. Uso interno de RLS.
+
+### 2.18 `handle_new_user() → trigger`
+
+Trigger sobre `auth.users`. Crea profile con rol `consulta` por defecto.
 
 ---
 
-## 3. POLÍTICAS RLS
+## 3. Políticas RLS
 
 ### 3.1 Tablas operativas (10)
-`insumos`, `subproductos`, `productos_terminados`, `bom_recetas`,
-`subproducto_recetas`, `subproducto_subproductos`, `paquete_subproductos`,
-`ordenes_semanales`, `movimientos_inventario`, `sys_proveedores`.
+
+`insumos`, `subproductos`, `productos_terminados`, `bom_recetas`, `subproducto_recetas`, `subproducto_subproductos`, `paquete_subproductos`, `ordenes_semanales`, `movimientos_inventario`, `sys_proveedores`.
 
 | Política | Operación | Quién | Condición |
 |---|---|---|---|
 | `rol_select` | SELECT | authenticated | `true` |
-| `rol_write` | ALL (INSERT/UPDATE/DELETE) | authenticated | `current_user_role() IN ('admin','operador')` |
+| `rol_write` | ALL | authenticated | `current_user_role() IN ('admin','operador')` |
 
 ### 3.2 `profiles`
 
-| Política | Operación | Quién | Condición |
-|---|---|---|---|
-| `profiles_select` | SELECT | authenticated | `user_id = auth.uid() OR current_user_role() = 'admin'` |
-| `profiles_write` | ALL | authenticated | `current_user_role() = 'admin'` |
+| Política | Operación | Condición |
+|---|---|---|
+| `profiles_select` | SELECT | `user_id = auth.uid() OR current_user_role() = 'admin'` |
+| `profiles_write` | ALL | `current_user_role() = 'admin'` |
 
-**Regla de oro**: la seguridad vive en RLS. El frontend es cosmético.
+### 3.3 `entregas_op`, `ajustes_costo_insumo`, `backup_log`
+
+- SELECT: authenticated.
+- WRITE: `current_user_role() IN ('admin','operador')`.
 
 ---
 
-## 4. FLUJOS CRÍTICOS
+## 4. Flujos críticos
 
-### 4.1 Confirmar → Completar OP
+### 4.1 Confirmar → Entregar (parcial o total) → Completar
 
 ```
-[Usuario]            [Frontend]              [Supabase]
-   │                     │                       │
-   ├─ Click "Calcular" ─►│                       │
-   │                     ├─ GET bom_recetas ────►│
-   │                     ├─ GET paquete_subs ───►│
-   │                     ├─ calcula cobertura    │
-   │                     │                       │
-   ├─ Confirmar orden ──►│                       │
-   │                     ├─ RPC confirmar_orden ►│ ← guarda snapshot
-   │                     │  (detalle_faltantes)  │
-   │                     │                       │
-   ├─ Click "Terminar" ─►│                       │
-   │                     ├─ RPC completar_orden ►│ ← Fase 1 valida
-   │                     │                       │ ← Fase 2 muta
-   │                     │◄─── {ok, fuente} ─────│
-   │◄─ toast resultado ──│                       │
+[Usuario]          [Frontend]              [Supabase]
+   │                   │                       │
+   ├─ Calcular ───────►│                       │
+   │                   ├─ GET bom_recetas ────►│
+   │                   ├─ GET paquete_subs ───►│
+   │                   ├─ calcula cobertura    │
+   │                   │                       │
+   ├─ Confirmar OP ───►│                       │
+   │                   ├─ RPC confirmar_orden ►│ ← guarda snapshot
+   │                   │                       │
+   ├─ Entrega parcial ►│                       │
+   │                   ├─ RPC registrar_entrega_op ►│ ← valida, descuenta proporcional
+   │                   │◄── {op_cerrada:false} ─│
+   │                   │                       │
+   ├─ Entrega final ──►│                       │
+   │                   ├─ RPC registrar_entrega_op ►│ ← cierra OP
+   │                   │◄── {op_cerrada:true} ──│
 ```
 
 ### 4.2 Entrada de insumo
 
 ```
-[Usuario]                  [Frontend]              [Supabase]
-   │                           │                       │
-   ├─ Completa form ──────────►│                       │
-   ├─ Click "Registrar" ──────►│                       │
-   │                           ├─ RPC registrar_entrada ►│
-   │                           │◄── {existencia_nueva} ─│
-   │◄─ toast ──────────────────│                       │
+RPC registrar_entrada:
+  1. Valida cantidad > 0.
+  2. Bloquea el insumo.
+  3. Convierte cantidad de compra a consumo.
+  4. Recalcula costo promedio ponderado.
+  5. Actualiza insumos.
+  6. Registra movimiento con costo_unitario_momento.
 ```
 
 ### 4.3 Producir subproducto
 
 ```
-[RPC producir_subproducto]
-  ↓
-  FASE 1: valida stock de insumos y hijos directos
-  ↓
-  FASE 2 (transacción):
-    1. UPDATE insumos SET existencia -= requerido (por cada insumo)
-    2. INSERT movimientos_inventario (insumo_id, tipo='Consumo', orden_id=null)
-    3. UPDATE subproductos SET existencia -= requerido (por cada hijo)
-    4. INSERT movimientos_inventario (subproducto_id, tipo='Consumo')
-    5. UPDATE subproductos SET existencia += cantidad (el padre)
-    6. INSERT movimientos_inventario (subproducto_id, tipo='Entrada')
-  ↓
-  Retorna {ok, items_afectados, existencia_nueva}
+RPC producir_subproducto:
+  FASE 1: valida insumos e hijos directos.
+  FASE 2:
+    1. Descuenta insumos.
+    2. Descuenta subproductos hijos.
+    3. Suma el subproducto al inventario.
+    4. Registra movimientos.
 ```
 
-### 4.4 Conteo físico (ajuste)
+### 4.4 Conteo físico
 
 ```
-[Usuario]                  [Frontend]              [Supabase]
-   │                           │                       │
-   ├─ "Cargar existencias" ──►│                       │
-   │                           ├─ GET insumos ────────►│
-   │                           ├─ GET subproductos ───►│
-   │                           │                       │
-   ├─ Escribe conteos ───────►│                       │
-   ├─ "Aplicar ajustes" ─────►│                       │
-   │                           ├─ RPC ajustar_inv ───►│ (por cada uno)
-   │                           ├─ RPC ajustar_sub ───►│
-   │◄─ toast resumen ──────────│                       │
+1. Cargar existencias (GET insumos + subproductos).
+2. Usuario escribe conteos.
+3. Aplicar ajustes → N llamadas RPC ajustar_*.
+```
+
+### 4.5 Backup
+
+```
+Frontend:
+  1. Fetch todas las tablas.
+  2. Convierte a CSV.
+  3. Arma ZIP en cliente con JSZip.
+  4. Descarga.
+  5. Registra en backup_log.
 ```
 
 ---
 
-## 5. MODELOS C# SUGERIDOS
+## 5. Modelos C# sugeridos
 
 ```csharp
 public class Insumo {
@@ -378,12 +389,9 @@ public class Insumo {
     public DateTimeOffset CreadoEn { get; set; }
     public string? UnidadConsumo { get; set; }
     public decimal? FactorConversion { get; set; }
-    public string? UnidadSecundaria { get; set; }
-    public decimal? FactorSecundario { get; set; }
     public decimal CostoUnitario { get; set; }
-    public string ConversionesJson { get; set; } // parsear a List<Conversion>
+    public string ConversionesJson { get; set; }
     public TipoConversion TipoConversion { get; set; }
-
     public List<Conversion> Conversiones =>
         JsonSerializer.Deserialize<List<Conversion>>(ConversionesJson) ?? new();
 }
@@ -405,8 +413,6 @@ public class Subproducto {
     public Guid Id { get; set; }
     public string Codigo { get; set; }
     public string Nombre { get; set; }
-    public bool EstadoActivo { get; set; }
-    public DateTimeOffset CreadoEn { get; set; }
     public decimal ExistenciaActual { get; set; }
     public decimal? PuntoReorden { get; set; }
     public TipoSubproducto Tipo { get; set; }
@@ -417,8 +423,6 @@ public enum TipoSubproducto { Intermedio, Final, Ambos }
 public class ProductoTerminado {
     public string CodigoPt { get; set; }
     public string Nombre { get; set; }
-    public bool EstadoActivo { get; set; }
-    public DateTimeOffset CreadoEn { get; set; }
     public int UnidadesPorCaja { get; set; }
     public decimal ExistenciaActual { get; set; }
     public decimal? PrecioVenta { get; set; }
@@ -430,52 +434,34 @@ public class OrdenSemanal {
     public decimal CantidadProyectada { get; set; }
     public string EstadoCobertura { get; set; }
     public string? DetalleFaltantesJson { get; set; }
-    public DateTimeOffset FechaCreacion { get; set; }
     public string? NumeroOp { get; set; }
     public EstadoOp EstadoOp { get; set; }
-    public decimal? CantidadCajas { get; set; }
-    public DateTimeOffset? FechaCompletado { get; set; }
-    public DateTimeOffset? FechaCancelado { get; set; }
-    public string? MotivoCancelacion { get; set; }
     public string? Lote { get; set; }
     public int? Prioridad { get; set; }
     public DateOnly? FechaProgramada { get; set; }
+    public decimal CantidadProducida { get; set; }
+    public DateTimeOffset? FechaUltimaEntrega { get; set; }
 }
 
 public enum EstadoOp { Pendiente, EnProceso, Terminada, Cancelada }
 
-public class MovimientoInventario {
+public class EntregaOp {
     public Guid Id { get; set; }
-    public Guid? InsumoId { get; set; }
-    public Guid? SubproductoId { get; set; }
-    public string Tipo { get; set; }
+    public Guid OrdenId { get; set; }
     public decimal Cantidad { get; set; }
-    public Guid? ProveedorId { get; set; }
-    public DateTimeOffset Fecha { get; set; }
+    public string? LoteEntrega { get; set; }
     public string? Motivo { get; set; }
-    public decimal? RendimientoReal { get; set; }
-    public string? UnidadCompra { get; set; }
-    public decimal? CantidadCompra { get; set; }
-    public Guid? OrdenId { get; set; }
-    public decimal? CostoUnitarioMomento { get; set; }
-}
-
-public class Profile {
-    public Guid UserId { get; set; }
-    public string? Email { get; set; }
-    public string? Nombre { get; set; }
-    public string Role { get; set; }
-    public bool Activo { get; set; }
-    public DateTimeOffset CreadoEn { get; set; }
+    public string? UsuarioEmail { get; set; }
+    public DateTimeOffset Fecha { get; set; }
 }
 ```
 
 ---
 
-## 6. INTERFAZ DE SERVICIO C# SUGERIDA
+## 6. Interfaz de servicio C# sugerida
 
 ```csharp
-public interface IInventarioService {
+public interface IAseptiqService {
     // Catálogo
     Task<List<Insumo>> GetInsumosAsync();
     Task<List<Subproducto>> GetSubproductosAsync();
@@ -487,22 +473,24 @@ public interface IInventarioService {
     Task<List<SubproductoReceta>> GetSubproductoRecetasAsync(Guid subproductoId);
     Task<List<PaqueteSubproducto>> GetPaqueteSubproductosAsync(string codigoPt);
 
-    // Cálculos (equivalentes a calcularCostos y calcularCobertura)
+    // Cálculos
     Task<Dictionary<Guid, decimal>> CalcularCostosSubproductosAsync();
     Task<Dictionary<string, decimal>> CalcularCostosPaquetesAsync();
     Task<CoberturaResult> CalcularCoberturaAsync(string codigoPt, decimal cantidad);
 
-    // Operaciones (equivalentes a los RPC)
+    // Operaciones
     Task<EntradaResult> RegistrarEntradaAsync(EntradaRequest req);
     Task<SalidaResult> RegistrarSalidaAsync(SalidaRequest req);
     Task<ProductoTerminado> GuardarPaqueteAsync(GuardarPaqueteRequest req);
     Task<Subproducto> GuardarSubproductoAsync(GuardarSubproductoRequest req);
     Task<OrdenSemanal> ConfirmarOrdenAsync(ConfirmarOrdenRequest req);
-    Task<CompletarOrdenResult> CompletarOrdenAsync(Guid ordenId);
+    Task<EntregaResult> RegistrarEntregaOpAsync(Guid ordenId, decimal cantidad, string? lote, string? motivo);
     Task CancelarOrdenAsync(Guid ordenId, string? motivo);
     Task<ProducirResult> ProducirSubproductoAsync(ProducirRequest req);
     Task<AjusteResult> AjustarInsumoAsync(Guid insumoId, decimal nuevaExistencia, string motivo);
     Task<AjusteResult> AjustarSubproductoAsync(Guid subId, decimal nuevaExistencia, string motivo);
+    Task<DevolucionResult> RegistrarDevolucionAsync(DevolucionRequest req);
+    Task<AjusteCostoResult> AjustarCostoAsync(Guid insumoId, decimal nuevoCosto, string? motivo);
 
     // Utilidades
     Task<string> SiguienteCodigoAsync(string prefijo, string tabla);
@@ -512,35 +500,35 @@ public interface IInventarioService {
 
 ---
 
-## 7. NOTAS DE PORT
+## 7. Notas de port
 
-### 7.1 Capa 1 vs Capa 2
-- **Capa 1** (`inventario_core.js`): funciones puras → **traducir a clases helper C#**. Ej: `CostosCalculator`, `CoberturaCalculator`, `Formatter`.
-- **Capa 2** (`inventario_v22.js`): render, red, estado de UI → **reescribir como componentes Blazor/MAUI**.
+### 7.1 Capas
+- **Capa 1** (`aseptiq_core.js`): funciones puras → traducir a C#. Ej: `CostosCalculator`, `CoberturaCalculator`, `Formatter`.
+- **Capa 2** (`aseptiq_app.js`): UI, red, estado → reescribir como componentes Razor / XAML.
 
 ### 7.2 Persistencia
-- En web: PostgREST sobre Supabase.
-- En .NET: EF Core o Dapper apuntando al mismo Postgres, o llamar a Supabase por HTTP.
-- **Recomendación**: usar `Npgsql` + Dapper para llamar a los RPC directamente. Los RPC ya están escritos y probados.
+- Web: PostgREST.
+- .NET: `Supabase.Client` (NuGet oficial) o `Npgsql` + Dapper.
+- Recomendado: `Supabase.Client` para mantener RLS activo.
 
 ### 7.3 Autenticación
-- Web: `@supabase/supabase-js`.
-- .NET: `Supabase.Client` (paquete oficial `Supabase` en NuGet).
-- Los tokens JWT se pasan igual a las RPC.
+- `Supabase.Client.Auth.SignInWithPasswordAsync(email, password)`.
+- El JWT se persiste con `SecureStorage` de MAUI.
+- La URL y la anon key se embeben en el port (no son user-provided).
 
 ### 7.4 Formateo
 - `money()` → `value.ToString("C", new CultureInfo("es-CO"))`
-- `num(n, dec)` → `value.ToString($"N{dec}", new CultureInfo("es-CO"))`
-- `fmtCSV` → cuidado con la coma decimal (Excel español)
+- `num()` → `value.ToString("N2", new CultureInfo("es-CO"))`
+- CSV con `CsvHelper` y separador `;`.
 
-### 7.5 Chart.js
-- En Blazor: usar `<Chart>` de Blazorise o ChartJS.Blazor.
-- En MAUI: usar LiveCharts2 con los mismos `{labels, datasets}` que produce la Capa 1.
+### 7.5 Gráficos
+- Web: Chart.js.
+- .NET: LiveCharts2 (MAUI/WPF) o Chart.js por WebView.
 
 ### 7.6 RLS
-- RLS sigue activo en Postgres.
-- En .NET, si usás service role key, bypasea RLS. **No lo hagas** en producción.
-- Usá el JWT del usuario autenticado (como hoy).
+- Sigue activo.
+- No usar service_role key en el port.
+- Siempre enviar el JWT del usuario.
 
 ---
 
