@@ -118,6 +118,15 @@
   .nav-group-items{display:none;}
   .nav-group.open .nav-group-items{display:block;}
   .nav-group-items .nav-item{padding-left:14px;}
+
+  /* Grupo activo: cuando contiene un item activo, resaltar el título */
+  .nav-group.has-active .nav-group-title{
+    color:var(--accent);
+    background:var(--surface-2);
+  }
+  .nav-group.has-active .nav-group-title .nav-group-arrow{
+    color:var(--accent);
+  }
   .nav-item:hover{background:var(--surface-2);color:var(--text-primary);}
   .nav-item.active{background:var(--surface-2);color:var(--text-primary);}
   .nav-badge{position:absolute;top:6px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;line-height:1;pointer-events:none;}
@@ -213,11 +222,34 @@
   .panel-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;}
   .panel-header h3{font-size:14px;margin:0;font-weight:600;}
   .panel-actions{display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:auto;}
-  .panel-body{overflow:hidden;}
-  .panel--scroll .panel-body{max-height:65vh;overflow:auto;}
-  .panel--scroll .panel-body::-webkit-scrollbar{width:8px;height:8px;}
-  .panel--scroll .panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
-  .panel--scroll .panel-body::-webkit-scrollbar-track{background:transparent;}
+  .panel-body{
+    display:grid;
+    grid-template-rows:1fr;
+    transition:
+      grid-template-rows .5s cubic-bezier(.22,1,.36,1),
+      opacity .32s ease .06s;
+    opacity:1;
+  }
+  .panel-body-inner{
+    overflow:hidden;
+    min-height:0;
+    transform:translateY(0);
+    transition:transform .5s cubic-bezier(.22,1,.36,1);
+  }
+  .panel.collapsed .panel-body{
+    grid-template-rows:0fr;
+    opacity:0;
+    transition:
+      grid-template-rows .42s cubic-bezier(.6,0,.4,1),
+      opacity .24s ease;
+  }
+  .panel.collapsed .panel-body-inner{
+    transform:translateY(-4px);
+  }
+  .panel--scroll .panel-body-inner{max-height:65vh;overflow-y:auto;overflow-x:hidden;}
+  .panel--scroll .panel-body-inner::-webkit-scrollbar{width:8px;height:8px;}
+  .panel--scroll .panel-body-inner::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+  .panel--scroll .panel-body-inner::-webkit-scrollbar-track{background:transparent;}
   .panel-toggle{
     background:transparent;border:1px solid transparent;
     color:var(--text-muted);width:26px;height:26px;padding:0;
@@ -226,8 +258,7 @@
     transition:transform .2s ease,color .15s,background .15s;
   }
   .panel-toggle:hover{color:var(--text-primary);background:var(--surface-2);border-color:var(--border);}
-  .panel-toggle svg{width:14px;height:14px;display:block;transition:transform .2s ease;}
-  .panel.collapsed .panel-body{display:none;}
+  .panel-toggle svg{width:14px;height:14px;display:block;transition:transform .38s cubic-bezier(.16,1,.3,1);}
   .panel.collapsed .panel-header{border-bottom:none;}
   .panel.collapsed .panel-toggle svg{transform:rotate(-90deg);}
 
@@ -338,9 +369,10 @@
   .num-input{width:110px;margin:0;padding:6px 8px;font-size:12.5px;text-align:right;font-family:'IBM Plex Mono',monospace;}
   .mini-form{border:1px dashed var(--border);border-radius:10px;padding:14px 18px;margin:4px 18px 16px;background:var(--surface-2);}
   .mini-form h4{font-size:12.5px;margin:0 0 10px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
-  .modal-overlay{position:fixed;inset:0;background:rgba(8,10,14,.72);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:300;padding:24px;animation:modalFade .18s ease-out;}
-  .modal-overlay.open{display:flex;}
-  .modal-box{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;max-width:640px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);animation:modalPop .22s cubic-bezier(.2,.9,.3,1.2);}
+  .modal-overlay{position:fixed;inset:0;background:rgba(8,10,14,0);backdrop-filter:blur(0px);display:none;align-items:center;justify-content:center;z-index:300;padding:24px;transition:background .38s cubic-bezier(.22,1,.36,1),backdrop-filter .38s cubic-bezier(.22,1,.36,1);}
+  .modal-overlay.open{display:flex;background:rgba(8,10,14,.55);backdrop-filter:blur(4px);}
+  .modal-box{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5);opacity:0;transform:translateY(18px) scale(.98);transition:opacity .38s cubic-bezier(.22,1,.36,1),transform .38s cubic-bezier(.22,1,.36,1);}
+  .modal-overlay.open .modal-box{opacity:1;transform:translateY(0) scale(1);}
   .modal-header{display:flex;gap:14px;align-items:flex-start;padding:22px 24px 16px;border-bottom:1px solid var(--border);}
   .modal-icon{width:42px;height:42px;flex-shrink:0;border-radius:50%;background:var(--danger-bg);color:var(--danger);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;font-family:'IBM Plex Mono',monospace;}
   .modal-header h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em;}
@@ -353,9 +385,12 @@
   .modal-body .faltante-detalle{display:flex;gap:18px;font-size:12.5px;color:var(--text-secondary);margin-top:6px;font-family:'IBM Plex Mono',monospace;}
   .modal-body .faltante-detalle span b{color:var(--text-primary);font-weight:600;}
   .modal-body .faltante-detalle .faltante-cant{color:var(--danger);font-weight:600;}
+  .cob-charts-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:14px 18px 0;}
+  .cob-charts-row .chart-cell{min-width:0;}
+  @media (max-width:760px){.cob-charts-row{grid-template-columns:1fr;}}
   .modal-footer{padding:14px 24px 20px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);}
   @keyframes modalFade{from{opacity:0;}to{opacity:1;}}
-  @keyframes modalPop{from{opacity:0;transform:scale(.96) translateY(8px);}to{opacity:1;transform:scale(1) translateY(0);}}
+  @keyframes modalPop{from{opacity:0;transform:scale(.98) translateY(6px);}to{opacity:1;transform:scale(1) translateY(0);}}
   .field-validate{font-size:11.5px;margin-top:5px;min-height:15px;color:var(--text-muted);transition:color .15s;}
   .field-validate.ok{color:var(--success);}
   .field-validate.err{color:var(--danger);}
@@ -557,6 +592,59 @@
     /* --- Atajos --- */
     .shortcuts-table td{font-size:12px;}
   }
+
+  /* ============================================================
+     COMPONENTES UI v1.3 — Modal genérico, slider de tema, botón +
+     ============================================================ */
+
+  /* Modal ancho (para gráficos y tablas) */
+  .modal-box.modal-wide{max-width:920px;}
+  .modal-box.modal-md{max-width:720px;}
+
+  /* Botón "+" flotante en headers de panel */
+  .btn-add{
+    background:var(--accent);color:var(--accent-ink);border:none;
+    width:30px;height:30px;padding:0;border-radius:8px;
+    display:inline-flex;align-items:center;justify-content:center;
+    cursor:pointer;flex-shrink:0;font-size:18px;font-weight:700;
+    line-height:1;transition:opacity .15s,transform .15s;
+  }
+  .btn-add:hover{opacity:.88;transform:scale(1.04);}
+  .btn-add:active{transform:scale(.96);}
+
+  /* Toggle de tema compacto (Configuración → Apariencia) */
+  .theme-toggle{
+    position:relative;
+    width:56px;height:30px;
+    background:var(--surface-3);
+    border:1px solid var(--border);
+    border-radius:15px;
+    padding:2px;
+    cursor:pointer;
+    flex-shrink:0;
+    transition:border-color .2s,background .2s;
+  }
+  .theme-toggle:hover{border-color:var(--accent);}
+  .theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .theme-toggle-thumb{
+    position:absolute;top:2px;left:2px;
+    width:24px;height:24px;border-radius:50%;
+    background:var(--accent);
+    color:var(--accent-ink);
+    display:flex;align-items:center;justify-content:center;
+    transition:left .38s cubic-bezier(.34,1.4,.64,1);
+  }
+  .theme-toggle-thumb svg{width:14px;height:14px;display:block;}
+  html[data-theme="light"] .theme-toggle-thumb{left:calc(100% - 26px);}
+  
+  /* Modal footer con más espacio para acciones grandes */
+  .modal-footer-big{padding:16px 24px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--border);flex-wrap:wrap;}
+  .modal-footer-big .modal-kpis{display:flex;gap:16px;align-items:center;flex-wrap:wrap;}
+
+  /* Spinner inline para carga de modales */
+  .modal-loading{padding:60px 24px;display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--text-secondary);font-size:13.5px;}
+  .modal-loading .loader-spinner{width:36px;height:36px;border-width:2.5px;}
+
   @media print{
     body{background:#fff!important;color:#000!important;}
     .sidebar,.toast-area,.no-print{display:none!important;}
@@ -632,7 +720,6 @@
             <span class="nav-group-arrow">▾</span>
           </button>
           <div class="nav-group-items">
-            <button class="nav-item active" data-tab="dashboard" title="Ver indicadores y existencias">Dashboard</button>
             <button class="nav-item" data-tab="orden" title="Crear y gestionar órdenes de producción">Cargar orden</button>
             <button class="nav-item" data-tab="novedades" title="Historial de órdenes activas">Novedades</button>
             <button class="nav-item" data-tab="entradas" title="Registrar recepción de mercancía">Entrada mercancía</button>
@@ -772,6 +859,42 @@
     </div>
     <div class="modal-footer">
       <button id="shortcutsCerrar">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="genericModal">
+  <div class="modal-box" id="genericModalBox">
+    <div class="modal-header">
+      <div class="modal-icon info" id="genericModalIcon">ℹ</div>
+      <div style="flex:1;min-width:0;">
+        <h3 id="genericModalTitle">Título</h3>
+        <p id="genericModalSubtitle"></p>
+      </div>
+      <button class="ghost small" id="genericModalClose" title="Cerrar" style="padding:6px 10px;">×</button>
+    </div>
+    <div class="modal-body" id="genericModalBody"></div>
+    <div class="modal-footer" id="genericModalFooter" style="display:none;"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="coberturaModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <div class="modal-icon info" id="cobIcon">📊</div>
+      <div style="flex:1;min-width:0;">
+        <h3 id="cobTitle">Resultado de cobertura</h3>
+        <p id="cobSubtitle"></p>
+      </div>
+      <button class="ghost small" id="cobClose" title="Cerrar" style="padding:6px 10px;">×</button>
+    </div>
+    <div class="modal-body" id="cobBody"></div>
+    <div class="modal-footer-big">
+      <div class="modal-kpis" id="cobKpis"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="ghost" id="cobCancelar">Cancelar</button>
+        <button id="cobConfirmar">Confirmar orden</button>
+      </div>
     </div>
   </div>
 </div>

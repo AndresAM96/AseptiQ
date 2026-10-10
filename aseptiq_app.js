@@ -98,7 +98,7 @@ document.addEventListener('click',function(ev){
      'btnGuardarPrefijos','btnGuardarUmbrales','btnGuardarPrefijoOP','btnAgregarFilaInsumoSub',
      'btnAgregarFilaSubHijo','btnAgregarFilaSub','btnAgregarFilaInsumo','btnAgregarContacto',
      'btnAgregarNivelConv','btnCrearInsumoInline','btnCrearSubproductoInline','btnAgregarUnidad',
-     'btnGuardarPrefijo','btnGuardarUnidad','btnGuardarProveedorInline'].indexOf(t.id)>=0;
+     'btnGuardarPrefijo','btnGuardarUnidad'].indexOf(t.id)>=0;
   if(esEscritura){
     ev.preventDefault();
     ev.stopPropagation();
@@ -311,7 +311,7 @@ function dialogInit(){
 }
 function closeDialog(ok,val){
   const overlay=document.getElementById('dialogModal');
-  overlay.classList.remove('open');
+  _cerrarOverlay('dialogModal');
   const r=dialogResolve;dialogResolve=null;
   if(r)r(ok?val:null);
 }
@@ -328,7 +328,7 @@ function confirmar(opts){
     document.getElementById('dialogCancel').style.display=opts.showCancel===false?'none':'';
     document.getElementById('dialogOk').textContent=opts.okText||'Aceptar';
     document.getElementById('dialogOk').className=opts.danger?'danger-btn':'';
-    overlay.classList.add('open');
+    _abrirOverlay('dialogModal');
   });
 }
 function promptear(opts){
@@ -347,7 +347,7 @@ function promptear(opts){
     const input=document.getElementById('dialogInput');
     input.value=opts.value||'';
     input.placeholder=opts.placeholder||'';
-    overlay.classList.add('open');
+    _abrirOverlay('dialogModal');
     setTimeout(function(){input.focus();input.select();},80);
   });
 }
@@ -379,9 +379,9 @@ function showFaltantesModal(faltantes){
       +'<span class="faltante-cant">Faltan: '+num(faltan)+'</span>'
       +'</div></div>';
   }).join('');
-  overlay.classList.add('open');
-  document.getElementById('faltantesCerrar').onclick=function(){overlay.classList.remove('open');};
-  overlay.onclick=function(ev){if(ev.target===overlay)overlay.classList.remove('open');};
+  _abrirOverlay('faltantesModal');
+  document.getElementById('faltantesCerrar').onclick=function(){_cerrarOverlay('faltantesModal');};
+  overlay.onclick=function(ev){if(ev.target===overlay)_cerrarOverlay('faltantesModal');};
 }
 function parsearFaltantes(msg){
   const idx=msg.indexOf('Faltantes: ');
@@ -440,9 +440,8 @@ function aplicarTema(t){
       c.update('none');
     });
   }
-  /* Actualizar el select si está visible */
-  const sel=document.getElementById('cfg_tema');
-  if(sel) sel.value=t;
+  /* Actualizar el icono del slider de configuración si está visible */
+  if(typeof actualizarIconoTema==='function') actualizarIconoTema();
 }
 
 function saveConfig(c){
@@ -467,13 +466,17 @@ function prepararPaneles(){
     const header=panel.querySelector('.panel-header');
     if(!header){idx++;return;}
 
-    /* Envolver el contenido posterior al header en .panel-body */
+    /* Envolver el contenido posterior al header en .panel-body > .panel-body-inner.
+       El wrapper externo maneja la animación de colapso; el interno el scroll. */
     const body=document.createElement('div');
     body.className='panel-body';
+    const inner=document.createElement('div');
+    inner.className='panel-body-inner';
+    body.appendChild(inner);
     let node=header.nextSibling;
     while(node){
       const next=node.nextSibling;
-      body.appendChild(node);
+      inner.appendChild(node);
       node=next;
     }
     panel.appendChild(body);
@@ -517,12 +520,14 @@ function prepararPaneles(){
     let estadoGuardado=null;
     try{ estadoGuardado=localStorage.getItem(key); }catch(e){}
     const forceExpand=panel.classList.contains('force-expanded');
-    if(estadoGuardado==='collapsed'){ panel.classList.add('collapsed'); }
+    const forceCollapse=panel.classList.contains('force-collapsed');
+    /* Prioridad: .force-collapsed > .force-expanded > localStorage > heurística */
+    if(forceCollapse){ panel.classList.add('collapsed'); }
+    else if(forceExpand){ panel.classList.remove('collapsed'); }
+    else if(estadoGuardado==='collapsed'){ panel.classList.add('collapsed'); }
     else if(estadoGuardado==='expanded'){ panel.classList.remove('collapsed'); }
     else {
-      /* Default: formularios (sin tabla) colapsados, listados (con tabla) expandidos.
-         Los paneles con .force-expanded siempre arrancan abiertos. */
-      if(!tieneTabla && !forceExpand) panel.classList.add('collapsed');
+      if(!tieneTabla) panel.classList.add('collapsed');
     }
 
     /* Click del toggle */
@@ -855,8 +860,8 @@ function aplicarSidebarColapsado(){
   const brand=document.getElementById('brandHome');
   if(!brand) return;
   const ir=function(){
-    const btn=document.querySelector('.nav-item[data-tab="dashboard"]');
-    if(btn) btn.click();
+    /* Helper que no depende de que exista un botón */
+    if(typeof irATab==='function') irATab('dashboard');
   };
   brand.addEventListener('click',ir);
   brand.addEventListener('keydown',function(ev){
@@ -897,11 +902,8 @@ document.addEventListener('keydown',function(ev){
     const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',b:'compras',m:'mermas',h:'historico',c:'costos',r:'rentabilidad',y:'backup',u:'usuarios'};
     const tab=mapa[k];
     if(tab){
-      const btn=document.querySelector('.nav-item[data-tab="'+tab+'"]');
-      if(btn && btn.style.display!=='none'){
-        ev.preventDefault();
-        btn.click();
-      }
+      ev.preventDefault();
+      irATab(tab);
     }
     return;
   }
@@ -955,12 +957,102 @@ document.addEventListener('click',async function(ev){
   }catch(e){toast(e.message,'error');}
 });
 
+/* ============ MODAL GENÉRICO ============ */
+let _genericModalOnClose=null;
+
+function abrirModalGenerico(opts){
+  const overlay=document.getElementById('genericModal');
+  const box=document.getElementById('genericModalBox');
+  const icon=document.getElementById('genericModalIcon');
+  const title=document.getElementById('genericModalTitle');
+  const subtitle=document.getElementById('genericModalSubtitle');
+  const body=document.getElementById('genericModalBody');
+  const footer=document.getElementById('genericModalFooter');
+  if(!overlay||!box||!body) return;
+
+  /* Configurar tamaño */
+  box.className='modal-box'+(opts.size==='md'?' modal-md':(opts.size==='wide'?' modal-wide':''));
+
+  /* Header */
+  icon.className='modal-icon '+(opts.variant||'info');
+  icon.textContent=opts.icon||'ℹ';
+  title.textContent=opts.title||'';
+  if(opts.subtitle){
+    subtitle.textContent=opts.subtitle;
+    subtitle.style.display='block';
+  } else {
+    subtitle.textContent='';
+    subtitle.style.display='none';
+  }
+
+  /* Body */
+  body.innerHTML=opts.body||'';
+
+  /* Footer */
+  if(opts.footer){
+    footer.innerHTML=opts.footer;
+    footer.style.display='flex';
+  } else {
+    footer.innerHTML='';
+    footer.style.display='none';
+  }
+
+  _genericModalOnClose=opts.onClose||null;
+
+  _abrirOverlay('genericModal');
+
+  /* Callback post-render para bindings */
+  if(typeof opts.onOpen==='function') {
+    setTimeout(function(){opts.onOpen(body);},30);
+  }
+}
+
+function cerrarModalGenerico(){
+  const overlay=document.getElementById('genericModal');
+  if(overlay) _cerrarOverlay('genericModal');
+  const cb=_genericModalOnClose;
+  _genericModalOnClose=null;
+  if(typeof cb==='function') {
+    try { cb(); } catch(e) { console.warn('onClose error',e); }
+  }
+}
+
+(function initModalGenerico(){
+  const overlay=document.getElementById('genericModal');
+  if(!overlay) return;
+  document.getElementById('genericModalClose').addEventListener('click',cerrarModalGenerico);
+  overlay.addEventListener('click',function(ev){if(ev.target===overlay)cerrarModalGenerico();});
+  document.addEventListener('keydown',function(ev){
+    if(ev.key==='Escape' && overlay.classList.contains('open')) cerrarModalGenerico();
+  });
+})();
+
+/* Helper universal para modal overlays con fade-out */
+function _abrirOverlay(id){
+  const ov=document.getElementById(id);
+  if(!ov) return;
+  ov.style.display='flex';
+  /* Forzar reflow para que la transición arranque */
+  void ov.offsetWidth;
+  ov.classList.add('open');
+}
+function _cerrarOverlay(id){
+  const ov=document.getElementById(id);
+  if(!ov) return;
+  ov.classList.remove('open');
+  /* Esperar a que termine la transición antes de ocultar.
+     420ms > 380ms de transición de .modal-box → margen de seguridad. */
+  setTimeout(function(){
+    if(!ov.classList.contains('open')) ov.style.display='none';
+  },420);
+}
+
 /* ============ MODAL DE ATAJOS ============ */
 (function(){
   const overlay=document.getElementById('shortcutsModal');
   if(!overlay) return;
-  function abrir(){overlay.classList.add('open');}
-  function cerrar(){overlay.classList.remove('open');}
+  function abrir(){_abrirOverlay('shortcutsModal');}
+  function cerrar(){_cerrarOverlay('shortcutsModal');}
   document.getElementById('shortcutsCerrar').addEventListener('click',cerrar);
   overlay.addEventListener('click',function(ev){if(ev.target===overlay)cerrar();});
 
@@ -981,15 +1073,38 @@ document.addEventListener('click',async function(ev){
 /* ============ NAVEGACIÓN SIDEBAR ============ */
 
 /* ============ NAVEGACIÓN CON GRUPOS ============ */
+/* Helper universal: ir a una pestaña sin depender del botón del sidebar */
+function irATab(tab){
+  /* Marcar el item activo si existe */
+  document.querySelectorAll('.nav-item').forEach(function(b){
+    if(b.dataset.tab===tab) b.classList.add('active');
+    else b.classList.remove('active');
+  });
+  /* Guardar preferencia */
+  try{localStorage.setItem('aseptiq_tab',tab);}catch(e){}
+  /* Abrir el grupo correspondiente (si existe) */
+  if(typeof abrirGrupoDelTab==='function') abrirGrupoDelTab(tab);
+  /* Renderizar el módulo */
+  renderTab(tab);
+  /* Cerrar el drawer en móvil */
+  if(typeof esMobile==='function' && esMobile() && typeof cerrarDrawer==='function'){
+    cerrarDrawer();
+  }
+}
+
 function abrirGrupoDelTab(tab){
   const item=document.querySelector('.nav-item[data-tab="'+tab+'"]');
+  /* Limpiar has-active de todos los grupos */
+  document.querySelectorAll('.nav-group').forEach(function(g){
+    g.classList.remove('has-active');
+  });
   if(!item) return;
   const grupo=item.closest('.nav-group');
   if(!grupo) return;
+  grupo.classList.add('has-active');
   document.querySelectorAll('.nav-group').forEach(function(g){
     g.classList.toggle('open', g===grupo);
   });
-  /* Asegura que el item quede visible dentro del nav con scroll */
   setTimeout(function(){
     const nav=document.getElementById('sidebarNav');
     if(nav && item){
@@ -1017,15 +1132,7 @@ document.querySelectorAll('.nav-group-title').forEach(function(btn){
 
 document.querySelectorAll('.nav-item').forEach(function(btn){
   btn.addEventListener('click',function(){
-    document.querySelectorAll('.nav-item').forEach(function(b){b.classList.remove('active');});
-    btn.classList.add('active');
-    try{localStorage.setItem('aseptiq_tab',btn.dataset.tab);}catch(e){}
-    abrirGrupoDelTab(btn.dataset.tab);
-    renderTab(btn.dataset.tab);
-    /* Cerrar drawer en móvil tras elegir un módulo */
-    if(typeof esMobile==='function' && esMobile() && typeof cerrarDrawer==='function'){
-      cerrarDrawer();
-    }
+    irATab(btn.dataset.tab);
   });
 });
 
@@ -1217,25 +1324,28 @@ const costos={
 async function renderConfig(){
   const main=document.getElementById('mainContent');
   const cfg=getConfig();
+  const umbralU=cfg.umbralUrgente||30;
+  const umbralR=cfg.umbralReorden||60;
   main.innerHTML=`
     <h2 class="page-title">Configuración</h2>
     <p class="page-sub">Parámetros globales del sistema. Los cambios se guardan en este navegador.</p>
-        <div class="panel">
+
+    <div class="panel force-expanded no-scroll">
       <div class="panel-header"><h3>Apariencia</h3></div>
-      <div class="form-grid">
-        <div>
-          <label>Tema de la aplicación</label>
-          <select id="cfg_tema">
-            <option value="dark">Oscuro</option>
-            <option value="light">Claro</option>
-          </select>
+      <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+        <div style="min-width:0;">
+          <div style="font-size:13px;color:var(--text-primary);font-weight:500;">Tema de la aplicación</div>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Oscuro o claro. Se guarda en este navegador.</div>
+        </div>
+        <div class="theme-toggle" id="cfgThemeSlider" role="button" tabindex="0" aria-label="Cambiar tema">
+          <div class="theme-toggle-thumb">
+            <svg id="cfgThemeThumbIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"></svg>
+          </div>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--text-muted);padding:0 18px 12px;line-height:1.5;">
-        El tema se guarda en este navegador. Los gráficos se adaptan automáticamente.
-      </div>
     </div>
-    <div class="panel">
+
+    <div class="panel force-collapsed">
       <div class="panel-header"><h3>Prefijos de códigos</h3></div>
       <div class="form-grid">
         <div><label>Insumos</label><input id="cfg_pi" value="${cfg.prefijoInsumo}"></div>
@@ -1245,36 +1355,41 @@ async function renderConfig(){
       </div>
       <div class="form-actions"><button id="btnGuardarPrefijos" title="Guardar todos los prefijos">Guardar prefijos</button></div>
     </div>
-    <div class="panel">
-      <div class="panel-header"><h3>Unidades de medida</h3></div>
-      <div class="form-grid"><div><label>Agregar nueva unidad</label><input id="cfg_unidad_nueva" placeholder="ej: rollo, caja, galón"></div></div>
-      <div class="form-actions"><button class="secondary" id="btnAgregarUnidad" title="Agregar unidad">Agregar unidad</button></div>
-      <div id="cfgUnidadesTabla"></div>
+
+    <div class="panel force-collapsed">
+      <div class="panel-header"><h3>Unidades de medida</h3><button class="btn-add" id="btnGestionarUnidades" title="Gestionar unidades">+</button></div>
+      <div style="padding:14px 18px;font-size:12.5px;color:var(--text-secondary);line-height:1.5;">
+        Haz click en <b>+</b> para agregar, editar o eliminar unidades del catálogo.
+      </div>
     </div>
-    <div class="panel">
-      <div class="panel-header"><h3>Umbrales de stock</h3></div>
-      <div class="form-grid">
-        <div><label>Urgente (% del stock objetivo)</label><input id="cfg_umbral_urgente" type="number" min="1" max="99" step="1" value="${cfg.umbralUrgente}"></div>
-        <div><label>Reorden (% del stock objetivo)</label><input id="cfg_umbral_reorden" type="number" min="1" max="99" step="1" value="${cfg.umbralReorden}"></div>
+
+    <div class="panel force-collapsed">
+      <div class="panel-header"><h3>Umbrales de stock</h3><button class="btn-add" id="btnEditarUmbrales" title="Editar umbrales">+</button></div>
+      <div style="padding:14px 18px;font-size:12.5px;color:var(--text-secondary);line-height:1.5;">
+        Urgente: <b style="color:var(--danger);font-family:'IBM Plex Mono',monospace;">${umbralU}%</b> del stock objetivo ·
+        Reorden: <b style="color:var(--warning);font-family:'IBM Plex Mono',monospace;">${umbralR}%</b> del stock objetivo.
+        <br>Haz click en <b>+</b> para editarlos.
       </div>
-      <div style="font-size:12px;color:var(--text-muted);padding:0 18px 12px;line-height:1.5;">
-        El sistema marca <b>Urgente</b> si la existencia es ≤ <i>urgente%</i> del stock objetivo; <b>Reorden</b> si es ≤ <i>reorden%</i> del stock objetivo + 1; <b>Cubierto</b> si supera ese valor.
-      </div>
-      <div class="form-actions"><button id="btnGuardarUmbrales" title="Guardar umbrales">Guardar umbrales</button></div>
     </div>
   `;
 
-  /* Selector de tema */
-  const selTema=document.getElementById('cfg_tema');
-  if(selTema){
-    selTema.value=getTema();
-    selTema.addEventListener('change',function(e){
-      setTema(e.target.value);
-      aplicarTema(e.target.value);
-      toast('Tema '+e.target.value+' aplicado.','success');
-    });
+  /* Slider de tema */
+  const slider=document.getElementById('cfgThemeSlider');
+  function toggleTema(){
+    const t=getTema()==='dark'?'light':'dark';
+    setTema(t);
+    aplicarTema(t);
+    toast('Tema '+t+' aplicado.','success');
   }
-  
+  if(slider){
+    slider.addEventListener('click',toggleTema);
+    slider.addEventListener('keydown',function(ev){
+      if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();toggleTema();}
+    });
+    actualizarIconoTema();
+  }
+
+  /* Prefijos */
   document.getElementById('btnGuardarPrefijos').addEventListener('click',async function(ev){
     await withLoading(ev.currentTarget,async function(){
       const c=getConfig();
@@ -1287,53 +1402,140 @@ async function renderConfig(){
     });
   });
 
-  document.getElementById('btnAgregarUnidad').addEventListener('click',function(){
-    const n=document.getElementById('cfg_unidad_nueva').value.trim();
-    if(!n){toast('Escribe una unidad primero.','error');return;}
-    const c=getConfig();if(!c.unidades.includes(n))c.unidades.push(n);
-    saveConfig(c);toast('Unidad agregada.','success');renderConfig();
-  });
-
-  document.getElementById('btnGuardarUmbrales').addEventListener('click',async function(ev){
-    await withLoading(ev.currentTarget,async function(){
-      const c=getConfig();
-      const uU=parseInt(document.getElementById('cfg_umbral_urgente').value,10);
-      const uR=parseInt(document.getElementById('cfg_umbral_reorden').value,10);
-      if(!uU||uU<1||uU>99){throw new Error('Urgente debe estar entre 1 y 99.');}
-      if(!uR||uR<1||uR>99){throw new Error('Reorden debe estar entre 1 y 99.');}
-      if(uU>=uR){throw new Error('El umbral de urgente debe ser menor que el de reorden.');}
-      c.umbralUrgente=uU;
-      c.umbralReorden=uR;
-      saveConfig(c);
-      toast('Umbrales guardados.','success');
-    });
-  });
-
-  renderConfigUnidades(cfg);
+  /* Botones "+" que abren modales */
+  document.getElementById('btnGestionarUnidades').addEventListener('click',abrirModalUnidades);
+  document.getElementById('btnEditarUmbrales').addEventListener('click',abrirModalUmbrales);
 }
-function renderConfigUnidades(cfg){
-  const cont=document.getElementById('cfgUnidadesTabla');if(!cont)return;
-  cont.innerHTML='<table><tr><th>Unidad</th><th class="actions"></th></tr>'+cfg.unidades.map(function(u,idx){
-    return '<tr><td>'+u+'</td><td class="actions"><button class="ghost small" data-edit-unidad="'+idx+'" title="Editar">Editar</button><button class="danger-btn small" data-del-unidad="'+idx+'" title="Eliminar">Eliminar</button></td></tr>';
-  }).join('')+'</table>';
-  cont.querySelectorAll('[data-edit-unidad]').forEach(function(b){
-    b.addEventListener('click',async function(){
-      const idx=+b.dataset.editUnidad;
-      const n=await promptear({title:'Renombrar unidad',message:'Nombre actual: '+cfg.unidades[idx],icon:'✎',variant:'info',value:cfg.unidades[idx],okText:'Guardar'});
-      if(!n||!n.trim())return;
-      const c=getConfig();c.unidades[idx]=n.trim();saveConfig(c);
-      toast('Unidad actualizada.','success');renderConfig();
-    });
-  });
-  cont.querySelectorAll('[data-del-unidad]').forEach(function(b){
-    b.addEventListener('click',async function(){
-      const idx=+b.dataset.delUnidad;
-      if(!await confirmar({title:'Eliminar unidad',message:'Esta acción solo la quita de la lista local. Los insumos ya creados con ella no cambian.',icon:'✕',variant:'danger',okText:'Eliminar',danger:true}))return;
-      const c=getConfig();c.unidades.splice(idx,1);saveConfig(c);
-      toast('Unidad eliminada.','success');renderConfig();
-    });
+
+function actualizarIconoTema(){
+  const icono=document.getElementById('cfgThemeThumbIcon');
+  if(!icono) return;
+  if(getTema()==='light'){
+    icono.innerHTML='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>';
+  } else {
+    icono.innerHTML='<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  }
+}
+
+function abrirModalUnidades(){
+  abrirModalGenerico({
+    title:'Unidades de medida',
+    subtitle:'Agrega, edita o elimina unidades del catálogo.',
+    icon:'📏',
+    variant:'info',
+    size:'md',
+    body:`
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:20px;">
+        <div style="flex:1;min-width:0;">
+          <label>Nueva unidad</label>
+          <input id="uni_nueva" placeholder="ej: caja, rollo, galón" style="margin-bottom:0;">
+        </div>
+        <button class="secondary" id="uni_agregar" style="flex-shrink:0;">+ Agregar</button>
+      </div>
+      <div class="divider-label" style="padding-left:0;padding-top:8px;">Unidades actuales</div>
+      <div id="uni_lista"></div>`,
+    footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button id="uni_cerrar">Cerrar</button></div>',
+    onOpen:function(){
+      function renderLista(){
+        const cfg=getConfig();
+        const cont=document.getElementById('uni_lista');
+        if(!cfg.unidades.length){
+          cont.innerHTML='<div class="empty-state" style="padding:16px 0;">No hay unidades.</div>';
+          return;
+        }
+        cont.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;">'+cfg.unidades.map(function(u,idx){
+          return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface-2);border-radius:8px;border:1px solid var(--border);">'
+            +'<span style="flex:1;font-size:13px;">'+u+'</span>'
+            +'<button class="ghost small" data-edit-u="'+idx+'" title="Renombrar">Editar</button>'
+            +'<button class="danger-btn small" data-del-u="'+idx+'" title="Eliminar">Eliminar</button>'
+            +'</div>';
+        }).join('')+'</div>';
+        cont.querySelectorAll('[data-edit-u]').forEach(function(btn){
+          btn.addEventListener('click',async function(){
+            const idx=+btn.dataset.editU;
+            const cfg2=getConfig();
+            const nuevo=await promptear({title:'Renombrar unidad',message:'Nombre actual: '+cfg2.unidades[idx],icon:'✎',variant:'info',value:cfg2.unidades[idx],okText:'Guardar'});
+            if(!nuevo||!nuevo.trim())return;
+            cfg2.unidades[idx]=nuevo.trim();
+            saveConfig(cfg2);
+            toast('Unidad actualizada.','success');
+            renderLista();
+          });
+        });
+        cont.querySelectorAll('[data-del-u]').forEach(function(btn){
+          btn.addEventListener('click',async function(){
+            const idx=+btn.dataset.delU;
+            if(!await confirmar({title:'Eliminar unidad',message:'Esta acción solo la quita de la lista local. Los insumos ya creados con ella no cambian.',icon:'✕',variant:'danger',okText:'Eliminar',danger:true}))return;
+            const cfg2=getConfig();
+            cfg2.unidades.splice(idx,1);
+            saveConfig(cfg2);
+            toast('Unidad eliminada.','success');
+            renderLista();
+          });
+        });
+      }
+      renderLista();
+      document.getElementById('uni_agregar').addEventListener('click',function(){
+        const inp=document.getElementById('uni_nueva');
+        const n=inp.value.trim();
+        if(!n){toast('Escribe una unidad primero.','error');return;}
+        const cfg=getConfig();
+        if(cfg.unidades.includes(n)){toast('Esa unidad ya existe.','error');return;}
+        cfg.unidades.push(n);
+        saveConfig(cfg);
+        inp.value='';
+        toast('Unidad agregada.','success');
+        renderLista();
+      });
+      document.getElementById('uni_cerrar').addEventListener('click',function(){
+        cerrarModalGenerico();
+        renderConfig();
+      });
+    }
   });
 }
+
+function abrirModalUmbrales(){
+  const cfg=getConfig();
+  const uU=cfg.umbralUrgente||30;
+  const uR=cfg.umbralReorden||60;
+  abrirModalGenerico({
+    title:'Umbrales de stock',
+    subtitle:'Porcentaje del stock objetivo para clasificar el estado.',
+    icon:'⚖',
+    variant:'info',
+    size:'md',
+    body:`
+      <div class="form-grid" style="padding:0;">
+        <div><label>Urgente (% del stock objetivo)</label><input id="umb_urgente" type="number" min="1" max="99" value="${uU}"></div>
+        <div><label>Reorden (% del stock objetivo)</label><input id="umb_reorden" type="number" min="1" max="99" value="${uR}"></div>
+        <div class="full-span" style="font-size:11.5px;color:var(--text-muted);line-height:1.5;padding-top:6px;">
+          El sistema marca <b>Urgente</b> si la existencia ≤ urgente% del objetivo; <b>Reorden</b> si ≤ reorden%; <b>Cubierto</b> en otro caso. Urgente debe ser menor que Reorden.
+        </div>
+      </div>`,
+    footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="umb_cancelar">Cancelar</button><button id="umb_guardar">Guardar</button></div>',
+    onOpen:function(){
+      document.getElementById('umb_cancelar').addEventListener('click',cerrarModalGenerico);
+      document.getElementById('umb_guardar').addEventListener('click',async function(ev){
+        const uU2=parseInt(document.getElementById('umb_urgente').value,10);
+        const uR2=parseInt(document.getElementById('umb_reorden').value,10);
+        if(!uU2||uU2<1||uU2>99){toast('Urgente debe estar entre 1 y 99.','error');return;}
+        if(!uR2||uR2<1||uR2>99){toast('Reorden debe estar entre 1 y 99.','error');return;}
+        if(uU2>=uR2){toast('El umbral de urgente debe ser menor que el de reorden.','error');return;}
+        await withLoading(ev.currentTarget,async function(){
+          const c=getConfig();
+          c.umbralUrgente=uU2;
+          c.umbralReorden=uR2;
+          saveConfig(c);
+        });
+        toast('Umbrales guardados.','success');
+        cerrarModalGenerico();
+        renderConfig();
+      });
+    }
+  });
+}
+
 
 /* =========================================================
    DASHBOARD v11 — Valor real de existencias (sin PT como stock)
@@ -1482,45 +1684,12 @@ async function renderInsumos(){
   const main=document.getElementById('mainContent');
   const insumos=await api('insumos?select=*&order=nombre');
   const cfg=getConfig();
-  const editando=insumos.find(function(i){return i.id===editandoInsumoId;})||null;
-  if(editando){
-    cadenaEdicion=(Array.isArray(editando.conversiones)&&editando.conversiones.length)?JSON.parse(JSON.stringify(editando.conversiones)):[{unidad:editando.unidad_medida||'u',factor:1,formula:null}];
-    tipoConversionEdicion=editando.tipo_conversion||'fijo';
-  } else {
-    cadenaEdicion=[{unidad:cfg.unidades[0]||'u',factor:1,formula:null}];
-    tipoConversionEdicion='fijo';
-  }
-  let numSug;
-  if(editando)numSug=editando.codigo.replace(cfg.prefijoInsumo,'');
-  else{try{numSug=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoInsumo,p_tabla:'insumos'});}catch(e){numSug=siguienteCodigoLocal(cfg.prefijoInsumo,insumos);}}
   const view=applySort(insumos,'lista_insumos',{nombre:function(i){return i.nombre;},codigo:function(i){return i.codigo;},existencia:function(i){return i.existencia_actual;},costo:function(i){return i.costo_unitario||0;},valor:function(i){return(i.existencia_actual||0)*(i.costo_unitario||0);}});
   main.innerHTML=`
     <h2 class="page-title">Insumos</h2>
     <p class="page-sub">Cadena de conversiones: de unidad de compra a unidad de consumo.</p>
-    <div class="panel require-write" id="formEdicionInsumo">
-      <div class="panel-header"><h3>${editando?'Editar insumo':'Nuevo insumo'}</h3></div>
-      <div class="form-grid">
-        <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoInsumo}</span><input id="ins_codigo_num" value="${numSug}" ${editando?'disabled':''}></div></div>
-        <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${editando?editando.nombre:''}"></div>
-        <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(opcional)</span></label><input id="ins_existencia" type="number" step="0.0001" value="${editando?editando.existencia_actual:''}" placeholder="0"></div>
-        <div><label>Stock objetivo</label><input id="ins_reorden" type="number" step="0.0001" min="0.0001" value="${editando?editando.punto_reorden:''}" placeholder="Ej: 100" title="El sistema calcula los umbrales de urgente y reorden como % de este valor (configurable en Configuración)"></div>
-        <div><label>Costo Und. (Unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${editando?editando.costo_unitario:0}"></div>
-      </div>
-      <div class="divider-label">Cadena de conversiones</div>
-      <div class="conv-chain">
-        <div id="convChainContainer"></div>
-        <div style="display:flex;gap:8px;padding-top:6px;flex-wrap:wrap;">
-          <button type="button" class="secondary small" id="btnAgregarNivelConv" title="Agregar nivel de conversión">+ Agregar nivel</button>
-          <span style="font-size:11.5px;color:var(--text-muted);align-self:center;">Primera = compra · Última = consumo.</span>
-        </div>
-      </div>
-      <div class="form-actions" style="padding-top:16px;">
-        <button id="btnGuardarInsumo" title="${editando?'Guardar cambios':'Crear insumo'}">${editando?'Guardar cambios':'Crear insumo'}</button>
-        ${editando?'<button class="ghost" id="btnCancelarEdicionInsumo" title="Cancelar edición">Cancelar</button>':''}
-      </div>
-    </div>
     <div class="panel">
-      <div class="panel-header"><h3>Listado</h3><div style="display:flex;gap:6px;align-items:center;"><button class="secondary small" id="btnExportInsumos" title="Descargar CSV">Exportar CSV</button>${botonRefreshHTML('insumos')}</div></div>
+      <div class="panel-header"><h3>Listado</h3><div style="display:flex;gap:6px;align-items:center;"><button class="secondary small" id="btnExportInsumos" title="Descargar CSV">Exportar CSV</button>${botonRefreshHTML('insumos')}<button class="btn-add require-write" id="btnNuevoInsumo" title="Crear insumo">+</button></div></div>
       <div class="search-box"><input id="buscar_insumos" placeholder="Buscar por nombre o código…"></div>
       ${insumos.length===0?'<div class="empty-state">No hay insumos todavía.</div>':`
       <table id="tablaInsumos"><tr>
@@ -1538,7 +1707,6 @@ async function renderInsumos(){
     </div>`;
   filtrarTabla('buscar_insumos','tablaInsumos');
   bindSortHeaders(renderInsumos);
-  renderCadenaEditor();
   paginarTabla('tablaInsumos');
   document.getElementById('btnExportInsumos').addEventListener('click',function(){
     const headers=['Código','Nombre','Cadena','Unidad consumo','Existencia','Stock objetivo','Costo unitario','Valor stock','Estado'];
@@ -1557,14 +1725,15 @@ async function renderInsumos(){
     });
     exportarCSV('insumos',headers,filas);
   });
-  document.getElementById('btnAgregarNivelConv').addEventListener('click',function(){
-    sincronizarCadenaDesdeDOM();
-    if(cadenaEdicion.length>=1){const u=cadenaEdicion[cadenaEdicion.length-1];if(!u.factor||u.factor<=0)u.factor=1;}
-    cadenaEdicion.push({unidad:'',factor:1,formula:null});
-    renderCadenaEditor();
+  document.getElementById('btnNuevoInsumo').addEventListener('click',function(){
+    editandoInsumoId=null;
+    abrirModalInsumo(null,insumos,cfg);
   });
   document.querySelectorAll('[data-edit-insumo]').forEach(function(btn){
-    btn.addEventListener('click',function(){editandoInsumoId=btn.dataset.editInsumo;renderInsumos().then(function(){scrollToEl('formEdicionInsumo');});});
+    btn.addEventListener('click',function(){
+      editandoInsumoId=btn.dataset.editInsumo;
+      abrirModalInsumo(btn.dataset.editInsumo,insumos,cfg);
+    });
   });
   document.querySelectorAll('[data-del-insumo]').forEach(function(btn){
     btn.addEventListener('click',async function(){
@@ -1573,61 +1742,122 @@ async function renderInsumos(){
       catch(e){toast(e.message,'error');}
     });
   });
-  const bca=document.getElementById('btnCancelarEdicionInsumo');
-  if(bca)bca.addEventListener('click',function(){editandoInsumoId=null;renderInsumos();});
-  document.getElementById('btnGuardarInsumo').addEventListener('click',async function(ev){
-    sincronizarCadenaDesdeDOM();
-    const cAct=getConfig();
-    const pr=parseFloat(document.getElementById('ins_reorden').value);
-    if(!pr||pr<=0){toast('Punto de reorden obligatorio y mayor a cero.','error');return;}
-    if(cadenaEdicion.length===0||!cadenaEdicion[0].unidad){toast('Define al menos la unidad de compra.','error');return;}
-    for(let i=0;i<cadenaEdicion.length;i++){
-      const n=cadenaEdicion[i];
-      if(!n.unidad){toast('Nivel '+(i+1)+': falta unidad.','error');return;}
-      if(i<cadenaEdicion.length-1&&(!n.factor||n.factor<=0)){toast('Nivel '+(i+1)+': el factor debe ser > 0.','error');return;}
-    }
-    const esVar=tipoConversionEdicion==='variable';
-    const tieneDim=cadenaEdicion.some(function(n){return n.formula&&n.formula.ancho&&n.formula.largo;});
-    const tipo=esVar?'variable':(tieneDim?'dimensional':'fijo');
-    const body={
-      nombre:document.getElementById('ins_nombre').value.trim(),
-      unidad_medida:cadenaEdicion[0].unidad,
-      unidad_consumo:cadenaEdicion.length>1?cadenaEdicion[cadenaEdicion.length-1].unidad:null,
-      factor_conversion:cadenaEdicion.length>1?factorTotal({conversiones:cadenaEdicion}):null,
-      existencia_actual:parseFloat(document.getElementById('ins_existencia').value)||0,
-      punto_reorden:pr,
-      costo_unitario:parseFloat(document.getElementById('ins_costo').value)||0,
-      conversiones:cadenaEdicion,
-      tipo_conversion:tipo
-    };
-    if(!body.nombre){toast('Completa el nombre.','error');return;}
-    try{
-      await withLoading(ev.currentTarget,async function(){
-        if(editando){
-          await api('insumos?id=eq.'+editando.id,{method:'PATCH',body:JSON.stringify(body)});
-          editandoInsumoId=null;
-        }else{
-          const numManual=(document.getElementById('ins_codigo_num').value||'').trim();
-          if(numManual){
-            /* Si el usuario escribió el prefijo completo, lo sacamos para no duplicarlo */
-            let limpio=numManual;
-            if(limpio.indexOf(cAct.prefijoInsumo)===0){
-              limpio=limpio.slice(cAct.prefijoInsumo.length);
-            }
-            if(!limpio){toast('El código no puede estar vacío.','error');return;}
-            body.codigo=cAct.prefijoInsumo+limpio;
-          }else{
-            let n2;try{n2=await rpc('siguiente_codigo',{p_prefijo:cAct.prefijoInsumo,p_tabla:'insumos'});}catch(e){n2=siguienteCodigoLocal(cAct.prefijoInsumo,insumos);}
-            body.codigo=cAct.prefijoInsumo+n2;
-          }
-          await api('insumos',{method:'POST',body:JSON.stringify(body)});
-        }
+}
+
+function _htmlFormInsumo(insumo,cfg,numSug){
+  return `
+    <div class="form-grid" style="padding:0;">
+      <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoInsumo}</span><input id="ins_codigo_num" value="${numSug}" ${insumo?'disabled':''}></div></div>
+      <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${insumo?insumo.nombre:''}"></div>
+      <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(opcional)</span></label><input id="ins_existencia" type="number" step="0.0001" value="${insumo?insumo.existencia_actual:''}" placeholder="0"></div>
+      <div><label>Stock objetivo</label><input id="ins_reorden" type="number" step="0.0001" min="0.0001" value="${insumo?insumo.punto_reorden:''}" placeholder="Ej: 100" title="El sistema calcula los umbrales de urgente y reorden como % de este valor (configurable en Configuración)"></div>
+      <div><label>Costo Und. (Unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${insumo?insumo.costo_unitario:0}"></div>
+    </div>
+    <div class="divider-label">Cadena de conversiones</div>
+    <div class="conv-chain">
+      <div id="convChainContainer"></div>
+      <div style="display:flex;gap:8px;padding-top:6px;flex-wrap:wrap;">
+        <button type="button" class="secondary small" id="btnAgregarNivelConv" title="Agregar nivel de conversión">+ Agregar nivel</button>
+        <span style="font-size:11.5px;color:var(--text-muted);align-self:center;">Primera = compra · Última = consumo.</span>
+      </div>
+    </div>`;
+}
+
+async function abrirModalInsumo(insumoId,insumos,cfg){
+  const insumo=insumoId?insumos.find(function(i){return i.id===insumoId;}):null;
+  if(insumoId&&!insumo){toast('Insumo no encontrado.','error');return;}
+
+  /* Preparar estado de edición */
+  if(insumo){
+    cadenaEdicion=(Array.isArray(insumo.conversiones)&&insumo.conversiones.length)?JSON.parse(JSON.stringify(insumo.conversiones)):[{unidad:insumo.unidad_medida||'u',factor:1,formula:null}];
+    tipoConversionEdicion=insumo.tipo_conversion||'fijo';
+  } else {
+    cadenaEdicion=[{unidad:cfg.unidades[0]||'u',factor:1,formula:null}];
+    tipoConversionEdicion='fijo';
+  }
+
+  /* Código sugerido */
+  let numSug;
+  if(insumo){
+    numSug=insumo.codigo.replace(cfg.prefijoInsumo,'');
+  } else {
+    try{numSug=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoInsumo,p_tabla:'insumos'});}
+    catch(e){numSug=siguienteCodigoLocal(cfg.prefijoInsumo,insumos);}
+  }
+
+  abrirModalGenerico({
+    title: insumo?'Editar insumo':'Nuevo insumo',
+    subtitle: 'Cadena de conversiones: de unidad de compra a unidad de consumo.',
+    icon: insumo?'✎':'＋',
+    variant: 'info',
+    size: 'md',
+    body: _htmlFormInsumo(insumo,cfg,numSug),
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="ins_cancelar">Cancelar</button><button id="ins_guardar">'+(insumo?'Guardar cambios':'Crear insumo')+'</button></div>',
+    onOpen: function(){
+      renderCadenaEditor();
+
+      document.getElementById('btnAgregarNivelConv').addEventListener('click',function(){
+        sincronizarCadenaDesdeDOM();
+        if(cadenaEdicion.length>=1){const u=cadenaEdicion[cadenaEdicion.length-1];if(!u.factor||u.factor<=0)u.factor=1;}
+        cadenaEdicion.push({unidad:'',factor:1,formula:null});
+        renderCadenaEditor();
       });
-      toast(editando?'Insumo actualizado.':'Insumo creado.','success');
-      renderInsumos();
-    }catch(e){toast('Error: '+traducirError(e.message),'error');}
+
+      document.getElementById('ins_cancelar').addEventListener('click',cerrarModalGenerico);
+
+      document.getElementById('ins_guardar').addEventListener('click',async function(ev){
+        sincronizarCadenaDesdeDOM();
+        const cAct=getConfig();
+        const pr=parseFloat(document.getElementById('ins_reorden').value);
+        if(!pr||pr<=0){toast('Punto de reorden obligatorio y mayor a cero.','error');return;}
+        if(cadenaEdicion.length===0||!cadenaEdicion[0].unidad){toast('Define al menos la unidad de compra.','error');return;}
+        for(let i=0;i<cadenaEdicion.length;i++){
+          const n=cadenaEdicion[i];
+          if(!n.unidad){toast('Nivel '+(i+1)+': falta unidad.','error');return;}
+          if(i<cadenaEdicion.length-1&&(!n.factor||n.factor<=0)){toast('Nivel '+(i+1)+': el factor debe ser > 0.','error');return;}
+        }
+        const esVar=tipoConversionEdicion==='variable';
+        const tieneDim=cadenaEdicion.some(function(n){return n.formula&&n.formula.ancho&&n.formula.largo;});
+        const tipo=esVar?'variable':(tieneDim?'dimensional':'fijo');
+        const body={
+          nombre:document.getElementById('ins_nombre').value.trim(),
+          unidad_medida:cadenaEdicion[0].unidad,
+          unidad_consumo:cadenaEdicion.length>1?cadenaEdicion[cadenaEdicion.length-1].unidad:null,
+          factor_conversion:cadenaEdicion.length>1?factorTotal({conversiones:cadenaEdicion}):null,
+          existencia_actual:parseFloat(document.getElementById('ins_existencia').value)||0,
+          punto_reorden:pr,
+          costo_unitario:parseFloat(document.getElementById('ins_costo').value)||0,
+          conversiones:cadenaEdicion,
+          tipo_conversion:tipo
+        };
+        if(!body.nombre){toast('Completa el nombre.','error');return;}
+        try{
+          await withLoading(ev.currentTarget,async function(){
+            if(insumo){
+              await api('insumos?id=eq.'+insumo.id,{method:'PATCH',body:JSON.stringify(body)});
+            }else{
+              const numManual=(document.getElementById('ins_codigo_num').value||'').trim();
+              if(numManual){
+                let limpio=numManual;
+                if(limpio.indexOf(cAct.prefijoInsumo)===0){limpio=limpio.slice(cAct.prefijoInsumo.length);}
+                if(!limpio){toast('El código no puede estar vacío.','error');return;}
+                body.codigo=cAct.prefijoInsumo+limpio;
+              }else{
+                let n2;try{n2=await rpc('siguiente_codigo',{p_prefijo:cAct.prefijoInsumo,p_tabla:'insumos'});}catch(e){n2=siguienteCodigoLocal(cAct.prefijoInsumo,insumos);}
+                body.codigo=cAct.prefijoInsumo+n2;
+              }
+              await api('insumos',{method:'POST',body:JSON.stringify(body)});
+            }
+          });
+          toast(insumo?'Insumo actualizado.':'Insumo creado.','success');
+          cerrarModalGenerico();
+          renderInsumos();
+        }catch(e){toast('Error: '+traducirError(e.message),'error');}
+      });
+    }
   });
 }
+
 function renderCadenaEditor(){
   const cont=document.getElementById('convChainContainer');if(!cont)return;
   const cfg=getConfig();
@@ -1713,78 +1943,23 @@ async function renderProductos(){
   const cfg=getConfig();
   const data=await loadAllProductosData();
   const subproductos=data.subproductos,productos=data.productos,insumos=data.insumos;
-  const editandoSub=subproductos.find(function(s){return s.id===editandoSubproductoId;})||null;
-  const editandoProd=productos.find(function(p){return p.codigo_pt===editandoProductoCodigo;})||null;
-  let numSubSug,numProdSug;
-  if(editandoSub)numSubSug=editandoSub.codigo.replace(cfg.prefijoSubproducto,'');
-  else{try{numSubSug=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){numSubSug=siguienteCodigoLocal(cfg.prefijoSubproducto,subproductos);}}
-  if(editandoProd)numProdSug=editandoProd.codigo_pt.replace(cfg.prefijoProducto,'');
-  else{try{numProdSug=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){numProdSug=siguienteCodigoLocal(cfg.prefijoProducto,productos);}}
-
-  if(editandoSub){
-    const rec=data.recetas.filter(function(r){return r.subproducto_id===editandoSub.id;});
-    const hij=data.hijos.filter(function(h){return h.subproducto_padre_id===editandoSub.id;});
-    filasInsumoSub=rec.length?rec.map(function(r){
-      const tieneConv=!!(r.unidad_receta||(r.factor_receta&&r.factor_receta!==1));
-      return {insumo_id:r.insumo_id,cantidad:r.cantidad_por_unidad,conversion:tieneConv,unidad_receta:r.unidad_receta||'',factor_receta:r.factor_receta||1};
-    }):[{insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1}];
-    filasSubproductoHijo=hij.length?hij.map(function(h){return {subproducto_id:h.subproducto_hijo_id,cantidad:h.cantidad_por_unidad};}):[{subproducto_id:'',cantidad:''}];
-    tipoSubEdicion=editandoSub.tipo||'ambos';
-  } else {
-    filasInsumoSub=[{insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1}];
-    filasSubproductoHijo=[{subproducto_id:'',cantidad:''}];
-    tipoSubEdicion='ambos';
-  }
-  if(editandoProd){
-    const cs=data.paqueteSubs.filter(function(p){return p.codigo_pt===editandoProd.codigo_pt;});
-    const bi=data.bom.filter(function(b){return b.codigo_pt===editandoProd.codigo_pt;});
-    filasSubproducto=cs.length?cs.map(function(r){return {subproducto_id:r.subproducto_id,cantidad:r.cantidad};}):[{subproducto_id:'',cantidad:''}];
-    filasInsumoBom=bi.length?bi.map(function(r){return {insumo_id:r.insumo_id,cantidad:r.cantidad_por_unidad};}):[{insumo_id:'',cantidad:''}];
-  } else {
-    filasSubproducto=[{subproducto_id:'',cantidad:''}];
-    filasInsumoBom=[{insumo_id:'',cantidad:''}];
-  }
 
   const subsView=applySort(subproductos,'lista_subs',{nombre:function(s){return s.nombre;},codigo:function(s){return s.codigo;},tipo:function(s){return s.tipo||'';},existencia:function(s){return s.existencia_actual;},costo:function(s){return data.costos.subCosto[s.id]||0;}});
   const prodsView=applySort(productos,'lista_prods',{nombre:function(p){return p.nombre;},codigo:function(p){return p.codigo_pt;},costo:function(p){return data.costos.paqCosto[p.codigo_pt]||0;}});
-  const subsParaHijos=subproductos.filter(function(s){return (!editandoSub||s.id!==editandoSub.id)&&(s.tipo==='intermedio'||s.tipo==='ambos'||!s.tipo);});
-  const subOptsParaHijos=subsParaHijos.map(function(s){return {id:s.id,nombre:s.nombre+' ('+s.codigo+')'};});
-  const insumoOpts=insumos.map(function(i){return {id:i.id,nombre:i.nombre+' ('+unidadConsumo(i)+')'};});
-  const subOptsPaq=subproductos.filter(function(s){return s.tipo!=='intermedio';}).map(function(s){return {id:s.id,nombre:s.nombre+' ('+s.codigo+')'};});
 
   main.innerHTML=`
     <h2 class="page-title">Productos &amp; BOM</h2>
     <p class="page-sub">Insumos → Subproductos → Paquetes (PT). Los subproductos pueden contener otros subproductos.</p>
 
-    <div class="panel require-write" id="formEdicionSub">
-      <div class="panel-header"><h3>${editandoSub?'Editar subproducto':'Nuevo subproducto'}</h3></div>
-      <div class="form-grid">
-        <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoSubproducto}</span><input id="sub_codigo_num" value="${numSubSug}" ${editandoSub?'disabled':''}></div></div>
-        <div><label>Nombre</label><input id="sub_nombre" placeholder="Batón americano" value="${editandoSub?editandoSub.nombre:''}"></div>
-        <div><label>Tipo</label><select id="sub_tipo">
-          <option value="intermedio" ${tipoSubEdicion==='intermedio'?'selected':''}>Intermedio (usable en otros subproductos)</option>
-          <option value="final" ${tipoSubEdicion==='final'?'selected':''}>Final (solo en paquetes)</option>
-          <option value="ambos" ${tipoSubEdicion==='ambos'?'selected':''}>Ambos</option>
-        </select></div>
-        <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(opcional)</span></label><input id="sub_existencia" type="number" value="${editandoSub?editandoSub.existencia_actual:''}" placeholder="0"></div>
-      </div>
-      <div class="divider-label">Receta de insumos</div>
-      <div id="filasInsumoSubContainer"></div>
-      <div class="dyn-row-add">
-        <button class="secondary small" id="btnAgregarFilaInsumoSub" title="Agregar insumo a la receta">+ Agregar insumo</button>
-        <button class="ghost small" id="btnCrearInsumoInline" title="Crear un insumo nuevo">+ Crear insumo nuevo</button>
-      </div>
-      <div id="inlineInsumoContainer"></div>
-      <div class="divider-label">Subproductos hijos (solo tipo Intermedio o Ambos)</div>
-      <div id="filasSubproductoHijoContainer"></div>
-      <div class="dyn-row-add"><button class="secondary small" id="btnAgregarFilaSubHijo" title="Agregar subproducto hijo">+ Agregar subproducto hijo</button></div>
-      <div class="form-actions" style="padding-top:16px;">
-        <button id="btnGuardarSubproducto" title="${editandoSub?'Guardar cambios':'Crear subproducto'}">${editandoSub?'Guardar cambios':'Crear subproducto'}</button>
-        ${editandoSub?'<button class="ghost" id="btnCancelarSub" title="Cancelar">Cancelar</button>':''}
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header"><h3>Crear nuevo</h3></div>
+      <div class="form-actions" style="padding:14px 18px;gap:10px;">
+        <button class="require-write" id="btnNuevoSubproducto" title="Crear nuevo subproducto">+ Nuevo subproducto</button>
+        <button class="require-write" id="btnNuevoPT" title="Crear nuevo paquete (PT)">+ Nuevo paquete (PT)</button>
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel force-collapsed">
       <div class="panel-header"><h3>Subproductos existentes</h3><button class="secondary small" id="btnExportSubs" title="Descargar CSV">Exportar CSV</button></div>
       <div class="search-box"><input id="buscar_subproductos" placeholder="Buscar subproducto…"></div>
       ${subproductos.length===0?'<div class="empty-state">No hay subproductos todavía.</div>':subsView.map(function(s){
@@ -1794,34 +1969,7 @@ async function renderProductos(){
       }).join('')}
     </div>
 
-    <div class="panel require-write" id="formEdicionProd">
-      <div class="panel-header"><h3>${editandoProd?'Editar paquete (PT)':'Nuevo paquete (PT)'}</h3></div>
-      <div class="form-grid">
-        <div><label>Código PT</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoProducto}</span><input id="prod_codigo_num" value="${numProdSug}" ${editandoProd?'disabled':''}></div></div>
-        <div><label>Nombre del paquete</label><input id="prod_nombre" placeholder="Cirugía General Proclides" value="${editandoProd?editandoProd.nombre:''}"></div>
-        <div><label>Unidades por caja</label><input id="prod_por_caja" type="number" min="1" step="1" value="${editandoProd?editandoProd.unidades_por_caja:1}"></div>
-        <div><label>Precio de venta <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(por unidad, opcional)</span></label><input id="prod_precio" type="number" step="0.01" min="0" value="${editandoProd&&editandoProd.precio_venta!=null?editandoProd.precio_venta:''}" placeholder="Ej: 12500"></div>
-      </div>
-      <div class="divider-label">Subproductos que componen el paquete</div>
-      <div id="filasSubproductoContainer"></div>
-      <div class="dyn-row-add">
-        <button class="secondary small" id="btnAgregarFilaSub" title="Agregar subproducto al paquete">+ Agregar subproducto</button>
-        <button class="ghost small" id="btnCrearSubproductoInline" title="Crear un subproducto nuevo">+ Crear subproducto nuevo</button>
-      </div>
-      <div id="inlineSubproductoContainer"></div>
-      <div class="divider-label">Receta de insumos directa del paquete (cantidad por unidad individual, no por caja)</div>
-      <div style="font-size:11.5px;color:var(--text-muted);padding:0 18px 8px;line-height:1.5;">
-        <b>Ejemplo:</b> si un paquete se entrega en cajas ×1000 y cada unidad individual consume 1 bolsa, aquí va <b>1</b>, no 1000.
-      </div>
-      <div id="filasInsumoContainer"></div>
-      <div class="dyn-row-add"><button class="secondary small" id="btnAgregarFilaInsumo" title="Agregar insumo directo">+ Agregar insumo</button></div>
-      <div class="form-actions" style="padding-top:16px;">
-        <button id="btnGuardarProducto" title="${editandoProd?'Guardar cambios':'Crear paquete'}">${editandoProd?'Guardar cambios':'Crear paquete'}</button>
-        ${editandoProd?'<button class="ghost" id="btnCancelarProd" title="Cancelar">Cancelar</button>':''}
-      </div>
-    </div>
-
-    <div class="panel">
+    <div class="panel force-collapsed">
       <div class="panel-header"><h3>Paquetes existentes</h3><button class="secondary small" id="btnExportPaq" title="Descargar CSV">Exportar CSV</button></div>
       <div class="search-box"><input id="buscar_paquetes" placeholder="Buscar paquete…"></div>
       ${productos.length===0?'<div class="empty-state">No hay paquetes todavía.</div>':prodsView.map(function(p){
@@ -1840,12 +1988,17 @@ async function renderProductos(){
   filtrarDivs('buscar_subproductos','subRow_');
   filtrarDivs('buscar_paquetes','prodRow_');
   bindSortHeaders(renderProductos);
-  renderFilasInsumoSub(insumoOpts);
-  renderFilasSubproductoHijo(subOptsParaHijos);
-  renderFilasSubproducto(subOptsPaq);
-  renderFilasInsumo(insumoOpts);
 
-    document.getElementById('btnExportSubs').addEventListener('click',function(){
+  /* Botones "+" para crear */
+  document.getElementById('btnNuevoSubproducto').addEventListener('click',function(){
+    abrirModalSubproducto(null,data,cfg);
+  });
+  document.getElementById('btnNuevoPT').addEventListener('click',function(){
+    abrirModalPaquete(null,data,cfg);
+  });
+
+  /* Exportaciones CSV */
+  document.getElementById('btnExportSubs').addEventListener('click',function(){
     const headers=['Código','Nombre','Tipo','Existencia','Costo unitario','Valor stock','Insumos (receta)','Subproductos hijos'];
     const filasCSV=subsView.map(function(s){
       const costo=data.costos.subCosto[s.id]||0;
@@ -1877,7 +2030,7 @@ async function renderProductos(){
     exportarCSV('subproductos',headers,filasCSV);
   });
 
-    document.getElementById('btnExportPaq').addEventListener('click',function(){
+  document.getElementById('btnExportPaq').addEventListener('click',function(){
     const headers=['Código PT','Nombre','Unidades/caja','Existencia (u)','Cajas aprox.','Costo unitario','Costo por caja','Valor stock','Subproductos','Insumos directos'];
     const filasCSV=prodsView.map(function(p){
       const costo=data.costos.paqCosto[p.codigo_pt]||0;
@@ -1910,122 +2063,11 @@ async function renderProductos(){
     exportarCSV('paquetes',headers,filasCSV);
   });
 
-  document.getElementById('btnAgregarFilaInsumoSub').addEventListener('click',function(){sincronizarInsumoSub();filasInsumoSub.push({insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1});renderFilasInsumoSub(insumoOpts);});
-  document.getElementById('btnAgregarFilaSubHijo').addEventListener('click',function(){sincronizarSubHijo();filasSubproductoHijo.push({subproducto_id:'',cantidad:''});renderFilasSubproductoHijo(subOptsParaHijos);});
-  document.getElementById('btnAgregarFilaSub').addEventListener('click',function(){sincronizarSub();filasSubproducto.push({subproducto_id:'',cantidad:''});renderFilasSubproducto(subOptsPaq);});
-  document.getElementById('btnAgregarFilaInsumo').addEventListener('click',function(){sincronizarInsBom();filasInsumoBom.push({insumo_id:'',cantidad:''});renderFilasInsumo(insumoOpts);});
-
-  document.getElementById('btnCrearInsumoInline').addEventListener('click',function(){
-    const cont=document.getElementById('inlineInsumoContainer');
-    if(cont.innerHTML.trim()){cont.innerHTML='';return;}
-    const cfgU=getConfig();
-    cont.innerHTML='<div class="mini-form"><h4>Nuevo insumo rápido</h4><div class="form-grid" style="padding:0;"><div><label>Nombre</label><input id="ii_nombre" placeholder="Nombre del insumo"></div><div><label>Unidad de medida</label><select id="ii_unidad">'+cfgU.unidades.map(function(u){return '<option value="'+u+'">'+u+'</option>';}).join('')+'</select></div><div><label>Costo unitario</label><input id="ii_costo" type="number" step="0.01" min="0" value="0"></div><div><label>Punto de reorden</label><input id="ii_reorden" type="number" step="0.0001" min="0.0001" value="1"></div></div><div class="form-actions" style="padding:10px 0 0;"><button class="small" id="ii_guardar" title="Crear insumo">Crear</button><button class="ghost small" id="ii_cancelar" title="Cancelar">Cancelar</button></div></div>';
-    document.getElementById('ii_cancelar').addEventListener('click',function(){cont.innerHTML='';});
-    document.getElementById('ii_guardar').addEventListener('click',async function(ev){
-      const nombre=document.getElementById('ii_nombre').value.trim();
-      const unidad=document.getElementById('ii_unidad').value;
-      const costo=parseFloat(document.getElementById('ii_costo').value)||0;
-      const pr=parseFloat(document.getElementById('ii_reorden').value);
-      if(!nombre){toast('Escribe el nombre del insumo.','error');return;}
-      if(!pr||pr<=0){toast('Punto de reorden > 0.','error');return;}
-      try{
-        await withLoading(ev.currentTarget,async function(){
-          let num2;try{num2=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoInsumo,p_tabla:'insumos'});}catch(e){num2=siguienteCodigoLocal(cfg.prefijoInsumo,insumos);}
-          await api('insumos',{method:'POST',body:JSON.stringify({codigo:cfg.prefijoInsumo+num2,nombre:nombre,unidad_medida:unidad,existencia_actual:0,punto_reorden:pr,costo_unitario:costo,conversiones:[{unidad:unidad,factor:1}],tipo_conversion:'fijo'})});
-        });
-        toast('Insumo creado.','success');renderProductos();
-      }catch(e){toast('Error: '+traducirError(e.message),'error');}
-    });
-  });
-
-  document.getElementById('btnCrearSubproductoInline').addEventListener('click',function(){
-    const cont=document.getElementById('inlineSubproductoContainer');
-    if(cont.innerHTML.trim()){cont.innerHTML='';return;}
-    cont.innerHTML='<div class="mini-form"><h4>Nuevo subproducto rápido</h4><div class="form-grid" style="padding:0;"><div><label>Nombre</label><input id="is_nombre" placeholder="Nombre del subproducto"></div><div><label>Tipo</label><select id="is_tipo"><option value="final">Final (solo paquetes)</option><option value="intermedio">Intermedio</option><option value="ambos">Ambos</option></select></div></div><div class="form-actions" style="padding:10px 0 0;"><button class="small" id="is_guardar" title="Crear subproducto">Crear</button><button class="ghost small" id="is_cancelar" title="Cancelar">Cancelar</button></div></div>';
-    document.getElementById('is_cancelar').addEventListener('click',function(){cont.innerHTML='';});
-    document.getElementById('is_guardar').addEventListener('click',async function(ev){
-      const nombre=document.getElementById('is_nombre').value.trim();
-      const tipo=document.getElementById('is_tipo').value;
-      if(!nombre){toast('Escribe el nombre.','error');return;}
-      try{
-        await withLoading(ev.currentTarget,async function(){
-          let cod;try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,subproductos);}
-          await rpc('guardar_subproducto',{p_id:null,p_codigo:cod,p_nombre:nombre,p_existencia:0,p_punto_reorden:0,p_receta:[],p_hijos:[],p_tipo:tipo});
-        });
-        toast('Subproducto creado.','success');renderProductos();
-      }catch(e){toast('Error: '+traducirError(e.message),'error');}
-    });
-  });
-
-  document.getElementById('btnGuardarSubproducto').addEventListener('click',async function(ev){
-    sincronizarInsumoSub();sincronizarSubHijo();
-    const nombre=document.getElementById('sub_nombre').value.trim();
-    const tipo=document.getElementById('sub_tipo').value;
-    if(!nombre){toast('Escribe el nombre del subproducto.','error');return;}
-    const receta=filasInsumoSub.filter(function(f){return f.insumo_id&&f.cantidad;}).map(function(f){
-      return {insumo_id:f.insumo_id,cantidad:parseFloat(f.cantidad),unidad_receta:f.conversion?(f.unidad_receta||null):null,factor_receta:f.conversion?(parseFloat(f.factor_receta)||1):1};
-    });
-    const hijos=filasSubproductoHijo.filter(function(f){return f.subproducto_id&&f.cantidad;}).map(function(f){return {subproducto_id:f.subproducto_id,cantidad:parseFloat(f.cantidad)};});
-    try{
-      await withLoading(ev.currentTarget,async function(){
-        let cod=editandoSub?editandoSub.codigo:null;
-        if(!cod){
-          const numManual=(document.getElementById('sub_codigo_num').value||'').trim();
-          if(numManual){
-            let limpio=numManual;
-            if(limpio.indexOf(cfg.prefijoSubproducto)===0){limpio=limpio.slice(cfg.prefijoSubproducto.length);}
-            if(!limpio){toast('El código no puede estar vacío.','error');return;}
-            cod=cfg.prefijoSubproducto+limpio;
-          }else{
-            try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,subproductos);}
-          }
-        }
-        /* v11: p_punto_reorden = 0 (subproductos ya no lo usan) */
-        await rpc('guardar_subproducto',{p_id:editandoSub?editandoSub.id:null,p_codigo:cod,p_nombre:nombre,p_existencia:parseFloat(document.getElementById('sub_existencia').value)||0,p_punto_reorden:0,p_receta:receta,p_hijos:hijos,p_tipo:tipo});
-      });
-      toast(editandoSub?'Subproducto actualizado.':'Subproducto creado.','success');
-      editandoSubproductoId=null;renderProductos();
-    }catch(e){toast(e.message,'error');}
-  });
-  const bcs=document.getElementById('btnCancelarSub');
-  if(bcs)bcs.addEventListener('click',function(){editandoSubproductoId=null;renderProductos();});
-
-  document.getElementById('btnGuardarProducto').addEventListener('click',async function(ev){
-    sincronizarSub();sincronizarInsBom();
-    const nombre=document.getElementById('prod_nombre').value.trim();
-    const pc=parseInt(document.getElementById('prod_por_caja').value,10)||1;
-    const precioRaw=document.getElementById('prod_precio').value.trim();
-    const precio=precioRaw?parseFloat(precioRaw):null;
-    if(!nombre){toast('Escribe el nombre del paquete.','error');return;}
-    if(pc<1){toast('Unidades por caja debe ser al menos 1.','error');return;}
-    if(precio!==null&&precio<0){toast('El precio de venta no puede ser negativo.','error');return;}
-    const subs=filasSubproducto.filter(function(f){return f.subproducto_id&&f.cantidad;}).map(function(f){return {subproducto_id:f.subproducto_id,cantidad:parseFloat(f.cantidad)};});
-    const ins=filasInsumoBom.filter(function(f){return f.insumo_id&&f.cantidad;}).map(function(f){return {insumo_id:f.insumo_id,cantidad:parseFloat(f.cantidad)};});
-    try{
-      await withLoading(ev.currentTarget,async function(){
-        let cod=editandoProd?editandoProd.codigo_pt:null;
-        if(!cod){
-          const numManual=(document.getElementById('prod_codigo_num').value||'').trim();
-          if(numManual){
-            let limpio=numManual;
-            if(limpio.indexOf(cfg.prefijoProducto)===0){limpio=limpio.slice(cfg.prefijoProducto.length);}
-            if(!limpio){toast('El código no puede estar vacío.','error');return;}
-            cod=cfg.prefijoProducto+limpio;
-          }else{
-            try{cod=cfg.prefijoProducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){cod=cfg.prefijoProducto+siguienteCodigoLocal(cfg.prefijoProducto,productos);}
-          }
-        }
-        await rpc('guardar_paquete',{p_codigo_pt:cod,p_es_nuevo:!editandoProd,p_nombre:nombre,p_subproductos:subs,p_insumos:ins,p_unidades_por_caja:pc,p_precio_venta:precio});
-      });
-      toast(editandoProd?'Paquete actualizado.':'Paquete creado.','success');
-      editandoProductoCodigo=null;renderProductos();
-    }catch(e){toast(e.message,'error');}
-  });
-  const bcp=document.getElementById('btnCancelarProd');
-  if(bcp)bcp.addEventListener('click',function(){editandoProductoCodigo=null;renderProductos();});
-
+  /* Editar / eliminar subproductos */
   document.querySelectorAll('[data-edit-sub]').forEach(function(btn){
-    btn.addEventListener('click',function(){editandoSubproductoId=btn.dataset.editSub;renderProductos().then(function(){scrollToEl('formEdicionSub');});});
+    btn.addEventListener('click',function(){
+      abrirModalSubproducto(btn.dataset.editSub,data,cfg);
+    });
   });
   document.querySelectorAll('[data-del-sub]').forEach(function(btn){
     btn.addEventListener('click',async function(){
@@ -2035,7 +2077,9 @@ async function renderProductos(){
     });
   });
   document.querySelectorAll('[data-edit-prod]').forEach(function(btn){
-    btn.addEventListener('click',function(){editandoProductoCodigo=btn.dataset.editProd;renderProductos().then(function(){scrollToEl('formEdicionProd');});});
+    btn.addEventListener('click',function(){
+      abrirModalPaquete(btn.dataset.editProd,data,cfg);
+    });
   });
   document.querySelectorAll('[data-del-prod]').forEach(function(btn){
     btn.addEventListener('click',async function(){
@@ -2045,6 +2089,7 @@ async function renderProductos(){
     });
   });
 
+  /* Composición visible en cada list-item */
   subsView.forEach(function(s){
     const cont=document.getElementById('subRow_'+s.id);if(!cont)return;
     const rec=data.recetas.filter(function(r){return r.subproducto_id===s.id;});
@@ -2074,6 +2119,7 @@ async function renderProductos(){
     cont.querySelector('.composicion-list').innerHTML=html||'<span style="color:var(--text-muted);">Sin composición definida.</span>';
   });
 }
+
 function sincronizarSub(){filasSubproducto=filasSubproducto.map(function(_,idx){return {subproducto_id:getComboValue('subprod_sel_'+idx),cantidad:document.getElementById('subprod_cant_'+idx)?document.getElementById('subprod_cant_'+idx).value:''};});}
 function sincronizarInsBom(){filasInsumoBom=filasInsumoBom.map(function(_,idx){return {insumo_id:getComboValue('insbom_sel_'+idx),cantidad:document.getElementById('insbom_cant_'+idx)?document.getElementById('insbom_cant_'+idx).value:''};});}
 function sincronizarInsumoSub(){
@@ -2089,6 +2135,254 @@ function sincronizarInsumoSub(){
   });
 }
 function sincronizarSubHijo(){filasSubproductoHijo=filasSubproductoHijo.map(function(_,idx){return {subproducto_id:getComboValue('subhijo_sel_'+idx),cantidad:document.getElementById('subhijo_cant_'+idx)?document.getElementById('subhijo_cant_'+idx).value:''};});}
+
+async function abrirModalSubproducto(subproductoId,data,cfg){
+  const sub=subproductoId?data.subproductos.find(function(s){return s.id===subproductoId;}):null;
+  if(subproductoId&&!sub){toast('Subproducto no encontrado.','error');return;}
+
+  /* Poblar estado global de filas */
+  if(sub){
+    const rec=data.recetas.filter(function(r){return r.subproducto_id===sub.id;});
+    const hij=data.hijos.filter(function(h){return h.subproducto_padre_id===sub.id;});
+    filasInsumoSub=rec.length?rec.map(function(r){
+      const tieneConv=!!(r.unidad_receta||(r.factor_receta&&r.factor_receta!==1));
+      return {insumo_id:r.insumo_id,cantidad:r.cantidad_por_unidad,conversion:tieneConv,unidad_receta:r.unidad_receta||'',factor_receta:r.factor_receta||1};
+    }):[{insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1}];
+    filasSubproductoHijo=hij.length?hij.map(function(h){return {subproducto_id:h.subproducto_hijo_id,cantidad:h.cantidad_por_unidad};}):[{subproducto_id:'',cantidad:''}];
+    tipoSubEdicion=sub.tipo||'ambos';
+  } else {
+    filasInsumoSub=[{insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1}];
+    filasSubproductoHijo=[{subproducto_id:'',cantidad:''}];
+    tipoSubEdicion='ambos';
+  }
+
+  /* Código sugerido */
+  let numSubSug;
+  if(sub){
+    numSubSug=sub.codigo.replace(cfg.prefijoSubproducto,'');
+  } else {
+    try{numSubSug=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}
+    catch(e){numSubSug=siguienteCodigoLocal(cfg.prefijoSubproducto,data.subproductos);}
+  }
+
+  /* Opciones para combos */
+  const insumoOpts=data.insumos.map(function(i){return {id:i.id,nombre:i.nombre+' ('+unidadConsumo(i)+')'};});
+  const subsParaHijos=data.subproductos.filter(function(s){return (!sub||s.id!==sub.id)&&(s.tipo==='intermedio'||s.tipo==='ambos'||!s.tipo);});
+  const subOptsParaHijos=subsParaHijos.map(function(s){return {id:s.id,nombre:s.nombre+' ('+s.codigo+')'};});
+
+  abrirModalGenerico({
+    title: sub?'Editar subproducto':'Nuevo subproducto',
+    subtitle: 'Subproducto con receta de insumos y/o subproductos hijos.',
+    icon: sub?'✎':'＋',
+    variant: 'info',
+    size: 'wide',
+    body: `
+      <div class="form-grid" style="padding:0;">
+        <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoSubproducto}</span><input id="sub_codigo_num" value="${numSubSug}" ${sub?'disabled':''}></div></div>
+        <div><label>Nombre</label><input id="sub_nombre" placeholder="Batón americano" value="${sub?sub.nombre:''}"></div>
+        <div><label>Tipo</label><select id="sub_tipo">
+          <option value="intermedio" ${tipoSubEdicion==='intermedio'?'selected':''}>Intermedio (usable en otros subproductos)</option>
+          <option value="final" ${tipoSubEdicion==='final'?'selected':''}>Final (solo en paquetes)</option>
+          <option value="ambos" ${tipoSubEdicion==='ambos'?'selected':''}>Ambos</option>
+        </select></div>
+        <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(opcional)</span></label><input id="sub_existencia" type="number" value="${sub?sub.existencia_actual:''}" placeholder="0"></div>
+      </div>
+      <div class="divider-label">Receta de insumos</div>
+      <div id="filasInsumoSubContainer"></div>
+      <div class="dyn-row-add">
+        <button class="secondary small" id="btnAgregarFilaInsumoSub" title="Agregar insumo a la receta">+ Agregar insumo</button>
+        <button class="ghost small" id="btnCrearInsumoInline" title="Crear un insumo nuevo">+ Crear insumo nuevo</button>
+      </div>
+      <div id="inlineInsumoContainer"></div>
+      <div class="divider-label">Subproductos hijos (solo tipo Intermedio o Ambos)</div>
+      <div id="filasSubproductoHijoContainer"></div>
+      <div class="dyn-row-add"><button class="secondary small" id="btnAgregarFilaSubHijo" title="Agregar subproducto hijo">+ Agregar subproducto hijo</button></div>`,
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="sub_cancelar">Cancelar</button><button id="sub_guardar">'+(sub?'Guardar cambios':'Crear subproducto')+'</button></div>',
+    onOpen: function(body){
+      renderFilasInsumoSub(insumoOpts);
+      renderFilasSubproductoHijo(subOptsParaHijos);
+
+      document.getElementById('btnAgregarFilaInsumoSub').addEventListener('click',function(){sincronizarInsumoSub();filasInsumoSub.push({insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1});renderFilasInsumoSub(insumoOpts);});
+      document.getElementById('btnAgregarFilaSubHijo').addEventListener('click',function(){sincronizarSubHijo();filasSubproductoHijo.push({subproducto_id:'',cantidad:''});renderFilasSubproductoHijo(subOptsParaHijos);});
+
+      /* Crear insumo inline */
+      document.getElementById('btnCrearInsumoInline').addEventListener('click',function(){
+        const cont=document.getElementById('inlineInsumoContainer');
+        if(cont.innerHTML.trim()){cont.innerHTML='';return;}
+        const cfgU=getConfig();
+        cont.innerHTML='<div class="mini-form"><h4>Nuevo insumo rápido</h4><div class="form-grid" style="padding:0;"><div><label>Nombre</label><input id="ii_nombre" placeholder="Nombre del insumo"></div><div><label>Unidad de medida</label><select id="ii_unidad">'+cfgU.unidades.map(function(u){return '<option value="'+u+'">'+u+'</option>';}).join('')+'</select></div><div><label>Costo unitario</label><input id="ii_costo" type="number" step="0.01" min="0" value="0"></div><div><label>Punto de reorden</label><input id="ii_reorden" type="number" step="0.0001" min="0.0001" value="1"></div></div><div class="form-actions" style="padding:10px 0 0;"><button class="small" id="ii_guardar" title="Crear insumo">Crear</button><button class="ghost small" id="ii_cancelar" title="Cancelar">Cancelar</button></div></div>';
+        document.getElementById('ii_cancelar').addEventListener('click',function(){cont.innerHTML='';});
+        document.getElementById('ii_guardar').addEventListener('click',async function(ev){
+          const nombre=document.getElementById('ii_nombre').value.trim();
+          const unidad=document.getElementById('ii_unidad').value;
+          const costo=parseFloat(document.getElementById('ii_costo').value)||0;
+          const pr=parseFloat(document.getElementById('ii_reorden').value);
+          if(!nombre){toast('Escribe el nombre del insumo.','error');return;}
+          if(!pr||pr<=0){toast('Punto de reorden > 0.','error');return;}
+          try{
+            await withLoading(ev.currentTarget,async function(){
+              let num2;try{num2=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoInsumo,p_tabla:'insumos'});}catch(e){num2=siguienteCodigoLocal(cfg.prefijoInsumo,data.insumos);}
+              await api('insumos',{method:'POST',body:JSON.stringify({codigo:cfg.prefijoInsumo+num2,nombre:nombre,unidad_medida:unidad,existencia_actual:0,punto_reorden:pr,costo_unitario:costo,conversiones:[{unidad:unidad,factor:1}],tipo_conversion:'fijo'})});
+            });
+            toast('Insumo creado.','success');
+            cerrarModalGenerico();
+            renderProductos();
+          }catch(e){toast('Error: '+traducirError(e.message),'error');}
+        });
+      });
+
+      document.getElementById('sub_cancelar').addEventListener('click',cerrarModalGenerico);
+
+      document.getElementById('sub_guardar').addEventListener('click',async function(ev){
+        sincronizarInsumoSub();sincronizarSubHijo();
+        const nombre=document.getElementById('sub_nombre').value.trim();
+        const tipo=document.getElementById('sub_tipo').value;
+        if(!nombre){toast('Escribe el nombre del subproducto.','error');return;}
+        const receta=filasInsumoSub.filter(function(f){return f.insumo_id&&f.cantidad;}).map(function(f){
+          return {insumo_id:f.insumo_id,cantidad:parseFloat(f.cantidad),unidad_receta:f.conversion?(f.unidad_receta||null):null,factor_receta:f.conversion?(parseFloat(f.factor_receta)||1):1};
+        });
+        const hijos=filasSubproductoHijo.filter(function(f){return f.subproducto_id&&f.cantidad;}).map(function(f){return {subproducto_id:f.subproducto_id,cantidad:parseFloat(f.cantidad)};});
+        try{
+          await withLoading(ev.currentTarget,async function(){
+            let cod=sub?sub.codigo:null;
+            if(!cod){
+              const numManual=(document.getElementById('sub_codigo_num').value||'').trim();
+              if(numManual){
+                let limpio=numManual;
+                if(limpio.indexOf(cfg.prefijoSubproducto)===0){limpio=limpio.slice(cfg.prefijoSubproducto.length);}
+                if(!limpio){toast('El código no puede estar vacío.','error');return;}
+                cod=cfg.prefijoSubproducto+limpio;
+              }else{
+                try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,data.subproductos);}
+              }
+            }
+            await rpc('guardar_subproducto',{p_id:sub?sub.id:null,p_codigo:cod,p_nombre:nombre,p_existencia:parseFloat(document.getElementById('sub_existencia').value)||0,p_punto_reorden:0,p_receta:receta,p_hijos:hijos,p_tipo:tipo});
+          });
+          toast(sub?'Subproducto actualizado.':'Subproducto creado.','success');
+          cerrarModalGenerico();
+          renderProductos();
+        }catch(e){toast(e.message,'error');}
+      });
+    }
+  });
+}
+
+async function abrirModalPaquete(codigoPT,data,cfg){
+  const prod=codigoPT?data.productos.find(function(p){return p.codigo_pt===codigoPT;}):null;
+  if(codigoPT&&!prod){toast('Paquete no encontrado.','error');return;}
+
+  if(prod){
+    const cs=data.paqueteSubs.filter(function(p){return p.codigo_pt===prod.codigo_pt;});
+    const bi=data.bom.filter(function(b){return b.codigo_pt===prod.codigo_pt;});
+    filasSubproducto=cs.length?cs.map(function(r){return {subproducto_id:r.subproducto_id,cantidad:r.cantidad};}):[{subproducto_id:'',cantidad:''}];
+    filasInsumoBom=bi.length?bi.map(function(r){return {insumo_id:r.insumo_id,cantidad:r.cantidad_por_unidad};}):[{insumo_id:'',cantidad:''}];
+  } else {
+    filasSubproducto=[{subproducto_id:'',cantidad:''}];
+    filasInsumoBom=[{insumo_id:'',cantidad:''}];
+  }
+
+  let numProdSug;
+  if(prod){
+    numProdSug=prod.codigo_pt.replace(cfg.prefijoProducto,'');
+  } else {
+    try{numProdSug=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}
+    catch(e){numProdSug=siguienteCodigoLocal(cfg.prefijoProducto,data.productos);}
+  }
+
+  const insumoOpts=data.insumos.map(function(i){return {id:i.id,nombre:i.nombre+' ('+unidadConsumo(i)+')'};});
+  const subOptsPaq=data.subproductos.filter(function(s){return s.tipo!=='intermedio';}).map(function(s){return {id:s.id,nombre:s.nombre+' ('+s.codigo+')'};});
+
+  abrirModalGenerico({
+    title: prod?'Editar paquete (PT)':'Nuevo paquete (PT)',
+    subtitle: 'Composición del paquete: subproductos + insumos directos.',
+    icon: prod?'✎':'＋',
+    variant: 'info',
+    size: 'wide',
+    body: `
+      <div class="form-grid" style="padding:0;">
+        <div><label>Código PT</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoProducto}</span><input id="prod_codigo_num" value="${numProdSug}" ${prod?'disabled':''}></div></div>
+        <div><label>Nombre del paquete</label><input id="prod_nombre" placeholder="Cirugía General Proclides" value="${prod?prod.nombre:''}"></div>
+        <div><label>Unidades por caja</label><input id="prod_por_caja" type="number" min="1" step="1" value="${prod?prod.unidades_por_caja:1}"></div>
+        <div><label>Precio de venta <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(por unidad, opcional)</span></label><input id="prod_precio" type="number" step="0.01" min="0" value="${prod&&prod.precio_venta!=null?prod.precio_venta:''}" placeholder="Ej: 12500"></div>
+      </div>
+      <div class="divider-label">Subproductos que componen el paquete</div>
+      <div id="filasSubproductoContainer"></div>
+      <div class="dyn-row-add">
+        <button class="secondary small" id="btnAgregarFilaSub" title="Agregar subproducto al paquete">+ Agregar subproducto</button>
+        <button class="ghost small" id="btnCrearSubproductoInline" title="Crear un subproducto nuevo">+ Crear subproducto nuevo</button>
+      </div>
+      <div id="inlineSubproductoContainer"></div>
+      <div class="divider-label">Receta de insumos directa del paquete (cantidad por unidad individual, no por caja)</div>
+      <div style="font-size:11.5px;color:var(--text-muted);padding:0 0 8px;line-height:1.5;"><b>Ejemplo:</b> si un paquete se entrega en cajas ×1000 y cada unidad individual consume 1 bolsa, aquí va <b>1</b>, no 1000.</div>
+      <div id="filasInsumoContainer"></div>
+      <div class="dyn-row-add"><button class="secondary small" id="btnAgregarFilaInsumo" title="Agregar insumo directo">+ Agregar insumo</button></div>`,
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="prod_cancelar">Cancelar</button><button id="prod_guardar">'+(prod?'Guardar cambios':'Crear paquete')+'</button></div>',
+    onOpen: function(body){
+      renderFilasSubproducto(subOptsPaq);
+      renderFilasInsumo(insumoOpts);
+
+      document.getElementById('btnAgregarFilaSub').addEventListener('click',function(){sincronizarSub();filasSubproducto.push({subproducto_id:'',cantidad:''});renderFilasSubproducto(subOptsPaq);});
+      document.getElementById('btnAgregarFilaInsumo').addEventListener('click',function(){sincronizarInsBom();filasInsumoBom.push({insumo_id:'',cantidad:''});renderFilasInsumo(insumoOpts);});
+
+      /* Crear subproducto inline */
+      document.getElementById('btnCrearSubproductoInline').addEventListener('click',function(){
+        const cont=document.getElementById('inlineSubproductoContainer');
+        if(cont.innerHTML.trim()){cont.innerHTML='';return;}
+        cont.innerHTML='<div class="mini-form"><h4>Nuevo subproducto rápido</h4><div class="form-grid" style="padding:0;"><div><label>Nombre</label><input id="is_nombre" placeholder="Nombre del subproducto"></div><div><label>Tipo</label><select id="is_tipo"><option value="final">Final (solo paquetes)</option><option value="intermedio">Intermedio</option><option value="ambos">Ambos</option></select></div></div><div class="form-actions" style="padding:10px 0 0;"><button class="small" id="is_guardar" title="Crear subproducto">Crear</button><button class="ghost small" id="is_cancelar" title="Cancelar">Cancelar</button></div></div>';
+        document.getElementById('is_cancelar').addEventListener('click',function(){cont.innerHTML='';});
+        document.getElementById('is_guardar').addEventListener('click',async function(ev){
+          const nombre=document.getElementById('is_nombre').value.trim();
+          const tipo=document.getElementById('is_tipo').value;
+          if(!nombre){toast('Escribe el nombre.','error');return;}
+          try{
+            await withLoading(ev.currentTarget,async function(){
+              let cod;try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,data.subproductos);}
+              await rpc('guardar_subproducto',{p_id:null,p_codigo:cod,p_nombre:nombre,p_existencia:0,p_punto_reorden:0,p_receta:[],p_hijos:[],p_tipo:tipo});
+            });
+            toast('Subproducto creado.','success');
+            cerrarModalGenerico();
+            renderProductos();
+          }catch(e){toast('Error: '+traducirError(e.message),'error');}
+        });
+      });
+
+      document.getElementById('prod_cancelar').addEventListener('click',cerrarModalGenerico);
+
+      document.getElementById('prod_guardar').addEventListener('click',async function(ev){
+        sincronizarSub();sincronizarInsBom();
+        const nombre=document.getElementById('prod_nombre').value.trim();
+        const pc=parseInt(document.getElementById('prod_por_caja').value,10)||1;
+        const precioRaw=document.getElementById('prod_precio').value.trim();
+        const precio=precioRaw?parseFloat(precioRaw):null;
+        if(!nombre){toast('Escribe el nombre del paquete.','error');return;}
+        if(pc<1){toast('Unidades por caja debe ser al menos 1.','error');return;}
+        if(precio!==null&&precio<0){toast('El precio de venta no puede ser negativo.','error');return;}
+        const subs=filasSubproducto.filter(function(f){return f.subproducto_id&&f.cantidad;}).map(function(f){return {subproducto_id:f.subproducto_id,cantidad:parseFloat(f.cantidad)};});
+        const ins=filasInsumoBom.filter(function(f){return f.insumo_id&&f.cantidad;}).map(function(f){return {insumo_id:f.insumo_id,cantidad:parseFloat(f.cantidad)};});
+        try{
+          await withLoading(ev.currentTarget,async function(){
+            let cod=prod?prod.codigo_pt:null;
+            if(!cod){
+              const numManual=(document.getElementById('prod_codigo_num').value||'').trim();
+              if(numManual){
+                let limpio=numManual;
+                if(limpio.indexOf(cfg.prefijoProducto)===0){limpio=limpio.slice(cfg.prefijoProducto.length);}
+                if(!limpio){toast('El código no puede estar vacío.','error');return;}
+                cod=cfg.prefijoProducto+limpio;
+              }else{
+                try{cod=cfg.prefijoProducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){cod=cfg.prefijoProducto+siguienteCodigoLocal(cfg.prefijoProducto,data.productos);}
+              }
+            }
+            await rpc('guardar_paquete',{p_codigo_pt:cod,p_es_nuevo:!prod,p_nombre:nombre,p_subproductos:subs,p_insumos:ins,p_unidades_por_caja:pc,p_precio_venta:precio});
+          });
+          toast(prod?'Paquete actualizado.':'Paquete creado.','success');
+          cerrarModalGenerico();
+          renderProductos();
+        }catch(e){toast(e.message,'error');}
+      });
+    }
+  });
+}
 
 function renderFilasSubproducto(disponibles){
   const cont=document.getElementById('filasSubproductoContainer');if(!cont)return;
@@ -2164,13 +2458,17 @@ async function renderOrden(){
           <div class="field-validate" id="orden_lote_status"></div>
         </div>
         <div><label>Producto terminado</label><select id="orden_pt">${productos.length?productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'">'+p.nombre+' (caja ×'+(p.unidades_por_caja||1)+')</option>';}).join(''):'<option value="">No hay paquetes</option>'}</select></div>
-        <div><label>Cantidad (unidades) <span id="orden_cantidad_preview" style="font-weight:400;color:var(--text-muted);font-size:11.5px;"></span></label><input id="orden_cantidad" type="number" placeholder="1200"></div>
+        <div>
+          <label>Cantidad (unidades)</label>
+          <input id="orden_cantidad" type="number" placeholder="1200">
+          <div class="field-hint" id="orden_cantidad_preview"></div>
+        </div>
         <div><label>Prioridad</label><select id="orden_prioridad">${prioridadOptionsHTML(3)}</select></div>
         <div><label>Fecha programada</label><input id="orden_fecha_programada" type="date"></div>
       </div>
       <div class="form-actions"><button id="btnCalcular" title="Calcular cobertura de insumos">Calcular cobertura</button></div>
     </div>
-    <div id="ordenResultado"></div>
+    
     <div class="panel">
       <div class="panel-header"><h3>Referencia · últimas 5 OPs cargadas</h3></div>
       ${ultimas.length===0?'<div class="empty-state">Aún no hay OPs cargadas.</div>':`
@@ -2213,8 +2511,7 @@ async function renderOrden(){
           return '<tr><td class="mono">'+(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+o.lote+'</span>':'')+'</td><td>'+prioridad+'</td><td>'+prod+'</td><td class="num">'+num(o.cantidad_proyectada)+(cajas?'<br><span style="color:var(--text-muted);font-size:11px;">≈ '+cajas+' cajas</span>':'')+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fechaProg+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td class="actions"><button class="ghost small" data-orden-detalle="'+o.id+'" title="Ver detalle de la OP">Detalle</button><button class="success-btn small" data-orden-entregar="'+o.id+'" '+(fin||pendiente<=0?'disabled':'')+' title="Registrar entrega">'+(hayProgreso?'Entrega parcial':'Entregar')+'</button><button class="danger-btn small" data-orden-cancelar="'+o.id+'" '+(fin?'disabled':'')+' title="Cancelar">Cancelar</button></td></tr>';
         }).join('')}
       </table>`}
-    </div>
-    <div id="detalleOrden"></div>`;
+    </div>`;
   filtrarTabla('buscar_ordenes','tablaOrdenes');
   bindSortHeaders(renderOrden);
   document.getElementById('toggleFinalizadas').addEventListener('change',function(e){mostrarFinalizadas=e.target.checked;renderOrden();});
@@ -2282,7 +2579,7 @@ async function renderOrden(){
     const cant=parseFloat(inputCantidad.value)||0;
     if(cant>0&&caja>1){
       const cajas=Math.ceil(cant/caja);
-      previewCantidad.textContent='— ≈ '+cajas+' caja'+(cajas===1?'':'s')+' de '+caja;
+      previewCantidad.textContent='≈ '+cajas+' caja'+(cajas===1?'':'s')+' de '+caja;
     } else {
       previewCantidad.textContent='';
     }
@@ -2322,63 +2619,20 @@ async function renderOrden(){
     const cantidad=parseFloat(document.getElementById('orden_cantidad').value);
     const numOp=document.getElementById('orden_numero').value.trim();
     if(!codigo_pt||!cantidad){toast('Selecciona producto y cantidad.','error');return;}
+    const selPT=document.getElementById('orden_pt');
+    const nombrePT=selPT.options[selPT.selectedIndex]?selPT.options[selPT.selectedIndex].textContent:'';
     await withLoading(ev.currentTarget,async function(){
       try{
         const res=await calcularCobertura(codigo_pt,cantidad);
-        const detalle=res.detalle,detalleSub=res.detalleSub||[],eg=res.estado_general;
-        const box=document.getElementById('ordenResultado');
-        const tablaInsumos=(detalle.length===0?'<div class="empty-state">Sin insumos directos en la receta.</div>':'<table><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+detalle.map(function(d){return '<tr><td>'+d.nombre+'</td><td class="num">'+num(d.existencia_consumo)+' '+d.unidad+'</td><td class="num">'+num(d.consumo_total)+' '+d.unidad+'</td><td class="num">'+(d.faltante>0?num(d.faltante)+' '+d.unidad:'—')+'</td><td>'+badgeFor(d.estado)+'</td></tr>';}).join('')+'</table>');
-        const tablaSubs=(detalleSub.length===0?'':'<div class="divider-label">Subproductos que componen el paquete (se consumen de su stock)</div><table><tr><th>Subproducto</th><th>Tipo</th><th class="num">Stock actual</th><th class="num">Requerido</th><th class="num">Consumo del stock</th><th class="num">Faltante a producir</th><th>Estado</th></tr>'+detalleSub.map(function(s){
-          return '<tr><td>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></td><td>'+badgeTipoSub(s.tipo)+'</td><td class="num">'+num(s.stock_actual)+'</td><td class="num">'+num(s.requerido)+' u</td><td class="num">'+num(s.a_consumir_del_stock)+' u</td><td class="num">'+(s.faltante>0?'<span style="color:var(--danger);">'+num(s.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(s.estado)+'</td></tr>';
-        }).join('')+'</table><p style="font-size:11.5px;color:var(--text-muted);padding:8px 18px 0;">Los subproductos se descuentan del stock al completar la OP. Si hay faltantes, primero produce el subproducto (Entrada mercancía → Subproducto) antes de terminar esta OP.</p>');
-        box.innerHTML='<div class="panel"><div class="panel-header"><h3>Resultado</h3>'+badgeFor(eg)+'</div>'+tablaInsumos+tablaSubs+'<div class="form-actions" style="padding-top:16px;"><button id="btnConfirmarOrden" title="Guardar la OP">Confirmar orden (queda Pendiente)</button></div></div>';
-        scrollToEl('ordenResultado');
-        document.getElementById('btnConfirmarOrden').addEventListener('click',async function(ev2){
-          const numOpLimpio=numOp.replace(cfg.prefijoOP,'').trim();
-          if(!numOpLimpio){
-            toast('El número de OP es obligatorio. Escríbelo antes de confirmar.','error');
-            document.getElementById('orden_numero').focus();
-            return;
-          }
-          const numeroCompletoPrev=cfg.prefijoOP+numOpLimpio;
-          const lotePrev=document.getElementById('orden_lote').value.trim();
-          try{
-            const dupOP=await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompletoPrev)+'&select=id&limit=1');
-            if(dupOP.length){toast('Ya existe una OP con ese número.','error');return;}
-            if(lotePrev){
-              const dupLote=await api('ordenes_semanales?lote=eq.'+encodeURIComponent(lotePrev)+'&select=id&limit=1');
-              if(dupLote.length){toast('Ya existe una OP con ese lote.','error');return;}
-            }
-          }catch(e){console.warn('Chequeo de duplicado falló:',e);}
-          try{
-            await withLoading(ev2.currentTarget,async function(){
-              const numeroCompleto=cfg.prefijoOP+numOpLimpio;
-              const lote=lotePrev||null;
-              const detalleGuardar={insumos:detalle,subproductos:detalleSub};
-              const prioridadRaw=document.getElementById('orden_prioridad').value;
-              const prioridad=prioridadRaw?parseInt(prioridadRaw,10):3;
-              const fechaProg=document.getElementById('orden_fecha_programada').value||null;
-              await rpc('confirmar_orden',{
-                p_codigo_pt:codigo_pt,
-                p_cantidad:cantidad,
-                p_estado_cobertura:eg,
-                p_detalle:detalleGuardar,
-                p_numero_op:numeroCompleto,
-                p_cantidad_cajas:null,
-                p_lote:lote,
-                p_prioridad:prioridad,
-                p_fecha_programada:fechaProg
-              });
-            });
-            toast('Orden registrada.','success');
-            renderOrden();
-          }catch(e){toast(e.message,'error');}
-        });
+        abrirModalCobertura(res,codigo_pt,cantidad,numOp,nombrePT);
       }catch(e){toast('Error calculando cobertura: '+traducirError(e.message),'error');}
     });
   });
   document.querySelectorAll('[data-orden-detalle]').forEach(function(btn){
-    btn.addEventListener('click',function(){const o=ordenes.find(function(x){return x.id===btn.dataset.ordenDetalle;});mostrarDetalleOrden(o,cfg);});
+    btn.addEventListener('click',function(){
+      const o=ordenes.find(function(x){return x.id===btn.dataset.ordenDetalle;});
+      abrirModalDetalleOrden(o);
+    });
   });
   document.querySelectorAll('[data-orden-entregar]').forEach(function(btn){
     btn.addEventListener('click',function(){
@@ -2397,51 +2651,318 @@ async function renderOrden(){
     });
   });
 }
-async function mostrarDetalleOrden(orden,cfg){
-  if(!orden)return;
-  const box=document.getElementById('detalleOrden');
-  const d=orden.detalle_faltantes||{};
-  const insumos=Array.isArray(d)?d:(d.insumos||[]);
-  const subs=Array.isArray(d)?[]:(d.subproductos||[]);
-  const tablaIns=(insumos.length===0?'<div class="empty-state">Sin insumos.</div>':'<table><tr><th>Insumo</th><th class="num">Consumo proyectado</th><th class="num">Faltante</th><th>Estado</th></tr>'+insumos.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.consumo_total)+' '+(x.unidad||'')+'</td><td class="num">'+(x.faltante>0?num(x.faltante)+' '+(x.unidad||''):'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
-  const tablaSubs=(subs.length===0?'':'<div class="divider-label">Subproductos requeridos</div><table><tr><th>Subproducto</th><th class="num">Requerido</th><th class="num">Stock al confirmar</th><th class="num">Faltante</th><th>Estado</th></tr>'+subs.map(function(x){return '<tr><td>'+x.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+(x.codigo||'')+'</span></td><td class="num">'+num(x.requerido)+' u</td><td class="num">'+num(x.stock_actual)+'</td><td class="num">'+(x.faltante>0?num(x.faltante)+' u':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
 
-  /* Progreso de entregas */
+/* ============ MODAL DE COBERTURA ============ */
+let _cobCtx=null;
+
+function abrirModalCobertura(res,codigo_pt,cantidad,numOp,nombrePT){
+  _cobCtx={res:res,codigo_pt:codigo_pt,cantidad:cantidad,numOp:numOp,nombrePT:nombrePT};
+  const overlay=document.getElementById('coberturaModal');
+  if(!overlay) return;
+
+  const detalle=res.detalle||[];
+  const detalleSub=res.detalleSub||[];
+  const eg=res.estado_general;
+
+  /* Header */
+  document.getElementById('cobIcon').className='modal-icon '+(eg==='Cubierto'?'success':(eg==='Reorden'?'warn':'danger'));
+  document.getElementById('cobIcon').textContent=eg==='Cubierto'?'✓':(eg==='Reorden'?'!':'⚠');
+  document.getElementById('cobTitle').textContent='Cobertura: '+eg;
+  document.getElementById('cobSubtitle').textContent=nombrePT+' · '+num(cantidad)+' u'+(numOp?' · OP '+numOp:'');
+
+  /* KPIs */
+  const nCub=detalle.filter(function(d){return d.estado==='Cubierto';}).length;
+  const nReo=detalle.filter(function(d){return d.estado==='Reorden';}).length;
+  const nUrg=detalle.filter(function(d){return d.estado==='Urgente';}).length;
+  document.getElementById('cobKpis').innerHTML=
+    '<span class="badge success">'+nCub+' cubiertos</span>'+
+    '<span class="badge warning">'+nReo+' en reorden</span>'+
+    '<span class="badge danger">'+nUrg+' urgentes</span>'+
+    '<span style="color:var(--text-muted);font-size:12px;">'+detalle.length+' insumo'+(detalle.length===1?'':'s')+' · '+detalleSub.length+' subproducto'+(detalleSub.length===1?'':'s')+'</span>';
+
+  /* --- Data para los gráficos --- */
+  // Existencia vs consumo: top 12 por consumo
+  const topIns=detalle.slice().sort(function(a,b){return b.consumo_total-a.consumo_total;}).slice(0,12);
+  // Cobertura %: insumos más críticos (menor ratio existencia/consumo)
+  const coberturaIns=detalle
+    .filter(function(d){return d.consumo_total>0;})
+    .map(function(d){
+      const pct=d.consumo_total>0?(d.existencia_consumo/d.consumo_total)*100:0;
+      return Object.assign({},d,{cobertura_pct:pct});
+    })
+    .sort(function(a,b){return a.cobertura_pct-b.cobertura_pct;})
+    .slice(0,12);
+  // Faltantes: solo los que tienen faltante > 0
+  const faltantesIns=detalle.filter(function(d){return d.faltante>0;}).sort(function(a,b){return b.faltante-a.faltante;}).slice(0,12);
+
+  /* --- Tablas --- */
+  const tablaInsumos=(detalle.length===0?'<div class="empty-state">Sin insumos directos en la receta.</div>':'<table><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+detalle.map(function(d){return '<tr><td>'+d.nombre+'</td><td class="num">'+num(d.existencia_consumo)+' '+d.unidad+'</td><td class="num">'+num(d.consumo_total)+' '+d.unidad+'</td><td class="num">'+(d.faltante>0?'<span style="color:var(--danger);">'+num(d.faltante)+' '+d.unidad+'</span>':'—')+'</td><td>'+badgeFor(d.estado)+'</td></tr>';}).join('')+'</table>');
+  const tablaSubs=(detalleSub.length===0?'':'<div class="divider-label">Subproductos requeridos (se consumen de su stock)</div><table><tr><th>Subproducto</th><th>Tipo</th><th class="num">Stock actual</th><th class="num">Requerido</th><th class="num">Faltante</th><th>Estado</th></tr>'+detalleSub.map(function(s){
+    return '<tr><td>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></td><td>'+badgeTipoSub(s.tipo)+'</td><td class="num">'+num(s.stock_actual)+'</td><td class="num">'+num(s.requerido)+' u</td><td class="num">'+(s.faltante>0?'<span style="color:var(--danger);">'+num(s.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(s.estado)+'</td></tr>';
+  }).join('')+'</table>');
+
+  /* --- Bloques de gráficos --- */
+  const chartCoberturaHTML=(coberturaIns.length>=2)?'<div class="chart-cell"><div class="section-title" style="padding:0 0 6px;margin:0;">Cobertura más crítica (existencia / consumo)</div><div style="position:relative;height:220px;"><canvas id="cobChartCobertura"></canvas></div></div>':'';
+  const chartsRow1=chartCoberturaHTML?'<div class="cob-charts-row">'+chartCoberturaHTML+'</div>':'';
+  const chartTopHTML=(topIns.length>=3)?'<div class="divider-label">Top insumos por consumo · existencia vs requerido</div><div style="padding:14px 18px;"><div style="position:relative;height:'+Math.max(180,topIns.length*32)+'px;"><canvas id="cobChart"></canvas></div></div>':'';
+  const chartFaltHTML=(faltantesIns.length>=1)?'<div class="divider-label">Magnitud de faltantes por insumo</div><div style="padding:14px 18px;"><div style="position:relative;height:'+Math.max(160,faltantesIns.length*34)+'px;"><canvas id="cobChartFaltantes"></canvas></div></div>':'';
+
+  /* Banner */
+  const hayFaltantes = detalle.some(function(d){return d.faltante>0;}) || detalleSub.some(function(s){return s.faltante>0;});
+  const bannerHTML = hayFaltantes
+    ? '<div class="alert-banner danger" style="margin-bottom:16px;"><div class="alert-icon">⚠</div><div class="alert-body"><strong>Faltantes detectados.</strong><span>Hay insumos o subproductos sin existencia suficiente. Revisá el detalle abajo antes de confirmar la OP.</span></div></div>'
+    : (eg==='Reorden'
+        ? '<div class="alert-banner warning" style="margin-bottom:16px;"><div class="alert-icon">!</div><div class="alert-body"><strong>Todo cubierto, algunos en reorden.</strong><span>Los insumos listados alcanzan para esta OP, pero quedarían por debajo del punto de reorden. Considera reponer.</span></div></div>'
+        : '');
+
+  document.getElementById('cobBody').innerHTML=
+    bannerHTML+
+    chartsRow1+
+    chartTopHTML+
+    chartFaltHTML+
+    tablaInsumos+
+    tablaSubs;
+
+  /* Footer */
+  const btnConfirmar=document.getElementById('cobConfirmar');
+  btnConfirmar.disabled = (eg==='Urgente');
+  btnConfirmar.textContent = (eg==='Urgente')?'Faltantes críticos':'Confirmar orden';
+  btnConfirmar.title = (eg==='Urgente')?'Hay insumos sin existencia. Producir o comprar antes de confirmar.':'Guardar la OP';
+
+  _abrirOverlay('coberturaModal');
+
+  /* --- Render de gráficos --- */
+  setTimeout(function(){
+    if(typeof Chart==='undefined')return;
+    _initChartDefaults();
+    const cs=getComputedStyle(document.documentElement);
+    const borderC=cs.getPropertyValue('--border').trim()||'#2b3140';
+    const textC=cs.getPropertyValue('--text-secondary').trim()||'#8d95a6';
+    const surf3=cs.getPropertyValue('--surface-3').trim()||'#262c3b';
+
+    /* Bar horizontal: cobertura % de los insumos más críticos */
+    const elCob=document.getElementById('cobChartCobertura');
+    if(elCob && coberturaIns.length>=2){
+      _destroyChart('cobChartCobertura');
+      const labels=coberturaIns.map(function(d){return d.nombre.length>30?d.nombre.slice(0,28)+'…':d.nombre;});
+      const data=coberturaIns.map(function(d){return Number(d.cobertura_pct.toFixed(1));});
+      const colors=data.map(function(p){return p>=100?'#3ddc84':(p>=50?'#ffb020':'#ff5c5c');});
+      chartInstances['cobChartCobertura']=new Chart(elCob,{
+        type:'bar',
+        data:{labels:labels,datasets:[{label:'Cobertura %',data:data,backgroundColor:colors,borderRadius:4}]},
+        options:{
+          responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          plugins:{
+            legend:{display:false},
+            tooltip:{
+              backgroundColor:surf3,borderColor:borderC,borderWidth:1,padding:10,
+              callbacks:{label:function(c){
+                const d=coberturaIns[c.dataIndex];
+                return [
+                  'Cobertura: '+c.parsed.x+'%',
+                  'Existencia: '+num(d.existencia_consumo)+' '+d.unidad,
+                  'Consumo: '+num(d.consumo_total)+' '+d.unidad
+                ];
+              }}
+            }
+          },
+          scales:{
+            x:{grid:{color:borderC},ticks:{color:textC,callback:function(v){return v+'%';}},beginAtZero:true},
+            y:{grid:{display:false},ticks:{color:textC,autoSkip:false,font:{size:11}}}
+          }
+        }
+      });
+    }
+
+    /* (C) Bar horizontal: top insumos por consumo vs existencia */
+    const elTop=document.getElementById('cobChart');
+    if(elTop && topIns.length>=3){
+      _destroyChart('cobChart');
+      chartInstances['cobChart']=new Chart(elTop,{
+        type:'bar',
+        data:{
+          labels:topIns.map(function(d){return d.nombre;}),
+          datasets:[
+            {label:'Existencia',data:topIns.map(function(d){return Number(d.existencia_consumo)||0;}),backgroundColor:'#3ddc84',borderRadius:4},
+            {label:'Consumo requerido',data:topIns.map(function(d){return Number(d.consumo_total)||0;}),backgroundColor:'#ffb020',borderRadius:4}
+          ]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          plugins:{
+            legend:{position:'bottom'},
+            tooltip:{backgroundColor:surf3,borderColor:borderC,borderWidth:1,padding:10}
+          },
+          scales:{
+            x:{grid:{color:borderC},ticks:{color:textC},beginAtZero:true},
+            y:{grid:{display:false},ticks:{color:textC,autoSkip:false,font:{size:11}}}
+          }
+        }
+      });
+    }
+
+    /* (D) Bar horizontal: magnitud de faltantes */
+    const elFalt=document.getElementById('cobChartFaltantes');
+    if(elFalt && faltantesIns.length>=1){
+      _destroyChart('cobChartFaltantes');
+      chartInstances['cobChartFaltantes']=new Chart(elFalt,{
+        type:'bar',
+        data:{
+          labels:faltantesIns.map(function(d){return d.nombre;}),
+          datasets:[{label:'Faltante',data:faltantesIns.map(function(d){return Number(d.faltante)||0;}),backgroundColor:'#ff5c5c',borderRadius:4}]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          plugins:{
+            legend:{display:false},
+            tooltip:{
+              backgroundColor:surf3,borderColor:borderC,borderWidth:1,padding:10,
+              callbacks:{label:function(c){
+                const d=faltantesIns[c.dataIndex];
+                return 'Faltan: '+num(c.parsed.x)+' '+d.unidad;
+              }}
+            }
+          },
+          scales:{
+            x:{grid:{color:borderC},ticks:{color:textC},beginAtZero:true},
+            y:{grid:{display:false},ticks:{color:textC,autoSkip:false,font:{size:11}}}
+          }
+        }
+      });
+    }
+  },60);
+}
+
+function cerrarModalCobertura(){
+  const overlay=document.getElementById('coberturaModal');
+  if(overlay) _cerrarOverlay('coberturaModal');
+  _destroyChart('cobChart');
+  _destroyChart('cobChartCobertura');
+  _destroyChart('cobChartFaltantes');
+  _cobCtx=null;
+}
+
+(function initModalCobertura(){
+  const overlay=document.getElementById('coberturaModal');
+  if(!overlay) return;
+  document.getElementById('cobClose').addEventListener('click',cerrarModalCobertura);
+  document.getElementById('cobCancelar').addEventListener('click',cerrarModalCobertura);
+  overlay.addEventListener('click',function(ev){if(ev.target===overlay)cerrarModalCobertura();});
+  document.addEventListener('keydown',function(ev){
+    if(ev.key==='Escape' && overlay.classList.contains('open')) cerrarModalCobertura();
+  });
+
+  document.getElementById('cobConfirmar').addEventListener('click',async function(ev2){
+    if(!_cobCtx) return;
+    const {res,codigo_pt,cantidad,numOp,nombrePT}=_cobCtx;
+    const cfg=getConfig();
+    const numOpLimpio=String(numOp||'').replace(cfg.prefijoOP,'').trim();
+    if(!numOpLimpio){
+      toast('El número de OP es obligatorio. Cerralo y llenalo antes de confirmar.','error');
+      return;
+    }
+    const numeroCompletoPrev=cfg.prefijoOP+numOpLimpio;
+    const lotePrev=(document.getElementById('orden_lote')||{}).value ? document.getElementById('orden_lote').value.trim() : '';
+    try{
+      const dupOP=await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompletoPrev)+'&select=id&limit=1');
+      if(dupOP.length){toast('Ya existe una OP con ese número.','error');return;}
+      if(lotePrev){
+        const dupLote=await api('ordenes_semanales?lote=eq.'+encodeURIComponent(lotePrev)+'&select=id&limit=1');
+        if(dupLote.length){toast('Ya existe una OP con ese lote.','error');return;}
+      }
+    }catch(e){console.warn('Chequeo de duplicado falló:',e);}
+
+    await withLoading(ev2.currentTarget,async function(){
+      try{
+        const numeroCompleto=cfg.prefijoOP+numOpLimpio;
+        const lote=lotePrev||null;
+        const detalleGuardar={insumos:res.detalle,subproductos:res.detalleSub};
+        const prioridadRaw=document.getElementById('orden_prioridad')?document.getElementById('orden_prioridad').value:'3';
+        const prioridad=prioridadRaw?parseInt(prioridadRaw,10):3;
+        const fechaProg=document.getElementById('orden_fecha_programada')?document.getElementById('orden_fecha_programada').value:null;
+        await rpc('confirmar_orden',{
+          p_codigo_pt:codigo_pt,
+          p_cantidad:cantidad,
+          p_estado_cobertura:res.estado_general,
+          p_detalle:detalleGuardar,
+          p_numero_op:numeroCompleto,
+          p_cantidad_cajas:null,
+          p_lote:lote,
+          p_prioridad:prioridad,
+          p_fecha_programada:fechaProg
+        });
+        toast('Orden registrada.','success');
+        cerrarModalCobertura();
+        renderOrden();
+      }catch(e){toast(e.message,'error');}
+    });
+  });
+})();
+
+function abrirModalDetalleOrden(orden){
+  if(!orden)return;
+
+  const d=orden.detalle_faltantes||{};
+  const insumosDet=Array.isArray(d)?d:(d.insumos||[]);
+  const subsDet=Array.isArray(d)?[]:(d.subproductos||[]);
+
   const producida=Number(orden.cantidad_producida)||0;
   const proyectada=Number(orden.cantidad_proyectada)||0;
   const pendiente=proyectada-producida;
   const pct=proyectada>0?Math.round(producida/proyectada*100):0;
-  const progresoHtml='<div class="grid-cards" style="margin:0;padding:16px 18px 0;grid-template-columns:repeat(3,minmax(0,1fr));">'+
+
+  const prodNombre=orden.productos_terminados?orden.productos_terminados.nombre:orden.codigo_pt;
+  const titulo=(orden.numero_op||'OP —')+(orden.lote?' · lote '+orden.lote:'');
+
+  const progresoHtml='<div class="grid-cards" style="margin:0 0 16px;grid-template-columns:repeat(3,minmax(0,1fr));">'+
     '<div class="stat-card neutral"><p class="stat-label">Proyectado</p><p class="stat-value" style="font-size:18px;">'+num(proyectada)+' u</p></div>'+
     '<div class="stat-card '+(producida>=proyectada?'success':'info')+'"><p class="stat-label">Entregado ('+pct+'%)</p><p class="stat-value" style="font-size:18px;">'+num(producida)+' u</p></div>'+
     '<div class="stat-card '+(pendiente>0?'warning':'neutral')+'"><p class="stat-label">Pendiente</p><p class="stat-value" style="font-size:18px;">'+num(pendiente)+' u</p></div>'+
     '</div>';
 
-  /* Historial de entregas (fetch dinámico) */
-  let entregasHtml='<div class="divider-label">Historial de entregas</div>';
-  try{
-    const entregas=await api('entregas_op?orden_id=eq.'+orden.id+'&select=*&order=fecha.asc');
-    if(entregas.length===0){
-      entregasHtml+='<div class="empty-state">Sin entregas registradas todavía.</div>';
-    } else {
-      entregasHtml+='<table><tr><th>#</th><th>Fecha</th><th class="num">Cantidad</th><th>Lote</th><th>Motivo</th><th>Usuario</th></tr>'+
-        entregas.map(function(e,idx){
-          return '<tr><td class="mono">'+(idx+1)+'</td>'+
-            '<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(e.fecha).toLocaleString('es-CO')+'</td>'+
-            '<td class="num">'+num(e.cantidad)+' u</td>'+
-            '<td class="mono" style="font-size:12px;">'+(e.lote_entrega||'—')+'</td>'+
-            '<td style="color:var(--text-secondary);font-size:12px;">'+(e.motivo||'—')+'</td>'+
-            '<td style="color:var(--text-secondary);font-size:12px;">'+(e.usuario_email||'—')+'</td>'+
-            '</tr>';
-        }).join('')+'</table>';
-    }
-  }catch(e){
-    entregasHtml+='<div class="empty-state">No se pudo cargar el historial.</div>';
-  }
+  const tablaIns=(insumosDet.length===0?'<div class="divider-label" style="padding-left:0;">Insumos proyectados</div><div class="empty-state" style="padding:16px 0;">Sin insumos en el detalle.</div>':'<div class="divider-label" style="padding-left:0;">Insumos proyectados</div><table><tr><th>Insumo</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+insumosDet.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.consumo_total)+' '+(x.unidad||'')+'</td><td class="num">'+(x.faltante>0?'<span style="color:var(--danger);">'+num(x.faltante)+' '+(x.unidad||'')+'</span>':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
+  const tablaSubs=(subsDet.length===0?'':'<div class="divider-label" style="padding-left:0;">Subproductos requeridos</div><table><tr><th>Subproducto</th><th class="num">Requerido</th><th class="num">Stock al confirmar</th><th class="num">Faltante</th><th>Estado</th></tr>'+subsDet.map(function(x){return '<tr><td>'+x.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+(x.codigo||'')+'</span></td><td class="num">'+num(x.requerido)+' u</td><td class="num">'+num(x.stock_actual)+'</td><td class="num">'+(x.faltante>0?'<span style="color:var(--danger);">'+num(x.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
 
-  box.innerHTML='<div class="panel"><div class="panel-header"><h3>'+(orden.numero_op||'')+(orden.lote?' · lote '+orden.lote:'')+' · '+(orden.productos_terminados?orden.productos_terminados.nombre:orden.codigo_pt)+'</h3>'+badgeOP(orden.estado_op)+'</div>'+progresoHtml+tablaIns+tablaSubs+entregasHtml+'</div>';
-  box.scrollIntoView({behavior:'smooth',block:'start'});
+  abrirModalGenerico({
+    title: titulo,
+    subtitle: prodNombre,
+    icon: '📋',
+    variant: 'info',
+    size: 'wide',
+    body: progresoHtml + tablaIns + tablaSubs + '<div id="modalDetalleEntregas"></div>',
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button id="det_cerrar">Cerrar</button></div>',
+    onOpen: function(){
+      document.getElementById('det_cerrar').addEventListener('click',cerrarModalGenerico);
+
+      /* Cargar entregas async (no bloquea el render del modal) */
+      const contEnt=document.getElementById('modalDetalleEntregas');
+      contEnt.innerHTML='<div class="divider-label" style="padding-left:0;">Historial de entregas</div><div style="padding:16px 0;text-align:center;color:var(--text-muted);font-size:12.5px;">Cargando…</div>';
+      (async function(){
+        try{
+          const entregas=await api('entregas_op?orden_id=eq.'+orden.id+'&select=*&order=fecha.asc');
+          if(entregas.length===0){
+            contEnt.innerHTML='<div class="divider-label" style="padding-left:0;">Historial de entregas</div><div class="empty-state" style="padding:16px 0;">Sin entregas registradas todavía.</div>';
+          } else {
+            contEnt.innerHTML='<div class="divider-label" style="padding-left:0;">Historial de entregas · '+entregas.length+'</div>'+
+              '<table><tr><th>#</th><th>Fecha</th><th class="num">Cantidad</th><th>Lote</th><th>Motivo</th><th>Usuario</th></tr>'+
+              entregas.map(function(e,idx){
+                return '<tr><td class="mono">'+(idx+1)+'</td>'+
+                  '<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(e.fecha).toLocaleString('es-CO')+'</td>'+
+                  '<td class="num">'+num(e.cantidad)+' u</td>'+
+                  '<td class="mono" style="font-size:12px;">'+(e.lote_entrega||'—')+'</td>'+
+                  '<td style="color:var(--text-secondary);font-size:12px;">'+(e.motivo||'—')+'</td>'+
+                  '<td style="color:var(--text-secondary);font-size:12px;">'+(e.usuario_email||'—')+'</td>'+
+                  '</tr>';
+              }).join('')+'</table>';
+          }
+        }catch(err){
+          contEnt.innerHTML='<div class="divider-label" style="padding-left:0;">Historial de entregas</div><div class="empty-state" style="padding:16px 0;">No se pudo cargar el historial.</div>';
+        }
+      })();
+    }
+  });
 }
+
 
 /* ============ ENTREGA PARCIAL DE OP ============ */
 let entregaOrdenActual=null;
@@ -2483,13 +3004,13 @@ function abrirModalEntrega(orden){
   document.getElementById('entregaError').style.display='none';
   document.getElementById('entregaError').textContent='';
 
-  overlay.classList.add('open');
+  _abrirOverlay('entregaModal');
   setTimeout(function(){inp.focus();inp.select();},80);
 }
 
 function cerrarModalEntrega(){
   const overlay=document.getElementById('entregaModal');
-  if(overlay) overlay.classList.remove('open');
+  if(overlay) _cerrarOverlay('entregaModal');
   entregaOrdenActual=null;
 }
 
@@ -2585,17 +3106,14 @@ async function renderNovedades(){
           return '<tr><td class="mono">'+(o.numero_op||'—')+'</td><td>'+(o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt)+'</td><td class="num">'+num(o.cantidad_proyectada)+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td><button class="ghost small" data-nov-detalle="'+o.id+'" title="Ver detalle">Ver detalle</button></td></tr>';
         }).join('')}
       </table>`}
-    </div>
-    <div id="detalleNovedad"></div>`;
+    </div>`;
   filtrarTabla('buscar_novedades','tablaNovedades');
   bindSortHeaders(renderNovedades);
   paginarTabla('tablaNovedades');
     document.querySelectorAll('[data-nov-detalle]').forEach(function(btn){
     btn.addEventListener('click',function(){
       const o=ordenes.find(function(x){return x.id===btn.dataset.novDetalle;});
-      const box=document.getElementById('detalleNovedad');
-      box.id='detalleOrden';
-      mostrarDetalleOrden(o,getConfig()).then(function(){box.id='detalleNovedad';});
+      abrirModalDetalleOrden(o);
     });
   });
 }
@@ -2626,11 +3144,7 @@ async function renderEntradas(){
         <div id="ent_motivo_wrap" style="display:none;"><label>Motivo</label><input id="ent_motivo" placeholder="Ej: producción interna, ajuste"></div>
       </div>
       <div class="form-grid" id="ent_rend_box" style="padding-top:0;display:none;"><div class="full-span"><label>Rendimiento real del lote (unidades de consumo por unidad de compra)</label><input id="ent_rendimiento" type="number" step="0.0001" placeholder="Ej: unidades por kg"></div></div>
-      <div class="form-grid" id="ent_prov_link_wrap" style="padding-top:0;"><div class="full-span"><button type="button" class="subtle-toggle" id="toggleNuevoProveedor" title="Crear proveedor">+ El proveedor no está en la lista, crear uno nuevo</button></div></div>
-      <div id="nuevoProveedorInline" style="display:none;">
-        <div class="form-grid" style="padding-top:0;"><div><label>NIT</label><input id="np_nit" placeholder="900123456-1"></div><div><label>Razón social</label><input id="np_nombre" placeholder="Nuevo proveedor S.A.S."></div></div>
-        <div class="form-actions" style="padding-top:0;"><button class="secondary small" id="btnGuardarProveedorInline" title="Guardar proveedor">Guardar proveedor</button></div>
-      </div>
+      <div class="form-grid" id="ent_prov_link_wrap" style="padding-top:0;"><div class="full-span"><button type="button" class="subtle-toggle" id="btnAbrirNuevoProveedor" title="Crear proveedor">+ El proveedor no está en la lista, crear uno nuevo</button></div></div>
       <div id="ent_preview" style="padding:0 18px 8px;font-size:12.5px;color:var(--text-secondary);"></div>
       <div class="form-actions"><button id="btnRegistrarEntrada" title="Registrar entrada">Registrar entrada</button></div>
     </div>
@@ -2708,21 +3222,8 @@ async function renderEntradas(){
   inputRend.addEventListener('input',actualizarContexto);
   popularItems();
 
-  document.getElementById('toggleNuevoProveedor').addEventListener('click',function(){const box=document.getElementById('nuevoProveedorInline');box.style.display=box.style.display==='none'?'block':'none';});
-  document.getElementById('btnGuardarProveedorInline').addEventListener('click',async function(ev){
-    const nit=document.getElementById('np_nit').value.trim();
-    const rs=document.getElementById('np_nombre').value.trim();
-    if(!nit||!rs){toast('Completa NIT y razón social.','error');return;}
-    try{
-      const creado=await withLoading(ev.currentTarget,async function(){
-        const existe=await api('sys_proveedores?nit=eq.'+encodeURIComponent(nit)+'&select=id&limit=1');
-        if(existe.length)throw new Error('Ya existe un proveedor con ese NIT.');
-        return await api('sys_proveedores',{method:'POST',headers:apiHeaders({'Prefer':'return=representation'}),body:JSON.stringify({nit:nit,razon_social:rs})});
-      });
-      toast('Proveedor creado.','success');
-      await renderEntradas();
-      if(creado&&creado[0])document.getElementById('ent_proveedor').value=creado[0].id;
-    }catch(e){toast(e.message,'error');}
+  document.getElementById('btnAbrirNuevoProveedor').addEventListener('click',function(){
+    abrirModalNuevoProveedor();
   });
   document.getElementById('btnRegistrarEntrada').addEventListener('click',async function(ev){
     const tipo=selTipo.value;
@@ -2748,48 +3249,197 @@ async function renderEntradas(){
 } 
 
 /* ============ DEVOLUCIONES A PROVEEDOR ============ */
+
+/* ============ MODAL DE NUEVO PROVEEDOR ============ */
+function abrirModalNuevoProveedor(){
+  abrirModalGenerico({
+    title:'Nuevo proveedor',
+    subtitle:'Se agregará al maestro y quedará seleccionado en el formulario.',
+    icon:'🚚',
+    variant:'info',
+    size:'md',
+    body:`
+      <div class="form-grid" style="padding:0;">
+        <div><label>NIT <span style="color:var(--danger);">*</span></label><input id="mp_nit" placeholder="900123456-1" autocomplete="off"></div>
+        <div><label>Razón social <span style="color:var(--danger);">*</span></label><input id="mp_razon" placeholder="Empaques del Valle S.A.S." autocomplete="off"></div>
+        <div class="full-span"><label>Dirección <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="mp_direccion" placeholder="Cra 1 # 2-34, Cali" autocomplete="off"></div>
+      </div>
+      <div class="divider-label">Contactos <span style="font-weight:400;text-transform:none;">(opcional)</span></div>
+      <div id="mp_contactos"></div>
+      <div style="padding:4px 18px 12px;"><button type="button" class="secondary small" id="mp_add_contacto">+ Agregar contacto</button></div>`,
+    footer:`
+      <div style="display:flex;justify-content:flex-end;gap:8px;width:100%;">
+        <button class="ghost" id="mp_cancelar">Cancelar</button>
+        <button id="mp_guardar">Crear proveedor</button>
+      </div>`,
+    onOpen:function(body){
+      /* Editor de contactos */
+      let contactos=[{nombre:'',telefono:'',correo:''}];
+      function renderContactos(){
+        const cont=body.querySelector('#mp_contactos');
+        cont.innerHTML=contactos.map(function(c,idx){
+          return '<div class="dyn-row conv-recipe">'+
+            '<input id="mpc_nombre_'+idx+'" placeholder="Nombre" value="'+(c.nombre||'')+'">'+
+            '<input id="mpc_tel_'+idx+'" placeholder="Teléfono" value="'+(c.telefono||'')+'">'+
+            '<input id="mpc_mail_'+idx+'" placeholder="Correo" value="'+(c.correo||'')+'">'+
+            '<span></span>'+
+            '<button type="button" class="ghost small" data-remove-mpc="'+idx+'">×</button>'+
+            '</div>';
+        }).join('');
+        cont.querySelectorAll('[data-remove-mpc]').forEach(function(btn){
+          btn.addEventListener('click',function(){
+            syncContactos();
+            contactos.splice(parseInt(btn.dataset.removeMpc,10),1);
+            if(contactos.length===0) contactos=[{nombre:'',telefono:'',correo:''}];
+            renderContactos();
+          });
+        });
+      }
+      function syncContactos(){
+        contactos=contactos.map(function(_,idx){
+          return {
+            nombre:(body.querySelector('#mpc_nombre_'+idx)||{}).value||'',
+            telefono:(body.querySelector('#mpc_tel_'+idx)||{}).value||'',
+            correo:(body.querySelector('#mpc_mail_'+idx)||{}).value||''
+          };
+        });
+      }
+      renderContactos();
+      body.querySelector('#mp_add_contacto').addEventListener('click',function(){
+        syncContactos();
+        contactos.push({nombre:'',telefono:'',correo:''});
+        renderContactos();
+      });
+      document.getElementById('mp_cancelar').addEventListener('click',cerrarModalGenerico);
+      document.getElementById('mp_guardar').addEventListener('click',async function(ev){
+        syncContactos();
+        const nit=body.querySelector('#mp_nit').value.trim();
+        const razon=body.querySelector('#mp_razon').value.trim();
+        const direccion=body.querySelector('#mp_direccion').value.trim()||null;
+        const contactosLimpios=contactos.filter(function(c){return c.nombre||c.telefono||c.correo;});
+        if(!nit){toast('Completa el NIT.','error');return;}
+        if(!razon){toast('Completa la razón social.','error');return;}
+        await withLoading(ev.currentTarget,async function(){
+          try{
+            const existe=await api('sys_proveedores?nit=eq.'+encodeURIComponent(nit)+'&select=id&limit=1');
+            if(existe.length) throw new Error('Ya existe un proveedor con ese NIT.');
+            const creado=await api('sys_proveedores',{
+              method:'POST',
+              headers:apiHeaders({'Prefer':'return=representation'}),
+              body:JSON.stringify({nit:nit,razon_social:razon,direccion:direccion,contactos:contactosLimpios})
+            });
+            toast('Proveedor creado.','success');
+            cerrarModalGenerico();
+            /* Refrescar el módulo y seleccionar el nuevo */
+            await renderEntradas();
+            if(creado&&creado[0]){
+              const selProv=document.getElementById('ent_proveedor');
+              if(selProv) selProv.value=creado[0].id;
+            }
+          }catch(e){toast(e.message,'error');}
+        });
+      });
+    }
+  });
+}
+
+/* ============ DEVOLUCIONES (a proveedor y de PT) ============ */
 async function renderDevoluciones(){
   const main=document.getElementById('mainContent');
-  const [insumos,proveedores,devoluciones]=await Promise.all([
+  const [insumos,productos,proveedores,devolucionesProv,devolucionesPT]=await Promise.all([
     api('insumos?select=id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,existencia_actual,punto_reorden&estado_activo=eq.true&order=nombre'),
+    api('productos_terminados?select=codigo_pt,nombre,unidades_por_caja,existencia_actual&order=nombre'),
     api('sys_proveedores?select=id,razon_social&order=razon_social'),
-    api('movimientos_inventario?select=*,insumos(nombre,unidad_consumo,unidad_medida),sys_proveedores(razon_social)&tipo=eq.Salida&proveedor_id=not.is.null&order=fecha.desc&limit=30')
+    api('movimientos_inventario?select=*,insumos(nombre,unidad_consumo,unidad_medida),sys_proveedores(razon_social)&tipo=eq.Salida&proveedor_id=not.is.null&order=fecha.desc&limit=20'),
+    api('devoluciones_pt?select=*,productos_terminados(nombre,unidades_por_caja)&order=fecha.desc&limit=20')
   ]);
 
   main.innerHTML=`
     <div class="page-header-flex">
       <div>
-        <h2 class="page-title">Devoluciones a proveedor</h2>
-        <p class="page-sub">Registra mercancía devuelta. Descuenta stock y genera un movimiento de Salida con referencia al proveedor.</p>
+        <h2 class="page-title">Devoluciones</h2>
+        <p class="page-sub">Registra devoluciones a proveedores (insumos) o de clientes (producto terminado).</p>
       </div>
       ${botonRefreshHTML('devoluciones')}
     </div>
 
-    <div class="panel require-write">
-      <div class="panel-header"><h3>Nueva devolución</h3></div>
-      <div class="form-grid">
-        <div><label>Insumo</label><select id="dev_insumo">${insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join(''):'<option value="">No hay insumos</option>'}</select></div>
-        <div><label>Cantidad (<span id="dev_unidad_label">—</span>)</label><input id="dev_cantidad" type="number" step="0.0001" placeholder="0"></div>
-        <div><label>Proveedor</label><select id="dev_proveedor"><option value="">— Selecciona —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
-        <div><label>Motivo <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="dev_motivo" placeholder="Ej: producto defectuoso, exceso de pedido"></div>
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header"><h3>Tipo de devolución</h3></div>
+      <div style="padding:14px 18px;">
+        <div class="tabs" style="display:flex;gap:6px;">
+          <button class="secondary small tab-btn active" data-dev-tipo="prov">A proveedor (insumo)</button>
+          <button class="secondary small tab-btn" data-dev-tipo="pt">De cliente (producto)</button>
+        </div>
       </div>
-      <div id="dev_preview" style="padding:0 18px 8px;font-size:12.5px;color:var(--text-secondary);"></div>
-      <div class="form-actions"><button id="btnRegistrarDevolucion" title="Registrar devolución">Registrar devolución</button></div>
     </div>
 
-    <div class="panel">
-      <div class="panel-header"><h3>Últimas devoluciones</h3></div>
-      ${devoluciones.length===0?'<div class="empty-state">Sin devoluciones registradas.</div>':`
-      <table><tr><th>Insumo</th><th class="num">Cantidad</th><th>Proveedor</th><th>Motivo</th><th>Fecha</th></tr>
-        ${devoluciones.map(function(m){
-          const cant=num(m.cantidad)+' '+(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):'');
-          const prov=m.sys_proveedores?m.sys_proveedores.razon_social:'—';
-          const motivo=m.motivo||'—';
-          return '<tr><td>'+(m.insumos?m.insumos.nombre:'(insumo)')+'</td><td class="num">-'+cant+'</td><td>'+prov+'</td><td style="color:var(--text-secondary);font-size:12.5px;">'+motivo+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
-        }).join('')}
-      </table>`}
+    <div id="devProvWrap">
+      <div class="panel force-expanded no-scroll require-write">
+        <div class="panel-header"><h3>Nueva devolución a proveedor</h3></div>
+        <div class="form-grid">
+          <div><label>Insumo</label><select id="dev_insumo">${insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join(''):'<option value="">No hay insumos</option>'}</select></div>
+          <div><label>Cantidad (<span id="dev_unidad_label">—</span>)</label><input id="dev_cantidad" type="number" step="0.0001" placeholder="0"></div>
+          <div><label>Proveedor</label><select id="dev_proveedor"><option value="">— Selecciona —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
+          <div><label>Motivo <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="dev_motivo" placeholder="Ej: producto defectuoso"></div>
+        </div>
+        <div id="dev_preview" style="padding:0 18px 8px;font-size:12.5px;color:var(--text-secondary);"></div>
+        <div class="form-actions"><button id="btnRegistrarDevolucion">Registrar devolución</button></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Últimas devoluciones a proveedor</h3></div>
+        ${devolucionesProv.length===0?'<div class="empty-state">Sin devoluciones registradas.</div>':`
+        <table><tr><th>Insumo</th><th class="num">Cantidad</th><th>Proveedor</th><th>Motivo</th><th>Fecha</th></tr>
+          ${devolucionesProv.map(function(m){
+            const cant=num(m.cantidad)+' '+(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):'');
+            const prov=m.sys_proveedores?m.sys_proveedores.razon_social:'—';
+            return '<tr><td>'+(m.insumos?m.insumos.nombre:'(insumo)')+'</td><td class="num">-'+cant+'</td><td>'+prov+'</td><td style="color:var(--text-secondary);font-size:12.5px;">'+(m.motivo||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
+          }).join('')}
+        </table>`}
+      </div>
+    </div>
+
+    <div id="devPTWrap" style="display:none;">
+      <div class="panel force-expanded no-scroll require-write">
+        <div class="panel-header"><h3>Nueva devolución de cliente</h3></div>
+        <div class="form-grid">
+          <div><label>Producto terminado</label><select id="devpt_producto">${productos.length?productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'" data-existencia="'+(p.existencia_actual||0)+'">'+p.nombre+' ('+p.codigo_pt+')</option>';}).join(''):'<option value="">No hay productos</option>'}</select></div>
+          <div><label>Cantidad devuelta</label><input id="devpt_cantidad" type="number" step="0.0001" placeholder="0"></div>
+          <div><label>Estado del producto</label><select id="devpt_estado">
+            <option value="bueno">Bueno — vuelve al stock</option>
+            <option value="cuarentena">En cuarentena — no vuelve al stock</option>
+            <option value="dañado">Dañado — no vuelve al stock</option>
+          </select></div>
+          <div><label>Motivo <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="devpt_motivo" placeholder="Ej: sobrante de obra, error de despacho"></div>
+        </div>
+        <div id="devpt_preview" style="padding:0 18px 8px;font-size:12.5px;color:var(--text-secondary);"></div>
+        <div class="form-actions"><button id="btnRegistrarDevolucionPT">Registrar devolución</button></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Últimas devoluciones de cliente</h3></div>
+        ${devolucionesPT.length===0?'<div class="empty-state">Sin devoluciones registradas.</div>':`
+        <table><tr><th>Producto</th><th class="num">Cantidad</th><th>Estado</th><th>Motivo</th><th>Fecha</th></tr>
+          ${devolucionesPT.map(function(d){
+            const p=d.productos_terminados||{};
+            const badgeEstado={bueno:'success',cuarentena:'warning','dañado':'danger'}[d.estado_producto]||'neutral';
+            return '<tr><td>'+(p.nombre||d.codigo_pt)+'</td><td class="num">+'+num(d.cantidad)+' u</td><td><span class="badge '+badgeEstado+'">'+d.estado_producto+'</span></td><td style="color:var(--text-secondary);font-size:12.5px;">'+(d.motivo||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(d.fecha).toLocaleDateString('es-CO')+'</td></tr>';
+          }).join('')}
+        </table>`}
+      </div>
     </div>`;
 
+  /* Tabs */
+  document.querySelectorAll('[data-dev-tipo]').forEach(function(b){
+    b.addEventListener('click',function(){
+      const tipo=b.dataset.devTipo;
+      document.querySelectorAll('[data-dev-tipo]').forEach(function(x){x.classList.toggle('active',x===b);});
+      document.getElementById('devProvWrap').style.display = tipo==='prov'?'block':'none';
+      document.getElementById('devPTWrap').style.display = tipo==='pt'?'block':'none';
+    });
+  });
+
+  /* --- Devoluciones a proveedor --- */
   const selInsumo=document.getElementById('dev_insumo');
   const selProv=document.getElementById('dev_proveedor');
   const inputCant=document.getElementById('dev_cantidad');
@@ -2806,10 +3456,8 @@ async function renderDevoluciones(){
     if(cant>0){
       const quedaria=(Number(ins.existencia_actual)||0)-cant;
       const color=quedaria<0?'var(--danger)':(quedaria<=Number(ins.punto_reorden||0)?'var(--warning)':'var(--success)');
-      preview.innerHTML='Existencia actual: <strong>'+num(ins.existencia_actual)+' '+uC+'</strong> → después de la devolución: <strong style="color:'+color+';">'+num(quedaria)+' '+uC+'</strong>';
-    } else {
-      preview.innerHTML='Existencia actual: <strong>'+num(ins.existencia_actual)+' '+uC+'</strong>';
-    }
+      preview.innerHTML='Existencia actual: <strong>'+num(ins.existencia_actual)+' '+uC+'</strong> → después: <strong style="color:'+color+';">'+num(quedaria)+' '+uC+'</strong>';
+    } else preview.innerHTML='Existencia actual: <strong>'+num(ins.existencia_actual)+' '+uC+'</strong>';
   }
   selInsumo.addEventListener('change',actualizarContexto);
   inputCant.addEventListener('input',actualizarContexto);
@@ -2823,25 +3471,61 @@ async function renderDevoluciones(){
     if(!insumo_id){toast('Selecciona un insumo.','error');return;}
     if(!proveedor_id){toast('Selecciona un proveedor.','error');return;}
     if(!cantidad||cantidad<=0){toast('Ingresa una cantidad válida.','error');return;}
-
-    if(!await confirmar({
-      title:'Registrar devolución',
-      message:'Se van a descontar '+num(cantidad)+' del insumo seleccionado y se dejará registro con el proveedor.',
-      icon:'↩',variant:'warn',okText:'Registrar'
-    })) return;
-
+    if(!await confirmar({title:'Registrar devolución a proveedor',message:'Se van a descontar '+num(cantidad)+' del insumo seleccionado.',icon:'↩',variant:'warn',okText:'Registrar'})) return;
     try{
       const r=await withLoading(ev.currentTarget,async function(){
-        return await rpc('registrar_devolucion',{
-          p_insumo_id:insumo_id,
-          p_cantidad:cantidad,
-          p_proveedor_id:proveedor_id,
-          p_motivo:motivo
-        });
+        return await rpc('registrar_devolucion',{p_insumo_id:insumo_id,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_motivo:motivo});
       });
       toast('Devolución registrada. Existencia: '+num(r.existencia_nueva),'success');
       renderDevoluciones();
-      setTimeout(actualizarIndicadorStock, 300);
+      setTimeout(actualizarIndicadorStock,300);
+    }catch(e){toast(e.message,'error');}
+  });
+
+  /* --- Devoluciones de PT --- */
+  const selPT=document.getElementById('devpt_producto');
+  const inputCantPT=document.getElementById('devpt_cantidad');
+  const selEstado=document.getElementById('devpt_estado');
+  const previewPT=document.getElementById('devpt_preview');
+
+  function actualizarPreviewPT(){
+    const opt=selPT.options[selPT.selectedIndex];
+    if(!opt){previewPT.innerHTML='';return;}
+    const ex=Number(opt.dataset.existencia)||0;
+    const pc=Number(opt.dataset.caja)||1;
+    const cant=parseFloat(inputCantPT.value)||0;
+    const estado=selEstado.value;
+    const afecta=estado==='bueno';
+    const nuevaEx=afecta?ex+cant:ex;
+    if(cant>0){
+      previewPT.innerHTML='Stock actual: <strong>'+num(ex)+' u</strong>'+
+        (afecta?' → después: <strong style="color:var(--success);">'+num(nuevaEx)+' u</strong>':' <span style="color:var(--warning);">(no afecta stock)</span>')+
+        (pc>1?' · Equivale a ≈ '+num(cant/pc,2)+' cajas':'');
+    } else previewPT.innerHTML='Stock actual: <strong>'+num(ex)+' u</strong>';
+  }
+  selPT.addEventListener('change',actualizarPreviewPT);
+  inputCantPT.addEventListener('input',actualizarPreviewPT);
+  selEstado.addEventListener('change',actualizarPreviewPT);
+  actualizarPreviewPT();
+
+  document.getElementById('btnRegistrarDevolucionPT').addEventListener('click',async function(ev){
+    const codigo_pt=selPT.value;
+    const cantidad=parseFloat(inputCantPT.value);
+    const estado_producto=selEstado.value;
+    const motivo=document.getElementById('devpt_motivo').value.trim()||null;
+    if(!codigo_pt){toast('Selecciona un producto.','error');return;}
+    if(!cantidad||cantidad<=0){toast('Ingresa una cantidad válida.','error');return;}
+    const afecta=estado_producto==='bueno';
+    const msg=afecta
+      ? 'Se sumarán '+num(cantidad)+' unidades al stock de este producto.'
+      : 'La devolución queda registrada pero NO suma stock (estado: '+estado_producto+').';
+    if(!await confirmar({title:'Registrar devolución de cliente',message:msg,icon:'↩',variant:afecta?'info':'warn',okText:'Registrar'})) return;
+    try{
+      const r=await withLoading(ev.currentTarget,async function(){
+        return await rpc('registrar_devolucion_pt',{p_codigo_pt:codigo_pt,p_cantidad:cantidad,p_estado_producto:estado_producto,p_motivo:motivo});
+      });
+      toast(afecta?'Devolución registrada. Stock: '+num(r.existencia_nueva):'Devolución registrada (sin impacto en stock).','success');
+      renderDevoluciones();
     }catch(e){toast(e.message,'error');}
   });
 }
@@ -2853,29 +3537,12 @@ let filasContacto=[{nombre:'',telefono:'',correo:''}];
 async function renderProveedores(){
   const main=document.getElementById('mainContent');
   const proveedores=await api('sys_proveedores?select=*&order=razon_social');
-  const editando=proveedores.find(function(p){return p.id===editandoProveedorId;})||null;
-  filasContacto=editando&&editando.contactos&&editando.contactos.length?editando.contactos.slice():[{nombre:'',telefono:'',correo:''}];
   const view=applySort(proveedores,'lista_prov',{nit:function(p){return p.nit;},razon:function(p){return p.razon_social;},nombre:function(p){return p.razon_social;}});
   main.innerHTML=`
     <h2 class="page-title">Proveedores</h2>
     <p class="page-sub">Maestro de proveedores con dirección y contactos.</p>
-    <div class="panel require-write" id="formEdicionProv">
-      <div class="panel-header"><h3>${editando?'Editar proveedor':'Nuevo proveedor'}</h3></div>
-      <div class="form-grid">
-        <div><label>NIT</label><input id="prov_nit" placeholder="900123456-1" value="${editando?editando.nit:''}"></div>
-        <div><label>Razón social</label><input id="prov_nombre" placeholder="Empaques del Valle" value="${editando?editando.razon_social:''}"></div>
-        <div class="full-span"><label>Dirección</label><input id="prov_direccion" placeholder="Cra 1 # 2-34, Cali" value="${editando&&editando.direccion?editando.direccion:''}"></div>
-      </div>
-      <div class="divider-label">Contactos</div>
-      <div id="filasContactoContainer"></div>
-      <div class="dyn-row-add"><button class="secondary small" id="btnAgregarContacto" title="Agregar contacto">+ Agregar contacto</button></div>
-      <div class="form-actions">
-        <button id="btnGuardarProveedor" title="${editando?'Guardar cambios':'Crear proveedor'}">${editando?'Guardar cambios':'Crear proveedor'}</button>
-        ${editando?'<button class="ghost" id="btnCancelarProveedor" title="Cancelar">Cancelar</button>':''}
-      </div>
-    </div>
     <div class="panel">
-      <div class="panel-header"><h3>Listado</h3>${botonRefreshHTML('proveedores')}</div>
+      <div class="panel-header"><h3>Listado</h3><div style="display:flex;gap:6px;align-items:center;">${botonRefreshHTML('proveedores')}<button class="btn-add require-write" id="btnNuevoProveedor" title="Crear proveedor">+</button></div></div>
       <div class="search-box"><input id="buscar_proveedores" placeholder="Buscar por razón social o NIT…"></div>
       ${proveedores.length===0?'<div class="empty-state">No hay proveedores.</div>':`
       <table id="tablaProveedores"><tr>
@@ -2890,9 +3557,16 @@ async function renderProveedores(){
   filtrarTabla('buscar_proveedores','tablaProveedores');
   bindSortHeaders(renderProveedores);
   paginarTabla('tablaProveedores');
-  renderFilasContacto();
-  document.getElementById('btnAgregarContacto').addEventListener('click',function(){sincronizarContactos();filasContacto.push({nombre:'',telefono:'',correo:''});renderFilasContacto();});
-  document.querySelectorAll('[data-edit-prov]').forEach(function(btn){btn.addEventListener('click',function(){editandoProveedorId=btn.dataset.editProv;renderProveedores().then(function(){scrollToEl('formEdicionProv');});});});
+  document.getElementById('btnNuevoProveedor').addEventListener('click',function(){
+    editandoProveedorId=null;
+    abrirModalProveedor(null,proveedores);
+  });
+  document.querySelectorAll('[data-edit-prov]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      editandoProveedorId=btn.dataset.editProv;
+      abrirModalProveedor(btn.dataset.editProv,proveedores);
+    });
+  });
   document.querySelectorAll('[data-del-prov]').forEach(function(btn){
     btn.addEventListener('click',async function(){
       if(!await confirmarEliminar(btn.dataset.delNombre))return;
@@ -2900,26 +3574,59 @@ async function renderProveedores(){
       catch(e){toast('No se pudo eliminar: '+traducirError(e.message),'error');}
     });
   });
-  const bcp=document.getElementById('btnCancelarProveedor');
-  if(bcp)bcp.addEventListener('click',function(){editandoProveedorId=null;renderProveedores();});
-  document.getElementById('btnGuardarProveedor').addEventListener('click',async function(ev){
-    sincronizarContactos();
-    const body={nit:document.getElementById('prov_nit').value.trim(),razon_social:document.getElementById('prov_nombre').value.trim(),direccion:document.getElementById('prov_direccion').value.trim()||null,contactos:filasContacto.filter(function(c){return c.nombre||c.telefono||c.correo;})};
-    if(!body.nit||!body.razon_social){toast('Completa NIT y razón social.','error');return;}
-    try{
-      await withLoading(ev.currentTarget,async function(){
-        if(!editando){
-          const existe=await api('sys_proveedores?nit=eq.'+encodeURIComponent(body.nit)+'&select=id&limit=1');
-          if(existe.length)throw new Error('Ya existe un proveedor con ese NIT.');
-        }
-        if(editando){await api('sys_proveedores?id=eq.'+editando.id,{method:'PATCH',body:JSON.stringify(body)});editandoProveedorId=null;}
-        else{await api('sys_proveedores',{method:'POST',body:JSON.stringify(body)});}
+}
+
+function _htmlFormProveedor(prov){
+  return `
+    <div class="form-grid" style="padding:0;">
+      <div><label>NIT</label><input id="prov_nit" placeholder="900123456-1" value="${prov?prov.nit:''}"></div>
+      <div><label>Razón social</label><input id="prov_nombre" placeholder="Empaques del Valle" value="${prov?prov.razon_social:''}"></div>
+      <div class="full-span"><label>Dirección</label><input id="prov_direccion" placeholder="Cra 1 # 2-34, Cali" value="${prov&&prov.direccion?prov.direccion:''}"></div>
+    </div>
+    <div class="divider-label">Contactos</div>
+    <div id="filasContactoContainer"></div>
+    <div class="dyn-row-add"><button class="secondary small" id="btnAgregarContacto" title="Agregar contacto">+ Agregar contacto</button></div>`;
+}
+
+function abrirModalProveedor(proveedorId,proveedores){
+  const prov=proveedorId?proveedores.find(function(p){return p.id===proveedorId;}):null;
+  if(proveedorId&&!prov){toast('Proveedor no encontrado.','error');return;}
+  filasContacto=(prov&&prov.contactos&&prov.contactos.length)?prov.contactos.slice():[{nombre:'',telefono:'',correo:''}];
+
+  abrirModalGenerico({
+    title: prov?'Editar proveedor':'Nuevo proveedor',
+    subtitle: 'Maestro de proveedores con dirección y contactos.',
+    icon: prov?'✎':'＋',
+    variant: 'info',
+    size: 'md',
+    body: _htmlFormProveedor(prov),
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="prov_cancelar">Cancelar</button><button id="prov_guardar">'+(prov?'Guardar cambios':'Crear proveedor')+'</button></div>',
+    onOpen: function(){
+      renderFilasContacto();
+      document.getElementById('btnAgregarContacto').addEventListener('click',function(){sincronizarContactos();filasContacto.push({nombre:'',telefono:'',correo:''});renderFilasContacto();});
+      document.getElementById('prov_cancelar').addEventListener('click',cerrarModalGenerico);
+      document.getElementById('prov_guardar').addEventListener('click',async function(ev){
+        sincronizarContactos();
+        const body={nit:document.getElementById('prov_nit').value.trim(),razon_social:document.getElementById('prov_nombre').value.trim(),direccion:document.getElementById('prov_direccion').value.trim()||null,contactos:filasContacto.filter(function(c){return c.nombre||c.telefono||c.correo;})};
+        if(!body.nit||!body.razon_social){toast('Completa NIT y razón social.','error');return;}
+        try{
+          await withLoading(ev.currentTarget,async function(){
+            if(!prov){
+              const existe=await api('sys_proveedores?nit=eq.'+encodeURIComponent(body.nit)+'&select=id&limit=1');
+              if(existe.length)throw new Error('Ya existe un proveedor con ese NIT.');
+            }
+            if(prov){await api('sys_proveedores?id=eq.'+prov.id,{method:'PATCH',body:JSON.stringify(body)});}
+            else{await api('sys_proveedores',{method:'POST',body:JSON.stringify(body)});}
+          });
+          toast(prov?'Proveedor actualizado.':'Proveedor creado.','success');
+          cerrarModalGenerico();
+          renderProveedores();
+        }catch(e){toast('Error: '+traducirError(e.message),'error');}
       });
-      toast(editando?'Proveedor actualizado.':'Proveedor creado.','success');
-      renderProveedores();
-    }catch(e){toast('Error: '+traducirError(e.message),'error');}
+    }
   });
 }
+
 function sincronizarContactos(){filasContacto=filasContacto.map(function(_,idx){return {nombre:document.getElementById('cont_nombre_'+idx)?document.getElementById('cont_nombre_'+idx).value:'',telefono:document.getElementById('cont_telefono_'+idx)?document.getElementById('cont_telefono_'+idx).value:'',correo:document.getElementById('cont_correo_'+idx)?document.getElementById('cont_correo_'+idx).value:''};});}
 function renderFilasContacto(){
   const cont=document.getElementById('filasContactoContainer');if(!cont)return;
@@ -3050,6 +3757,90 @@ function renderChartDoughnut(id,data){
 }
 
 /* Pantalla del Histórico */
+function calcOrdenesPorPeriodo(ordenes, periodo){
+  const ahora = new Date();
+  let keyFn, labelFn, orderedKeys = [];
+  if(periodo === 'semana'){
+    keyFn = function(d){
+      const t = new Date(d);
+      t.setHours(0,0,0,0);
+      const day = t.getDay();
+      const diff = t.getDate() - day + (day === 0 ? -6 : 1);
+      t.setDate(diff);
+      return t.toISOString().slice(0,10);
+    };
+    labelFn = function(key){
+      const d = new Date(key+'T00:00:00');
+      return d.toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'});
+    };
+    for(let i = 7; i >= 0; i--){
+      const d = new Date(ahora);
+      d.setDate(d.getDate() - i*7);
+      orderedKeys.push(keyFn(d));
+    }
+  } else if(periodo === 'anio'){
+    keyFn = function(d){return String(d.getFullYear());};
+    labelFn = function(key){return key;};
+    for(let i = 4; i >= 0; i--){
+      orderedKeys.push(String(ahora.getFullYear()-i));
+    }
+  } else {
+    keyFn = function(d){
+      return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    };
+    const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    labelFn = function(key){
+      const parts = key.split('-');
+      return meses[parseInt(parts[1],10)-1]+' '+parts[0].slice(2);
+    };
+    for(let i = 11; i >= 0; i--){
+      const d = new Date(ahora.getFullYear(), ahora.getMonth()-i, 1);
+      orderedKeys.push(keyFn(d));
+    }
+  }
+  const counts = {};
+  orderedKeys.forEach(function(k){counts[k]=0;});
+  ordenes.forEach(function(o){
+    if(!o.fecha_creacion) return;
+    const k = keyFn(new Date(o.fecha_creacion));
+    if(counts[k] !== undefined) counts[k]++;
+  });
+  return {
+    labels: orderedKeys.map(labelFn),
+    datasets: [{
+      label: 'Órdenes',
+      data: orderedKeys.map(function(k){return counts[k];}),
+      backgroundColor: '#ffb020',
+      borderRadius: 4
+    }]
+  };
+}
+
+function calcMovimientosPorTipoPeriodo(movs, periodo){
+  const ahora = new Date();
+  let cutoff;
+  if(periodo === 'semana'){
+    cutoff = new Date(ahora); cutoff.setDate(cutoff.getDate() - 7);
+  } else if(periodo === 'anio'){
+    cutoff = new Date(ahora.getFullYear(), 0, 1);
+  } else {
+    cutoff = new Date(ahora); cutoff.setDate(cutoff.getDate() - 30);
+  }
+  const filtrados = movs.filter(function(m){return new Date(m.fecha) >= cutoff;});
+  const counts = {Entrada:0, Salida:0, Consumo:0};
+  filtrados.forEach(function(m){
+    if(counts[m.tipo] !== undefined) counts[m.tipo]++;
+  });
+  return {
+    labels: ['Entradas','Salidas','Consumos'],
+    datasets: [{
+      data: [counts.Entrada, counts.Salida, counts.Consumo],
+      backgroundColor: ['#3ddc84','#ff5c5c','#ffb020'],
+      borderWidth: 0
+    }]
+  };
+}
+
 async function renderHistorico(){
   const main=document.getElementById('mainContent');
   if(typeof Chart==='undefined'){
@@ -3066,8 +3857,6 @@ async function renderHistorico(){
     ]);
 
     const dataConsumo=calcConsumoMensualPorInsumo(movs,insumos,5,12);
-    const dataOrdenes=calcOrdenesPorMes(ordenes,12);
-    const dataTipos=calcMovimientosPorTipo(movs,30);
     const dataTopValor=calcTopInsumosPorValor(insumos,10);
 
     main.innerHTML=`
@@ -3079,55 +3868,79 @@ async function renderHistorico(){
         ${botonRefreshHTML('historico')}
       </div>
 
-      <div class="grid-cards g2">
-        <div class="panel" style="margin-bottom:0;">
-          <div class="panel-header"><h3>Órdenes por mes · últimos 12</h3></div>
+      <div class="grid-cards g2" style="align-items:start;">
+        <div class="panel force-expanded no-scroll" style="margin-bottom:0;">
+          <div class="panel-header">
+            <h3>Órdenes por período</h3>
+            <select id="chOrdenesFiltro" style="width:auto;margin:0;padding:6px 10px;font-size:12px;">
+              <option value="semana">Últimas 8 semanas</option>
+              <option value="mes" selected>Últimos 12 meses</option>
+              <option value="anio">Últimos 5 años</option>
+            </select>
+          </div>
           <div style="padding:16px 18px;">
             <div style="position:relative;height:280px;"><canvas id="chOrdenes"></canvas></div>
           </div>
         </div>
-        <div class="panel" style="margin-bottom:0;">
-          <div class="panel-header"><h3>Movimientos por tipo · últimos 30 días</h3></div>
+        <div class="panel force-expanded no-scroll" style="margin-bottom:0;">
+          <div class="panel-header">
+            <h3>Movimientos por tipo</h3>
+            <select id="chTiposFiltro" style="width:auto;margin:0;padding:6px 10px;font-size:12px;">
+              <option value="semana">Última semana</option>
+              <option value="mes" selected>Últimos 30 días</option>
+              <option value="anio">Año actual</option>
+            </select>
+          </div>
           <div style="padding:16px 18px;">
             <div style="position:relative;height:280px;"><canvas id="chTipos"></canvas></div>
           </div>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel force-collapsed">
         <div class="panel-header"><h3>Consumo mensual · top 5 insumos · últimos 12 meses</h3></div>
         <div style="padding:16px 18px;">
           <div style="position:relative;height:340px;"><canvas id="chConsumo"></canvas></div>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel force-collapsed">
         <div class="panel-header"><h3>Top 10 insumos por valor en stock</h3></div>
         <div style="padding:16px 18px;">
           <div style="position:relative;height:${Math.max(240,dataTopValor.labels.length*36)}px;"><canvas id="chTopValor"></canvas></div>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel force-expanded no-scroll">
         <div class="panel-header"><h3>Resumen del período</h3></div>
         <div class="grid-cards" style="margin:0;padding:16px 18px 0;grid-template-columns:repeat(4,minmax(0,1fr));">
           <div class="stat-card neutral"><p class="stat-label">Movimientos analizados</p><p class="stat-value">${movs.length}</p></div>
           <div class="stat-card neutral"><p class="stat-label">Órdenes analizadas</p><p class="stat-value">${ordenes.length}</p></div>
           <div class="stat-card info"><p class="stat-label">Valor total en stock</p><p class="stat-value" style="font-size:18px;">${money(dataTopValor.datasets[0].data.reduce(function(a,b){return a+b;},0))}</p></div>
-          <div class="stat-card neutral"><p class="stat-label">Insumos con stock</p><p class="stat-value">${dataTopValor.labels.length>0?insumos.filter(function(i){return (i.existencia_actual||0)>0;}).length:0}</p></div>
+          <div class="stat-card neutral"><p class="stat-label">Insumos con stock</p><p class="stat-value">${insumos.filter(function(i){return (i.existencia_actual||0)>0;}).length}</p></div>
         </div>
         <div style="height:16px;"></div>
       </div>
     `;
 
-    renderChartBar('chOrdenes',dataOrdenes,false);
-    renderChartDoughnut('chTipos',dataTipos);
-    renderChartLine('chConsumo',dataConsumo);
-    renderChartBar('chTopValor',dataTopValor,true);
+    /* Render de los 4 gráficos */
+    renderChartBar('chOrdenes', calcOrdenesPorPeriodo(ordenes, document.getElementById('chOrdenesFiltro').value), false);
+    renderChartDoughnut('chTipos', calcMovimientosPorTipoPeriodo(movs, document.getElementById('chTiposFiltro').value));
+    renderChartLine('chConsumo', dataConsumo);
+    renderChartBar('chTopValor', dataTopValor, true);
+
+    /* Listeners de los filtros */
+    document.getElementById('chOrdenesFiltro').addEventListener('change', function(e){
+      renderChartBar('chOrdenes', calcOrdenesPorPeriodo(ordenes, e.target.value), false);
+    });
+    document.getElementById('chTiposFiltro').addEventListener('change', function(e){
+      renderChartDoughnut('chTipos', calcMovimientosPorTipoPeriodo(movs, e.target.value));
+    });
   }catch(e){
     main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
   }
 }
+
 
 /* ============ RENTABILIDAD — CAPA 2 (RENDER) ============ */
 async function renderRentabilidad(){
@@ -3283,7 +4096,7 @@ async function renderCostosOP(){
       <h2 class="page-title">Análisis de costos por OP</h2>
       <p class="page-sub">Compara el costo teórico (receta × cantidad) contra el costo real capturado al completar la OP.</p>
 
-      <div class="panel">
+      <div class="panel force-expanded no-scroll">
         <div class="panel-header"><h3>Órdenes terminadas · ${ordView.length}</h3></div>
         <div class="search-box"><input id="buscar_costos" placeholder="Buscar por OP, lote o producto…"></div>
         ${ordView.length===0?'<div class="empty-state">Aún no hay OPs terminadas.</div>':`
@@ -4419,30 +5232,45 @@ async function renderUsuarios(){
     </div>`;
 
   document.querySelectorAll('[data-edit-rol]').forEach(function(btn){
-    btn.addEventListener('click',async function(){
+    btn.addEventListener('click',function(){
       if(btn.disabled)return;
       const userId=btn.dataset.editRol;
       const u=rows.find(function(x){return x.user_id===userId;});
-      const nuevo=await promptear({
+      if(!u) return;
+      abrirModalGenerico({
         title:'Cambiar rol',
-        message:'Usuario: '+(u.email||u.nombre||'—'),
+        subtitle:'Usuario: '+(u.email||u.nombre||'—'),
         icon:'★',
         variant:'info',
-        value:u.role,
-        placeholder:'admin | operador | consulta',
-        okText:'Guardar'
+        size:'md',
+        body:`
+          <div class="form-grid" style="padding:0;">
+            <div class="full-span">
+              <label>Rol</label>
+              <select id="usr_rol_select">
+                <option value="admin" ${u.role==='admin'?'selected':''}>Admin — acceso total (incluye Usuarios y Backup)</option>
+                <option value="operador" ${u.role==='operador'?'selected':''}>Operador — crear y editar, sin Usuarios ni Backup</option>
+                <option value="consulta" ${u.role==='consulta'?'selected':''}>Consulta — solo lectura</option>
+              </select>
+            </div>
+          </div>`,
+        footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="usr_cancelar">Cancelar</button><button id="usr_guardar">Guardar</button></div>',
+        onOpen:function(){
+          document.getElementById('usr_cancelar').addEventListener('click',cerrarModalGenerico);
+          document.getElementById('usr_guardar').addEventListener('click',async function(ev){
+            const nuevo=document.getElementById('usr_rol_select').value;
+            if(nuevo===u.role){toast('El rol no cambió.','error');return;}
+            try{
+              await withLoading(ev.currentTarget,async function(){
+                await api('profiles?user_id=eq.'+userId,{method:'PATCH',body:JSON.stringify({role:nuevo})});
+              });
+              toast('Rol actualizado.','success');
+              cerrarModalGenerico();
+              renderUsuarios();
+            }catch(e){toast(e.message,'error');}
+          });
+        }
       });
-      if(!nuevo)return;
-      const limpio=String(nuevo).trim().toLowerCase();
-      if(['admin','operador','consulta'].indexOf(limpio)<0){
-        toast('Rol inválido. Debe ser: admin, operador o consulta.','error');
-        return;
-      }
-      try{
-        await api('profiles?user_id=eq.'+userId,{method:'PATCH',body:JSON.stringify({role:limpio})});
-        toast('Rol actualizado.','success');
-        renderUsuarios();
-      }catch(e){toast(e.message,'error');}
     });
   });
 
@@ -4474,18 +5302,14 @@ async function renderAuditoria(){
   const main=document.getElementById('mainContent');
   const insumos=await api('insumos?select=id,codigo,nombre,unidad_medida,unidad_consumo,conversiones&order=nombre');
   main.innerHTML=`
-    <h2 class="page-title">Auditoría</h2>
-    <p class="page-sub">Registro de salidas y generación de informes de movimientos y existencias.</p>
-    <div class="panel no-print require-write">
-      <div class="panel-header"><h3>Registrar salida manual</h3></div>
-      <div class="form-grid">
-        <div><label>Insumo</label><select id="sal_insumo">${insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join('')}</select></div>
-        <div><label>Cantidad (unidad de consumo)</label><input id="sal_cantidad" type="number" step="0.0001" placeholder="10"></div>
-        <div><label>Motivo</label><input id="sal_motivo" placeholder="Merma, ajuste, uso interno…"></div>
+    <div class="page-header-flex">
+      <div>
+        <h2 class="page-title">Auditoría</h2>
+        <p class="page-sub">Registro de salidas y generación de informes de movimientos y existencias.</p>
       </div>
-      <div class="form-actions"><button id="btnRegistrarSalida" title="Registrar salida">Registrar salida</button></div>
+      <button id="btnNuevaSalida" class="require-write" title="Registrar salida manual">+ Registrar salida</button>
     </div>
-    <div class="panel no-print">
+    <div class="panel no-print force-expanded">
       <div class="panel-header"><h3>Informe</h3>${botonRefreshHTML('auditoria')}</div>
       <div class="form-grid">
         <div><label>Tipo de informe</label><select id="rep_tipo2">
@@ -4525,16 +5349,8 @@ async function renderAuditoria(){
       </div>
     </div>
     <div id="informeResultado"></div>`;
-  document.getElementById('btnRegistrarSalida').addEventListener('click',async function(ev){
-    const insumo_id=document.getElementById('sal_insumo').value;
-    const cantidad=parseFloat(document.getElementById('sal_cantidad').value);
-    const motivo=document.getElementById('sal_motivo').value.trim();
-    if(!insumo_id||!cantidad||cantidad<=0){toast('Selecciona insumo y cantidad válida.','error');return;}
-    try{
-      const r=await withLoading(ev.currentTarget,async function(){return await rpc('registrar_salida',{p_insumo_id:insumo_id,p_cantidad:cantidad,p_motivo:motivo||null});});
-      toast('Salida registrada. Existencia: '+num(r.existencia_nueva),'success');
-      document.getElementById('sal_cantidad').value='';document.getElementById('sal_motivo').value='';
-    }catch(e){toast(e.message,'error');}
+  document.getElementById('btnNuevaSalida').addEventListener('click',function(){
+    abrirModalSalidaManual(insumos);
   });
   document.getElementById('rep_tipo2').addEventListener('change',function(e){
     const v=e.target.value;
@@ -4583,6 +5399,37 @@ async function renderAuditoria(){
   document.getElementById('rep_tipo2').dispatchEvent(new Event('change'));
   document.getElementById('btnImprimirInforme').addEventListener('click',function(){window.print();});
   document.getElementById('btnCargarConteo').addEventListener('click',generarConteoFisico);
+}
+
+function abrirModalSalidaManual(insumos){
+  abrirModalGenerico({
+    title:'Registrar salida manual',
+    subtitle:'Registra una salida de inventario por merma, ajuste o uso interno.',
+    icon:'↩',
+    variant:'warn',
+    size:'md',
+    body:
+      '<div class="form-grid" style="padding:0;">'+
+        '<div><label>Insumo</label><select id="sal_insumo">'+(insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join(''):'<option value="">No hay insumos</option>')+'</select></div>'+
+        '<div><label>Cantidad (unidad de consumo)</label><input id="sal_cantidad" type="number" step="0.0001" placeholder="10"></div>'+
+        '<div class="full-span"><label>Motivo</label><input id="sal_motivo" placeholder="Merma, ajuste, uso interno…"></div>'+
+      '</div>',
+    footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="sal_cancelar">Cancelar</button><button id="sal_guardar">Registrar salida</button></div>',
+    onOpen:function(){
+      document.getElementById('sal_cancelar').addEventListener('click',cerrarModalGenerico);
+      document.getElementById('sal_guardar').addEventListener('click',async function(ev){
+        const insumo_id=document.getElementById('sal_insumo').value;
+        const cantidad=parseFloat(document.getElementById('sal_cantidad').value);
+        const motivo=document.getElementById('sal_motivo').value.trim();
+        if(!insumo_id||!cantidad||cantidad<=0){toast('Selecciona insumo y cantidad válida.','error');return;}
+        try{
+          const r=await withLoading(ev.currentTarget,async function(){return await rpc('registrar_salida',{p_insumo_id:insumo_id,p_cantidad:cantidad,p_motivo:motivo||null});});
+          toast('Salida registrada. Existencia: '+num(r.existencia_nueva),'success');
+          cerrarModalGenerico();
+        }catch(e){toast(e.message,'error');}
+      });
+    }
+  });
 }
 
 async function generarInforme(){
