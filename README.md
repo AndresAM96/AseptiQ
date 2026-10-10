@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v1.2.0** — Producción · Octubre 2026
+**v1.3.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -15,9 +15,11 @@ AseptiQ administra el flujo completo de manufactura:
 - **Paquetes terminados (PT)** compuestos por subproductos e insumos, con unidades por caja y precio de venta.
 - **Órdenes de producción (OP)** con número y lote únicos, prioridad cualitativa y **entregas parciales**.
 - **Movimientos de inventario** con trazabilidad completa: entradas, salidas, consumos, devoluciones y ajustes.
+- **Devoluciones** a proveedor (insumos) y de cliente (producto terminado), con estados bueno / cuarentena / dañado.
 - **Análisis financiero**: kardex por insumo, costos reales vs teóricos por OP, rentabilidad por producto.
 - **Reportes operativos**: compras por proveedor, mermas y ajustes.
 - **Backup** completo a un ZIP con 13 tablas en CSV.
+- **Interfaz basada en modales** con botón `+` en cada listado, análisis gráfico logístico en la cobertura de OP, y modo claro/oscuro.
 
 ## Stack
 
@@ -65,7 +67,7 @@ Resumen rápido:
 | Operación | Cargar orden | Crear OP, calcular cobertura, entregas parciales |
 | Operación | Novedades | OP activas con progreso |
 | Operación | Entrada mercancía | Insumos (compra) y subproductos (producción) |
-| Operación | Devoluciones | Devoluciones a proveedor |
+| Operación | Devoluciones | A proveedor (insumos) y de cliente (PT) |
 | Catálogo | Insumos | Materia prima con conversiones |
 | Catálogo | Productos & BOM | Subproductos y paquetes |
 | Catálogo | Proveedores | Maestro de proveedores |
@@ -99,6 +101,9 @@ Resumen rápido:
 - [x] Backup exportable
 - [x] Responsive (tablet + móvil)
 - [x] Modo claro/oscuro
+- [x] Modales genéricos + botón "+" en cada listado
+- [x] Cobertura de OP con análisis gráfico logístico
+- [x] Devoluciones de producto terminado
 - [ ] Port a .NET (Blazor / MAUI)
 
 ## Documentación

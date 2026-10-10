@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.2
+**Versión:** 1.3
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -103,7 +103,9 @@ Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 
 **En el centro:** contenido del módulo activo.
 
-**Los paneles se pueden colapsar:** cada panel tiene un botón `▾` arriba a la derecha. Los formularios vienen colapsados; los listados expandidos. El estado se recuerda en el navegador.
+**Los paneles se pueden colapsar:** cada panel tiene un botón `▾` arriba a la derecha. Algunos paneles arrancan expandidos por defecto (listados, KPIs y resúmenes) y otros colapsados (prefijos, unidades, umbrales). El estado se recuerda en el navegador.
+
+**Modales:** los formularios de creación y edición se abren en modales. Buscá el botón `+` en la esquina superior derecha de cada listado (Insumos, Productos & BOM, Proveedores, Configuración → Unidades y Umbrales), o el botón `+ Registrar salida` en Auditoría.
 
 ---
 
@@ -129,9 +131,9 @@ Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 - **Prioridad**: Muy alta / Alta / Normal / Baja. Por defecto Normal.
 - **Fecha programada**: opcional.
 
-Click en **Calcular cobertura**. Muestra dos tablas: insumos directos y subproductos requeridos, con estado de cada uno.
+**Los paneles se pueden colapsar:** cada panel tiene un botón `▾` arriba a la derecha. Algunos paneles arrancan expandidos por defecto (listados, KPIs y resúmenes) y otros colapsados (prefijos, unidades, umbrales). El estado se recuerda en el navegador.
 
-Click en **Confirmar orden** → queda Pendiente.
+**Modales:** los formularios de creación y edición se abren en modales. Buscá el botón `+` en la esquina superior derecha de cada listado (Insumos, Productos & BOM, Proveedores, Configuración → Unidades y Umbrales), o el botón `+ Registrar salida` en Auditoría.
 
 **Órdenes registradas:**
 
@@ -143,6 +145,8 @@ Click en **Confirmar orden** → queda Pendiente.
 - **Cobertura**.
 - **Estado**.
 - **Acciones**: Detalle / Entregar / Cancelar.
+
+**Detalle:** abre un modal con KPIs de progreso (proyectado / entregado % / pendiente), tablas de insumos proyectados y subproductos requeridos, e historial completo de entregas.
 
 **Entregas parciales:**
 
@@ -164,6 +168,8 @@ El sistema descuenta insumos y subproductos **proporcionalmente** a lo que está
 
 Historial de OPs activas (Pendientes y En proceso). Muestra el progreso de entrega. Las Terminadas y Canceladas se ven en Cargar orden marcando el checkbox.
 
+El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progreso, insumos proyectados, subproductos requeridos e historial de entregas.
+
 ### 6.4 Insumos
 
 **Nuevo insumo:**
@@ -181,13 +187,22 @@ Historial de OPs activas (Pendientes y En proceso). Muestra el progreso de entre
 - **Caso dimensional**: rollo → m². Ej: `[rollo] ×434 (2.17m × 200m) → [m²]`.
 - **Caso variable**: kg → unidad. Activar "rendimiento variable".
 
+**Crear / editar:** click en el botón `+` (arriba a la derecha del listado) o en **Editar** de cualquier fila → se abre un modal con el formulario completo (datos + cadena de conversiones).
+
 **Acciones:**
 
-- **Editar**.
 - **Eliminar**: solo si no está en uso.
 - **Click en el costo**: ajustar costo manual con trazabilidad en Auditoría.
 
 ### 6.5 Productos & BOM
+
+**Estructura de la pantalla:**
+
+1. Panel **Crear nuevo** con botones `+ Nuevo subproducto` y `+ Nuevo paquete (PT)`.
+2. Lista de **Subproductos existentes** (colapsable).
+3. Lista de **Paquetes existentes** (colapsable).
+
+**Crear o editar:** los botones superiores y el botón **Editar** de cada ítem abren el mismo modal con el formulario completo.
 
 **Subproductos:**
 
@@ -210,7 +225,7 @@ Historial de OPs activas (Pendientes y En proceso). Muestra el progreso de entre
 1. Elegir insumo.
 2. Cantidad en unidad de compra.
 3. Costo (opcional).
-4. Proveedor.
+4. Proveedor. Si no está en la lista, click en **"+ El proveedor no está en la lista, crear uno nuevo"** → se abre un modal con el formulario completo (NIT, razón social, dirección y contactos múltiples). Al guardar, el nuevo proveedor queda seleccionado automáticamente.
 5. Si es variable, rendimiento real.
 6. **Registrar entrada** → recalcula costo promedio.
 
@@ -220,13 +235,28 @@ Produce internamente. Descuenta insumos e hijos según la receta.
 
 ### 6.7 Devoluciones
 
-Devoluciones a proveedor.
+Pantalla con dos pestañas: **A proveedor (insumo)** y **De cliente (producto terminado)**.
+
+**A proveedor (insumo):**
 
 1. Insumo.
 2. Cantidad.
 3. Proveedor.
 4. Motivo (opcional).
-5. **Registrar devolución** → descuenta stock.
+5. **Registrar devolución** → descuenta stock del insumo.
+
+**De cliente (producto terminado):**
+
+1. Producto terminado.
+2. Cantidad devuelta.
+3. Estado del producto:
+   - **Bueno** → vuelve al stock vendible.
+   - **Cuarentena** → queda registrado sin afectar stock.
+   - **Dañado** → queda registrado sin afectar stock.
+4. Motivo (opcional).
+5. **Registrar devolución**.
+
+Cada pestaña muestra el historial de las últimas devoluciones registradas.
 
 ### 6.8 Proveedores
 
@@ -237,7 +267,7 @@ Devoluciones a proveedor.
 
 ### 6.9 Auditoría
 
-**Registrar salida manual**: mermas, ajustes, uso interno.
+**Registrar salida manual**: botón `+ Registrar salida` arriba a la derecha del módulo → abre un modal con insumo, cantidad y motivo. Se usa para mermas, ajustes y uso interno.
 
 **Generar informes**:
 
@@ -288,10 +318,11 @@ Análisis de pérdidas (salidas manuales y ajustes por conteo).
 
 ### 6.13 Histórico
 
-- **Órdenes por mes** (12 meses).
-- **Movimientos por tipo** (30 días).
-- **Consumo mensual top 5 insumos** (12 meses).
-- **Top 10 insumos por valor**.
+- **Órdenes por período**: filtro superior con semana / mes / año (por defecto mes).
+- **Movimientos por tipo**: filtro superior con semana / mes / año (por defecto mes).
+- **Consumo mensual top 5 insumos** (12 meses) — panel colapsable.
+- **Top 10 insumos por valor** — panel colapsable.
+- **Resumen del período** — panel expandido por defecto.
 
 ### 6.14 Costos OP
 
@@ -311,17 +342,17 @@ Margen bruto por PT. Requiere precio de venta.
 ### 6.16 Usuarios (solo admin)
 
 - Lista de usuarios.
-- **Cambiar rol**.
+- **Cambiar rol**: abre un modal con un desplegable (Admin / Operador / Consulta).
 - **Activar/Desactivar**.
 
 No podés cambiar tu propio rol ni desactivar tu propia cuenta.
 
 ### 6.17 Configuración
 
-- **Apariencia**: tema oscuro o claro.
-- **Prefijos de códigos**.
-- **Unidades de medida**.
-- **Umbrales de stock** (urgente %, reorden %).
+- **Apariencia**: toggle deslizante a la derecha del panel. Click cambia entre tema oscuro y claro. Los gráficos se adaptan automáticamente.
+- **Prefijos de códigos** — panel colapsado por defecto.
+- **Unidades de medida** — botón `+` abre un modal con la lista y opciones de agregar / renombrar / eliminar.
+- **Umbrales de stock** (urgente %, reorden %) — botón `+` abre un modal con los inputs.
 
 ### 6.18 Backup (solo admin)
 
