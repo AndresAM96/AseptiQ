@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v1.4.0** — Producción · Octubre 2026
+**v1.5.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -24,6 +24,8 @@ AseptiQ administra el flujo completo de manufactura:
 - **Dashboard operativo** con widget de stock crítico, timeline de actividad y KPIs visuales.
 - **Impresión profesional**: OP con QR + firmas, kardex formato libro, conteo físico, y etiquetas QR configurables (pequeña/mediana/grande).
 - **Responsive total**: tablas se convierten en tarjetas en móvil.
+- **Trazabilidad de lotes end-to-end**: análisis bidireccional PT → insumos + lotes, e insumo → PTs afectados.
+- **Lote del proveedor** en entradas de insumos (opcional) para trazabilidad INVIMA.
 
 ## Stack
 
@@ -83,6 +85,7 @@ Resumen rápido:
 | Análisis | Histórico | Gráficos de tendencias |
 | Análisis | Costos OP | Teórico vs real |
 | Análisis | Rentabilidad | Margen por producto |
+| Análisis | Trazabilidad | Lotes end-to-end (forward / backward) |
 | Sistema | Configuración | Prefijos, unidades, umbrales |
 | Sistema | Backup | Exportación de datos |
 | Sistema | Usuarios | Gestión de roles |
@@ -112,7 +115,9 @@ Resumen rápido:
 - [x] Campana de notificaciones + Dashboard operativo
 - [x] Impresión profesional (OP, kardex, conteo, etiquetas QR)
 - [x] Responsive mobile (tablas → tarjetas)
-- [ ] Trazabilidad de lotes end-to-end
+- [x] Trazabilidad de lotes end-to-end (aproximada)
+- [ ] FIFO estricto con asignación de lote por consumo
+- [ ] Formato INVIMA de recibo de mercancía
 - [ ] Port a .NET (Blazor / MAUI)
 
 ## Documentación

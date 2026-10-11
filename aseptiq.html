@@ -280,6 +280,7 @@
   .sidebar.collapsed .nav-item[data-tab="historico"]  {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3 3v18h18'/><path d='m7 15 4-4 3 3 5-7'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="costos"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><path d='M12 7v10M14.5 9.5c0-1-1-1.5-2.5-1.5s-2.5.5-2.5 1.5 1 1.5 2.5 1.5 2.5.5 2.5 1.5-1 1.5-2.5 1.5-2.5-.5-2.5-1.5'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="rentabilidad"]{--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='m3 17 6-6 4 4 8-8'/><path d='M15 7h6v6'/></svg>");}
+  .sidebar.collapsed .nav-item[data-tab="trazabilidad"]{--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='2.5'/><circle cx='18' cy='6' r='2.5'/><circle cx='12' cy='18' r='2.5'/><path d='M7 8l4 8M17 8l-4 8M8.5 6h7'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="config"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="usuarios"]   {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><circle cx='12' cy='10' r='3'/><path d='M6.2 19a6 6 0 0 1 11.6 0'/></svg>");}
   .sidebar.collapsed .nav-item[data-tab="backup"]     {--ic:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='5' rx='8' ry='3'/><path d='M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5'/><path d='M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6'/></svg>");}
@@ -376,6 +377,25 @@
   .form-grid{align-items:start;}
   .form-grid > div{display:flex;flex-direction:column;min-width:0;}
   .form-grid > div > label{flex-shrink:0;}
+
+  /* Modificador: labels debajo de los inputs (útil cuando los labels son largos
+     y desalinean las cajas). Aplica order para mover el label al final. */
+  .form-grid.labels-bottom > div > label{
+    order:2;
+    margin-top:6px;
+    margin-bottom:0;
+    font-size:11px;
+    line-height:1.3;
+  }
+  .form-grid.labels-bottom > div > input,
+  .form-grid.labels-bottom > div > select,
+  .form-grid.labels-bottom > div > textarea,
+  .form-grid.labels-bottom > div > .codigo-compuesto,
+  .form-grid.labels-bottom > div > .combo{
+    order:1;
+  }
+  .form-grid.labels-bottom > div > .field-hint{order:3;}
+  .form-grid.labels-bottom > div > .field-validate{order:4;}
   .form-grid > div > input,
   .form-grid > div > select,
   .form-grid > div > .codigo-compuesto,
@@ -448,6 +468,67 @@
   .page-header-flex{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:24px;}
   .page-header-flex .page-title{margin-bottom:4px;}
   .page-header-flex .page-sub{margin:0;}
+  /* --- Árbol de trazabilidad --- */
+  .traza-tree{display:flex;flex-direction:column;gap:6px;}
+  .traza-node{border-left:2px solid var(--border);padding-left:0;margin-left:0;}
+  .traza-node summary{
+    list-style:none;
+    cursor:pointer;
+    display:flex;align-items:center;gap:8px;
+    padding:8px 12px;border-radius:8px;
+    background:var(--surface-2);border:1px solid var(--border);
+    font-size:13px;
+    transition:background .12s;
+  }
+  .traza-node summary::-webkit-details-marker{display:none;}
+  .traza-node summary:hover{background:var(--surface-3);}
+  .traza-node[open]>summary{border-color:var(--accent);background:var(--surface-3);}
+  .traza-node summary::before{
+    content:'▸';
+    color:var(--text-muted);
+    font-size:10px;
+    transition:transform .15s;
+    flex-shrink:0;
+  }
+  .traza-node[open]>summary::before{transform:rotate(90deg);}
+  .traza-children{
+    padding-left:16px;margin-top:4px;
+    display:flex;flex-direction:column;gap:4px;
+    border-left:2px solid var(--border);
+    margin-left:14px;padding-left:14px;
+  }
+  .traza-icon{font-size:14px;flex-shrink:0;}
+  .traza-node-nombre{flex:1;font-weight:500;color:var(--text-primary);overflow-wrap:anywhere;min-width:0;}
+  .traza-node-nombre small{font-size:11px;color:var(--text-muted);font-weight:400;margin-left:6px;}
+  .traza-cantidad{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;color:var(--accent);font-weight:600;
+    flex-shrink:0;
+  }
+  .traza-count{
+    font-size:11px;color:var(--text-muted);
+    flex-shrink:0;
+    padding:1px 7px;border-radius:5px;background:var(--surface-3);
+  }
+  .traza-insumo{
+    padding:8px 12px;border-radius:8px;
+    background:var(--surface-1);border:1px solid var(--border);
+    display:flex;flex-direction:column;gap:4px;
+  }
+  .traza-insumo-head{display:flex;align-items:center;gap:8px;}
+  .traza-insumo-nombre{flex:1;font-size:12.5px;color:var(--text-primary);overflow-wrap:anywhere;min-width:0;}
+  .traza-insumo-nombre small{font-size:11px;color:var(--text-muted);font-weight:400;margin-left:6px;}
+  .traza-lotes{display:flex;flex-wrap:wrap;gap:4px;padding-left:22px;}
+  .traza-lote-chip{
+    display:inline-flex;align-items:center;gap:4px;
+    font-size:10.5px;padding:2px 8px;border-radius:5px;
+    background:var(--success-bg);color:var(--success);
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .traza-lote-chip b{font-weight:700;}
+  .traza-lote-empty{background:var(--surface-3);color:var(--text-muted);font-style:italic;font-family:inherit;}
+  .traza-lote-more{background:var(--info-bg);color:var(--info);}
+
   /* --- Timeline de actividad --- */
   .timeline-body{padding:6px 0;}
   .timeline-list{display:flex;flex-direction:column;}
@@ -695,6 +776,13 @@
 
     /* --- Formularios --- */
     .form-grid{grid-template-columns:1fr;gap:10px;padding:14px;}
+    /* En móvil los labels vuelven arriba (todo va en 1 columna) */
+    .form-grid.labels-bottom > div > label{order:0;margin-top:0;margin-bottom:4px;font-size:12px;}
+    .form-grid.labels-bottom > div > input,
+    .form-grid.labels-bottom > div > select,
+    .form-grid.labels-bottom > div > textarea,
+    .form-grid.labels-bottom > div > .codigo-compuesto,
+    .form-grid.labels-bottom > div > .combo{order:0;}
     .form-actions{padding:0 14px 14px;gap:6px;}
     .form-actions button{flex:1 1 auto;}
     .dyn-row{padding:6px 14px;gap:6px;}
@@ -969,6 +1057,7 @@
             <button class="nav-item" data-tab="historico" title="Gráficos y tendencias">Histórico</button>
             <button class="nav-item" data-tab="costos" title="Costo real vs teórico por OP">Costos OP</button>
             <button class="nav-item" data-tab="rentabilidad" title="Margen y rentabilidad por producto">Rentabilidad</button>
+            <button class="nav-item" data-tab="trazabilidad" title="Trazabilidad de lotes end-to-end">Trazabilidad</button>
           </div>
         </div>
 

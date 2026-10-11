@@ -1,3 +1,29 @@
+## [1.5.0] — Octubre 2026
+
+### Añadido
+- **Módulo Trazabilidad** (nuevo, en el grupo Análisis):
+  - Modo Forward: PT → insumos + lotes + subproductos anidados (árbol recursivo).
+  - Modo Backward: insumo → PTs directos + subproductos que lo usan + PTs vía subproductos.
+  - Árbol expandible con `<details>` nativo (sin JS de colapso).
+  - Chips de lote verdes con lote + cantidad + proveedor.
+  - Disclaimer técnico sobre aproximación (no hay FIFO estricto aún).
+- **Lote del proveedor** (opcional) en Entradas de insumos:
+  - Nueva columna `lote_insumo` en `movimientos_inventario`.
+  - Índice parcial para queries de trazabilidad.
+  - Wrapper `registrar_entrada` de 7 argumentos (compatible con el original de 6).
+  - Campo visible tanto en Insumos como en Subproductos con etiqueta contextual.
+- **Atajo `G` + `T`** para abrir Trazabilidad.
+- **Icono SVG** en el sidebar colapsado para Trazabilidad.
+- Migración `v29_trazabilidad_lotes.sql`.
+
+### Cambiado
+- Formulario Entrada mercancía: ahora usa `form-grid labels-bottom` (labels debajo de las cajas para evitar desalineación cuando los labels son largos).
+- CSS: nueva clase reutilizable `.form-grid.labels-bottom`.
+
+### Notas técnicas
+- La trazabilidad por lote es **aproximada**: muestra los lotes disponibles para cada insumo, no el lote exacto consumido. La trazabilidad exacta requiere FIFO estricto con asignación de lote por consumo (roadmap futuro).
+- El wrapper de `registrar_entrada` con 7 args es **retrocompatible**: Postgres resuelve por aridad, así que las llamadas de 6 args siguen funcionando.
+
 ## [1.4.0] — 10 Octubre 2026
 
 ### Añadido

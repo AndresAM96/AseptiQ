@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.4
+**Versión:** 1.5
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -240,8 +240,13 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 2. Cantidad en unidad de compra.
 3. Costo (opcional).
 4. Proveedor. Si no está en la lista, click en **"+ El proveedor no está en la lista, crear uno nuevo"** → se abre un modal con el formulario completo (NIT, razón social, dirección y contactos múltiples). Al guardar, el nuevo proveedor queda seleccionado automáticamente.
-5. Si es variable, rendimiento real.
-6. **Registrar entrada** → recalcula costo promedio.
+5. **Lote del proveedor** (opcional): el número de lote que viene en la factura o remisión. Se usa para trazabilidad INVIMA y para la vista de Trazabilidad.
+6. Si es variable, rendimiento real.
+7. **Registrar entrada** → recalcula costo promedio.
+
+**Tipo subproducto:**
+
+Igual que antes, pero el campo de lote se llama **"Lote de producción"** y es el que identifica la tanda interna que estás fabricando.
 
 **Tipo subproducto:**
 
@@ -357,7 +362,29 @@ Margen bruto por PT. Requiere precio de venta.
 - Gráfico de margen por producto.
 - Tabla detallada.
 
-### 6.16 Usuarios (solo admin)
+### 6.16 Trazabilidad
+
+Análisis bidireccional de lotes. Atajo: `G` + `T`.
+
+**Modo Forward (🔍 ¿De dónde vino?):**
+
+1. Elegís un PT y una cantidad.
+2. Se expande un árbol con:
+   - **Insumos directos** del PT, con sus lotes registrados (chip verde con lote + proveedor).
+   - **Subproductos** anidados recursivamente (2 niveles abiertos por defecto, el resto colapsables).
+3. Los lotes mostrados son los de las últimas entradas registradas con lote. Si un insumo nunca tuvo lote, muestra "Sin entradas registradas".
+
+**Modo Backward (↩ ¿A dónde fue?):**
+
+1. Elegís un insumo.
+2. Se muestran tres bloques:
+   - PTs donde el insumo se usa **directamente**.
+   - Subproductos que lo usan (cadena recursiva).
+   - PTs que lo contienen **vía subproductos**.
+
+**Nota técnica:** la trazabilidad es aproximada — muestra los lotes disponibles, no el lote exacto consumido (eso requeriría FIFO estricto). El disclaimer está al pie del árbol.
+
+### 6.17 Usuarios (solo admin)
 
 - Lista de usuarios.
 - **Cambiar rol**: abre un modal con un desplegable (Admin / Operador / Consulta).
@@ -365,14 +392,14 @@ Margen bruto por PT. Requiere precio de venta.
 
 No podés cambiar tu propio rol ni desactivar tu propia cuenta.
 
-### 6.17 Configuración
+### 6.18 Configuración
 
 - **Apariencia**: toggle deslizante compacto a la derecha del panel. Click cambia entre tema oscuro y claro; el icono del thumb alterna luna / sol. Los gráficos se adaptan automáticamente.
 - **Prefijos de códigos** — panel colapsado por defecto.
 - **Unidades de medida** — botón `+` abre un modal con la lista y opciones de agregar / renombrar / eliminar.
 - **Umbrales de stock** (urgente %, reorden %) — botón `+` abre un modal con los inputs.
 
-### 6.18 Backup (solo admin)
+### 6.19 Backup (solo admin)
 
 - Genera un ZIP con 13 tablas en CSV.
 - Selector de rango de movimientos (30d / 6m / 1a / todo / sin movimientos).
@@ -453,6 +480,7 @@ Presionar `?` para ver la ayuda.
 | `G` + `H` | Histórico |
 | `G` + `C` | Costos OP |
 | `G` + `R` | Rentabilidad |
+| `G` + `T` | Trazabilidad |
 | `G` + `Y` | Backup |
 | `G` + `U` | Usuarios |
 
@@ -512,6 +540,12 @@ Son los "encabezados y pies de página" del navegador. En el diálogo de impresi
 
 **El bloque de firmas se va solo a la última página.**
 Actualizado en v1.4.0: los espaciados se compactaron para que quepa junto con la tabla. Si tu tabla es muy larga, es normal que las firmas queden solas — el formato está diseñado así para darles espacio.
+
+**¿Por qué la Trazabilidad muestra varios lotes para el mismo insumo?**
+Porque el sistema no asigna lotes exactos a cada consumo (eso requeriría FIFO estricto). La vista muestra los lotes que **existen** para ese insumo en las últimas entradas registradas. Sirve para saber qué lotes podrían haber sido consumidos, no cuál fue exactamente.
+
+**¿Qué pasa si no pongo lote en una entrada?**
+Nada — el campo es opcional. Ese insumo aparecerá en Trazabilidad con "Sin entradas registradas" en lugar de un chip de lote. Para INVIMA, se recomienda registrar el lote siempre.
 
 ---
 

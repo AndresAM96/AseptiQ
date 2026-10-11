@@ -1322,7 +1322,7 @@ document.addEventListener('keydown',function(ev){
   if(window._gPressed){
     window._gPressed=false;
     clearTimeout(window._gTimeout);
-    const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',b:'compras',m:'mermas',h:'historico',c:'costos',r:'rentabilidad',y:'backup',u:'usuarios'};
+    const mapa={d:'dashboard',o:'orden',n:'novedades',i:'insumos',p:'productos',e:'entradas',x:'devoluciones',v:'proveedores',a:'auditoria',k:'kardex',b:'compras',m:'mermas',h:'historico',c:'costos',r:'rentabilidad',t:'trazabilidad',y:'backup',u:'usuarios'};
     const tab=mapa[k];
     if(tab){
       ev.preventDefault();
@@ -1611,8 +1611,8 @@ document.getElementById('btnCerrarSesion').addEventListener('click',async functi
 
 async function renderTab(tab){
   const main=document.getElementById('mainContent');
-  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
-  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
+  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
+  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
   main.innerHTML='<div class="empty-state">Cargando…</div>';
   showLoader(nombres[tab]||'Cargando…');
   try{
@@ -3893,7 +3893,7 @@ async function renderEntradas(){
     <h2 class="page-title">Entrada de mercancía</h2>
     <p class="page-sub">Insumos: compra a proveedor. Subproductos: producción interna (descuenta los insumos de su receta).</p>
     <div class="panel require-write">
-      <div class="form-grid">
+      <div class="form-grid labels-bottom">
         <div><label>Tipo de entrada</label><select id="ent_tipo">
           <option value="insumo">Insumo (compra a proveedor)</option>
           <option value="subproducto">Subproducto (producción interna)</option>
@@ -3902,7 +3902,7 @@ async function renderEntradas(){
         <div><label>Cantidad (<span id="ent_unidad_label">—</span>)</label><input id="ent_cantidad" type="number" step="0.0001" placeholder="1"></div>
         <div id="ent_costo_wrap"><label>Costo por unidad de compra</label><input id="ent_costo" type="number" step="0.01" min="0" placeholder="Opcional"></div>
         <div id="ent_prov_wrap"><label>Proveedor</label><select id="ent_proveedor"><option value="">— Sin especificar —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
-        <div id="ent_lote_wrap" style="display:none;"><label>Lote</label><input id="ent_lote" placeholder="Ej: L-2026-014"></div>
+        <div id="ent_lote_wrap"><label id="ent_lote_label">Lote</label><input id="ent_lote" placeholder="Ej: L-2026-014"></div>
         <div id="ent_motivo_wrap" style="display:none;"><label>Motivo</label><input id="ent_motivo" placeholder="Ej: producción interna, ajuste"></div>
       </div>
       <div class="form-grid" id="ent_rend_box" style="padding-top:0;display:none;"><div class="full-span"><label>Rendimiento real del lote (unidades de consumo por unidad de compra)</label><input id="ent_rendimiento" type="number" step="0.0001" placeholder="Ej: unidades por kg"></div></div>
@@ -3956,7 +3956,16 @@ async function renderEntradas(){
     provWrap.style.display=esInsumo?'block':'none';
     provLinkWrap.style.display=esInsumo?'grid':'none';
     motivoWrap.style.display=esInsumo?'none':'block';
-    loteWrap.style.display=esInsumo?'none':'block';
+    /* El campo lote se muestra en ambos casos, solo cambia la etiqueta */
+    loteWrap.style.display='block';
+    const loteLabel=document.getElementById('ent_lote_label');
+    if(esInsumo){
+      if(loteLabel) loteLabel.textContent='Lote del proveedor (opcional)';
+      inputLote.placeholder='Ej: L-2026-014 · lote de factura o remisión';
+    } else {
+      if(loteLabel) loteLabel.textContent='Lote de producción (opcional)';
+      inputLote.placeholder='Ej: L-2026-014';
+    }
     if(esInsumo){
       const ins=insumos.find(function(i){return i.id===selItem.value;});
       if(!ins){preview.innerHTML='';return;}
@@ -3997,7 +4006,8 @@ async function renderEntradas(){
         const proveedor_id=document.getElementById('ent_proveedor').value||null;
         const costo=inputCosto.value?parseFloat(inputCosto.value):null;
         const rend=inputRend.value?parseFloat(inputRend.value):null;
-        const r=await withLoading(ev.currentTarget,async function(){return await rpc('registrar_entrada',{p_insumo_id:itemId,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_costo_unitario:costo,p_motivo:null,p_rendimiento_real:rend});});
+        const lote=inputLote.value.trim()||null;
+        const r=await withLoading(ev.currentTarget,async function(){return await rpc('registrar_entrada',{p_insumo_id:itemId,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_costo_unitario:costo,p_motivo:null,p_rendimiento_real:rend,p_lote_insumo:lote});});
         toast('Entrada OK · '+num(r.cantidad_consumo)+' en consumo · Existencia: '+num(r.existencia_nueva),'success');
       } else {
         const lote=inputLote.value.trim()||null;
@@ -4866,6 +4876,310 @@ async function renderRentabilidad(){
     main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
   }
 }
+/* ============ TRAZABILIDAD ============ */
+let _trazaCacheData=null;
+
+async function cargarDataTrazabilidad(){
+  if(_trazaCacheData) return _trazaCacheData;
+  const [insumos,subproductos,productos,recetas,hijos,bom,paqueteSubs,proveedores]=await Promise.all([
+    api('insumos?select=id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,costo_unitario&order=nombre'),
+    api('subproductos?select=id,codigo,nombre,tipo&order=nombre'),
+    api('productos_terminados?select=codigo_pt,nombre,unidades_por_caja&order=nombre'),
+    api('subproducto_recetas?select=subproducto_id,insumo_id,cantidad_por_unidad,unidad_receta,factor_receta'),
+    api('subproducto_subproductos?select=subproducto_padre_id,subproducto_hijo_id,cantidad_por_unidad'),
+    api('bom_recetas?select=codigo_pt,insumo_id,cantidad_por_unidad'),
+    api('paquete_subproductos?select=codigo_pt,subproducto_id,cantidad'),
+    api('sys_proveedores?select=id,razon_social&order=razon_social')
+  ]);
+  _trazaCacheData={insumos:insumos,subproductos:subproductos,productos:productos,recetas:recetas,hijos:hijos,bom:bom,paqueteSubs:paqueteSubs,proveedores:proveedores};
+  return _trazaCacheData;
+}
+
+function _trazaInsumoHTML(ins, cant, lotesInfo){
+  const u=unidadConsumo(ins);
+  const lotes=lotesInfo&&lotesInfo.length
+    ? '<div class="traza-lotes">'
+      + lotesInfo.slice(0,3).map(function(l){
+          return '<span class="traza-lote-chip">'
+            +'<b>'+(l.lote_insumo||'sin lote')+'</b>'
+            +' · '+num(l.cantidad,2)+' '+u
+            +(l.sys_proveedores?' · '+l.sys_proveedores.razon_social:'')
+            +'</span>';
+        }).join('')
+      + (lotesInfo.length>3?'<span class="traza-lote-chip traza-lote-more">+'+(lotesInfo.length-3)+' más</span>':'')
+      + '</div>'
+    : '<div class="traza-lotes"><span class="traza-lote-chip traza-lote-empty">Sin entradas registradas</span></div>';
+  return '<div class="traza-insumo">'
+    +'<div class="traza-insumo-head">'
+      +'<span class="traza-icon">📦</span>'
+      +'<span class="traza-insumo-nombre">'+ins.nombre+' <small class="mono">'+ins.codigo+'</small></span>'
+      +'<span class="traza-cantidad">'+num(cant,4)+' '+u+'</span>'
+    +'</div>'
+    +lotes
+    +'</div>';
+}
+
+function _trazaSubproductoHTML(sub, cant, data, depth, lotesPorInsumo){
+  depth=depth||0;
+  if(depth>10) return '<div class="traza-insumo"><i>Profundidad máxima alcanzada</i></div>';
+  const hijos=data.hijos.filter(function(h){return h.subproducto_padre_id===sub.id;});
+  const rec=data.recetas.filter(function(r){return r.subproducto_id===sub.id;});
+  let inner='';
+  rec.forEach(function(r){
+    const ins=data.insumos.find(function(x){return x.id===r.insumo_id;});
+    if(!ins) return;
+    const cantReal=Number(r.cantidad_por_unidad)*cant;
+    const lotes=lotesPorInsumo[ins.id]||[];
+    inner+=_trazaInsumoHTML(ins,cantReal,lotes);
+  });
+  hijos.forEach(function(h){
+    const sub2=data.subproductos.find(function(x){return x.id===h.subproducto_hijo_id;});
+    if(!sub2) return;
+    const cantReal=Number(h.cantidad_por_unidad)*cant;
+    inner+=_trazaSubproductoHTML(sub2,cantReal,data,depth+1,lotesPorInsumo);
+  });
+  const abierto=depth<2?' open':'';
+  return '<details class="traza-node traza-sub"'+abierto+'>'
+    +'<summary>'
+      +'<span class="traza-icon">🔧</span>'
+      +'<span class="traza-node-nombre">'+sub.nombre+' <small class="mono">'+sub.codigo+'</small></span>'
+      +'<span class="traza-cantidad">'+num(cant,4)+' u</span>'
+      +'<span class="traza-count">'+(rec.length+hijos.length)+' componentes</span>'
+    +'</summary>'
+    +'<div class="traza-children">'+inner+'</div>'
+    +'</details>';
+}
+
+async function renderTrazabilidad(){
+  const main=document.getElementById('mainContent');
+  main.innerHTML='<div class="empty-state">Cargando datos de trazabilidad…</div>';
+
+  try{
+    const data=await cargarDataTrazabilidad();
+
+    main.innerHTML=`
+      <div class="page-header-flex">
+        <div>
+          <h2 class="page-title">Trazabilidad</h2>
+          <p class="page-sub">Análisis bidireccional: de un producto hacia sus insumos y lotes, o de un insumo hacia los productos que lo usan.</p>
+        </div>
+        ${botonRefreshHTML('trazabilidad')}
+      </div>
+
+      <div class="panel force-expanded no-scroll">
+        <div style="padding:14px 18px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="secondary small tab-btn active" data-traza-modo="forward">🔍 ¿De dónde vino? (PT → insumos)</button>
+            <button class="secondary small tab-btn" data-traza-modo="backward">↩ ¿A dónde fue? (insumo → PTs)</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="trazaForwardWrap">
+        <div class="panel force-expanded no-scroll">
+          <div class="panel-header"><h3>Producto terminado</h3></div>
+          <div class="form-grid labels-bottom">
+            <div><label>Selecciona un PT</label><select id="traza_pt">
+              ${data.productos.map(function(p){return '<option value="'+p.codigo_pt+'">'+p.nombre+' ('+p.codigo_pt+')</option>';}).join('')}
+            </select></div>
+            <div><label>Unidades a analizar</label><input id="traza_cantidad" type="number" min="1" step="1" value="1"></div>
+          </div>
+          <div class="form-actions"><button id="btnTrazaForward">Analizar trazabilidad</button></div>
+        </div>
+        <div id="trazaForwardResultado"><div class="empty-state">Selecciona un PT y presiona "Analizar trazabilidad".</div></div>
+      </div>
+
+      <div id="trazaBackwardWrap" style="display:none;">
+        <div class="panel force-expanded no-scroll">
+          <div class="panel-header"><h3>Insumo</h3></div>
+          <div class="form-grid labels-bottom">
+            <div><label>Selecciona un insumo</label><select id="traza_insumo">
+              ${data.insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+i.codigo+')</option>';}).join('')}
+            </select></div>
+          </div>
+          <div class="form-actions"><button id="btnTrazaBackward">Buscar en PTs</button></div>
+        </div>
+        <div id="trazaBackwardResultado"><div class="empty-state">Selecciona un insumo y presiona "Buscar en PTs".</div></div>
+      </div>`;
+
+    /* Tabs */
+    document.querySelectorAll('[data-traza-modo]').forEach(function(b){
+      b.addEventListener('click',function(){
+        document.querySelectorAll('[data-traza-modo]').forEach(function(x){x.classList.toggle('active',x===b);});
+        const modo=b.dataset.trazaModo;
+        document.getElementById('trazaForwardWrap').style.display=modo==='forward'?'block':'none';
+        document.getElementById('trazaBackwardWrap').style.display=modo==='backward'?'block':'none';
+      });
+    });
+
+    /* Forward */
+    document.getElementById('btnTrazaForward').addEventListener('click',async function(ev){
+      const codigoPT=document.getElementById('traza_pt').value;
+      const cantidad=parseFloat(document.getElementById('traza_cantidad').value)||1;
+      if(!codigoPT){toast('Selecciona un producto.','error');return;}
+      await withLoading(ev.currentTarget,async function(){
+        await ejecutarTrazaForward(data,codigoPT,cantidad);
+      });
+    });
+
+    /* Backward */
+    document.getElementById('btnTrazaBackward').addEventListener('click',async function(ev){
+      const insumoId=document.getElementById('traza_insumo').value;
+      if(!insumoId){toast('Selecciona un insumo.','error');return;}
+      await withLoading(ev.currentTarget,async function(){
+        ejecutarTrazaBackward(data,insumoId);
+      });
+    });
+  }catch(e){
+    main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+  }
+}
+
+async function ejecutarTrazaForward(data,codigoPT,cantidad){
+  const box=document.getElementById('trazaForwardResultado');
+  const prod=data.productos.find(function(p){return p.codigo_pt===codigoPT;});
+  if(!prod){box.innerHTML='<div class="empty-state">Producto no encontrado.</div>';return;}
+
+  box.innerHTML='<div class="empty-state">Analizando insumos y lotes…</div>';
+
+  /* Cargar lotes por insumo: últimas entradas con lote */
+  const movs=await api('movimientos_inventario?select=insumo_id,cantidad,lote_insumo,fecha,sys_proveedores(razon_social)&tipo=eq.Entrada&lote_insumo=not.is.null&order=fecha.desc&limit=500');
+  const lotesPorInsumo={};
+  movs.forEach(function(m){
+    if(!m.insumo_id) return;
+    if(!lotesPorInsumo[m.insumo_id]) lotesPorInsumo[m.insumo_id]=[];
+    lotesPorInsumo[m.insumo_id].push(m);
+  });
+
+  /* Construir árbol */
+  const bom=data.bom.filter(function(b){return b.codigo_pt===codigoPT;});
+  const paq=data.paqueteSubs.filter(function(p){return p.codigo_pt===codigoPT;});
+
+  let html='';
+  bom.forEach(function(b){
+    const ins=data.insumos.find(function(x){return x.id===b.insumo_id;});
+    if(!ins) return;
+    const cantReal=Number(b.cantidad_por_unidad)*cantidad;
+    html+=_trazaInsumoHTML(ins,cantReal,lotesPorInsumo[ins.id]||[]);
+  });
+  paq.forEach(function(p){
+    const sub=data.subproductos.find(function(x){return x.id===p.subproducto_id;});
+    if(!sub) return;
+    const cantReal=Number(p.cantidad)*cantidad;
+    html+=_trazaSubproductoHTML(sub,cantReal,data,0,lotesPorInsumo);
+  });
+
+  if(!html){
+    box.innerHTML='<div class="empty-state">Este PT no tiene receta definida.</div>';
+    return;
+  }
+
+  const nInsumos=new Set();
+  bom.forEach(function(b){nInsumos.add(b.insumo_id);});
+  const recolectar=(subId)=>{
+    data.recetas.filter(function(r){return r.subproducto_id===subId;}).forEach(function(r){nInsumos.add(r.insumo_id);});
+    data.hijos.filter(function(h){return h.subproducto_padre_id===subId;}).forEach(function(h){recolectar(h.subproducto_hijo_id);});
+  };
+  paq.forEach(function(p){recolectar(p.subproducto_id);});
+
+  box.innerHTML=`
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header">
+        <h3>${prod.nombre} <span class="mono" style="color:var(--text-muted);font-size:12px;">${prod.codigo_pt}</span> · ${num(cantidad)} u</h3>
+        <span class="badge info">${nInsumos.size} insumos · ${paq.length} subproductos directos</span>
+      </div>
+      <div style="padding:14px 18px;">
+        <div class="traza-tree">${html}</div>
+      </div>
+      <div style="padding:0 18px 14px;font-size:11.5px;color:var(--text-muted);line-height:1.5;">
+        <b>Nota:</b> los lotes mostrados corresponden a las últimas entradas registradas con lote del proveedor. La trazabilidad exacta por lote consumido requiere FIFO estricto, que no está implementado.
+      </div>
+    </div>`;
+}
+
+function ejecutarTrazaBackward(data,insumoId){
+  const box=document.getElementById('trazaBackwardResultado');
+  const ins=data.insumos.find(function(x){return x.id===insumoId;});
+  if(!ins){box.innerHTML='<div class="empty-state">Insumo no encontrado.</div>';return;}
+
+  /* Buscar subproductos que usan el insumo */
+  const subIds=new Set();
+  data.recetas.filter(function(r){return r.insumo_id===insumoId;}).forEach(function(r){subIds.add(r.subproducto_id);});
+
+  /* Subproductos padres que contienen esos subproductos (recursivo) */
+  let changed=true;
+  let iter=0;
+  while(changed && iter<20){
+    changed=false;
+    data.hijos.forEach(function(h){
+      if(subIds.has(h.subproducto_hijo_id) && !subIds.has(h.subproducto_padre_id)){
+        subIds.add(h.subproducto_padre_id);
+        changed=true;
+      }
+    });
+    iter++;
+  }
+
+  /* PTs que usan el insumo directa o vía subproducto */
+  const ptsDirectos=new Set();
+  data.bom.filter(function(b){return b.insumo_id===insumoId;}).forEach(function(b){ptsDirectos.add(b.codigo_pt);});
+
+  const ptsViaSub=new Set();
+  data.paqueteSubs.forEach(function(p){
+    if(subIds.has(p.subproducto_id)) ptsViaSub.add(p.codigo_pt);
+  });
+
+  const todosPT=new Set([...ptsDirectos,...ptsViaSub]);
+
+  if(todosPT.size===0 && subIds.size===0){
+    box.innerHTML='<div class="empty-state">Este insumo no está en ninguna receta.</div>';
+    return;
+  }
+
+  let html='';
+
+  if(ptsDirectos.size){
+    html+='<details class="traza-node traza-pt" open>'
+      +'<summary><span class="traza-icon">📦</span><span class="traza-node-nombre">Uso directo en PT</span><span class="traza-count">'+ptsDirectos.size+'</span></summary>'
+      +'<div class="traza-children">'+Array.from(ptsDirectos).map(function(cod){
+        const p=data.productos.find(function(x){return x.codigo_pt===cod;});
+        return '<div class="traza-insumo"><span class="traza-icon">📦</span><span class="traza-insumo-nombre">'+(p?p.nombre:cod)+' <small class="mono">'+cod+'</small></span></div>';
+      }).join('')+'</div>'
+      +'</details>';
+  }
+
+  if(subIds.size){
+    html+='<details class="traza-node traza-sub" open>'
+      +'<summary><span class="traza-icon">🔧</span><span class="traza-node-nombre">Se usa en subproductos</span><span class="traza-count">'+subIds.size+'</span></summary>'
+      +'<div class="traza-children">'+Array.from(subIds).map(function(id){
+        const s=data.subproductos.find(function(x){return x.id===id;});
+        return '<div class="traza-insumo"><span class="traza-icon">🔧</span><span class="traza-insumo-nombre">'+(s?s.nombre:'?')+' <small class="mono">'+(s?s.codigo:'')+'</small></span></div>';
+      }).join('')+'</div>'
+      +'</details>';
+  }
+
+  if(ptsViaSub.size){
+    html+='<details class="traza-node traza-pt" open>'
+      +'<summary><span class="traza-icon">📦</span><span class="traza-node-nombre">PTs que lo contienen vía subproductos</span><span class="traza-count">'+ptsViaSub.size+'</span></summary>'
+      +'<div class="traza-children">'+Array.from(ptsViaSub).map(function(cod){
+        const p=data.productos.find(function(x){return x.codigo_pt===cod;});
+        return '<div class="traza-insumo"><span class="traza-icon">📦</span><span class="traza-insumo-nombre">'+(p?p.nombre:cod)+' <small class="mono">'+cod+'</small></span></div>';
+      }).join('')+'</div>'
+      +'</details>';
+  }
+
+  box.innerHTML=`
+    <div class="panel force-expanded no-scroll">
+      <div class="panel-header">
+        <h3>${ins.nombre} <span class="mono" style="color:var(--text-muted);font-size:12px;">${ins.codigo}</span></h3>
+        <span class="badge info">${todosPT.size} PT afectados</span>
+      </div>
+      <div style="padding:14px 18px;">
+        <div class="traza-tree">${html}</div>
+      </div>
+    </div>`;
+}
+
 /* ============ COSTOS OP — CAPA 2 (RENDER) ============ */
 async function renderCostosOP(){
   const main=document.getElementById('mainContent');
