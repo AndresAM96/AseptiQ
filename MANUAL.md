@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.3
+**Versión:** 1.4
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -97,7 +97,14 @@ Si intentás una acción no permitida, aparece: *"Tu rol es Consulta — solo le
 
 Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 
-**Arriba del sidebar:** logo AseptiQ y botón `◀` para colapsar.
+**Arriba del sidebar:** logo AseptiQ, campana de notificaciones 🔔 y botón `◀` para colapsar.
+
+**Campana de notificaciones:** cuando hay stock urgente u OPs pendientes hace más de 5 días, la campana se sacude suavemente y muestra un badge rojo con el total. Click en la campana abre un panel con:
+- 🔴 **Stock urgente** — insumos por debajo del umbral.
+- 📋 **OPs pendientes hace +5 días**.
+- 🟡 **En reorden** — insumos cerca del mínimo.
+- ✨ **Entregas últimas 24h**.
+Cada item es clickeable y lleva al módulo correspondiente. Se cierra con `Escape` o click fuera.
 
 **Abajo:** correo, rol, y **Cerrar sesión**.
 
@@ -118,6 +125,8 @@ Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 - KPIs de paquetes (en catálogo, con/sin stock).
 - Valorización: valor insumos, subproductos, PT y total.
 - Banner de alerta si hay insumos urgentes/reorden.
+- **Widget "🔴 Stock crítico del día"** — top 5 insumos urgentes/reorden con barra de cobertura % y botón "Ver todos".
+- **Timeline "🕒 Actividad reciente"** — últimos 15 eventos (entradas, salidas, consumos, entregas) con tiempo relativo ("Hace 5 min", "Hace 2 h").
 - 3 tablas: insumos, subproductos, PT en inventario.
 
 ### 6.2 Cargar orden
@@ -147,6 +156,8 @@ Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 - **Acciones**: Detalle / Entregar / Cancelar.
 
 **Detalle:** abre un modal con KPIs de progreso (proyectado / entregado % / pendiente), tablas de insumos proyectados y subproductos requeridos, e historial completo de entregas.
+
+**🖨 Imprimir OP** (dentro del modal de detalle): genera un documento formal con logo, QR de trazabilidad, tablas, y 3 firmas (Elaboró / Revisó / Aprobó).
 
 **Entregas parciales:**
 
@@ -191,6 +202,7 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 
 **Acciones:**
 
+- **🏷 Etiquetas**: imprime etiquetas QR configurables (pequeña 48×25mm / mediana 63×38mm / grande 99×38mm). Elegís cantidad, tamaño y campos a incluir (código, nombre, unidad, línea para lote, línea para fecha).
 - **Eliminar**: solo si no está en uso.
 - **Click en el costo**: ajustar costo manual con trazabilidad en Auditoría.
 
@@ -217,6 +229,8 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 - Composición por subproductos + insumos directos.
 
 **Importante**: las cantidades son **por unidad individual**, no por caja. Si un paquete va en cajas de 1000 y cada unidad lleva 1 bolsa, en la receta va `1`.
+
+**🏷 Etiquetas**: cada paquete tiene un botón 🏷 en su fila para imprimir etiquetas QR configurables (igual que en Insumos).
 
 ### 6.6 Entrada mercancía
 
@@ -283,7 +297,9 @@ Cada pestaña muestra el historial de las últimas devoluciones registradas.
 3. Diferencia en vivo.
 4. **Aplicar ajustes**.
 
-**Exportar CSV** e **Imprimir/PDF**.
+**Exportar CSV** e **🖨 Imprimir informe** (imprime el informe generado con formato profesional).
+
+**🖨 Imprimir formato** (dentro del conteo físico): genera un formato en blanco con columnas Sistema / Conteo / Dif. para llenar a mano, con firmas de Contó / Revisó / Aprobó al final.
 
 ### 6.10 Kardex
 
@@ -292,8 +308,10 @@ Historial de movimientos de un insumo con saldo corrido.
 - Selector de insumo.
 - Filtros de fecha y tipo.
 - Rangos rápidos.
-- 4 KPIs.
+- 4 KPIs: saldo antes del rango / entradas / salidas / saldo actual.
 - Tabla con fecha, tipo, referencia, entrada, salida, saldo.
+
+**🖨 Imprimir informe**: genera un documento en formato libro contable con logo, info general, KPIs y tabla completa de movimientos.
 
 ### 6.11 Compras
 
@@ -319,7 +337,7 @@ Análisis de pérdidas (salidas manuales y ajustes por conteo).
 ### 6.13 Histórico
 
 - **Órdenes por período**: filtro superior con semana / mes / año (por defecto mes).
-- **Movimientos por tipo**: filtro superior con semana / mes / año (por defecto mes).
+- **Movimientos por tipo**: filtro superior con semana / mes / año (por defecto mes). Si solo hay un tipo de movimiento en el período, muestra un mensaje explicativo en vez del anillo.
 - **Consumo mensual top 5 insumos** (12 meses) — panel colapsable.
 - **Top 10 insumos por valor** — panel colapsable.
 - **Resumen del período** — panel expandido por defecto.
@@ -349,7 +367,7 @@ No podés cambiar tu propio rol ni desactivar tu propia cuenta.
 
 ### 6.17 Configuración
 
-- **Apariencia**: toggle deslizante a la derecha del panel. Click cambia entre tema oscuro y claro. Los gráficos se adaptan automáticamente.
+- **Apariencia**: toggle deslizante compacto a la derecha del panel. Click cambia entre tema oscuro y claro; el icono del thumb alterna luna / sol. Los gráficos se adaptan automáticamente.
 - **Prefijos de códigos** — panel colapsado por defecto.
 - **Unidades de medida** — botón `+` abre un modal con la lista y opciones de agregar / renombrar / eliminar.
 - **Umbrales de stock** (urgente %, reorden %) — botón `+` abre un modal con los inputs.
@@ -450,13 +468,15 @@ Presionar `?` para ver la ayuda.
 
 ## 9. Uso desde celular o tablet
 
-**Tablet (641–1024 px):** KPIs en 2 columnas, tablas con scroll horizontal.
+**Tablet (641–1024 px):** KPIs en 2 columnas, tablas completas.
 
 **Móvil (hasta 640 px):**
 - Botón **☰** arriba a la izquierda para abrir el menú.
 - Los grupos se ven como drawer.
 - KPIs en 1 columna.
+- **Tablas se convierten en tarjetas apiladas** con etiqueta arriba de cada valor (no hace falta scroll horizontal).
 - Modales desde abajo.
+- La campana de notificaciones aparece al lado del toggle, y el dropdown ocupa el ancho completo.
 
 **Recomendaciones:**
 - Usar en horizontal para tablas.
@@ -486,6 +506,12 @@ Solo visible para admin.
 
 **Cargué una entrada pero el reporte de Compras no muestra el costo.**
 Las entradas anteriores a v1.0 se rellenaron con el costo actual. Las nuevas guardan el costo real del momento.
+
+**Al imprimir en PDF me aparece la URL del archivo y el número de página.**
+Son los "encabezados y pies de página" del navegador. En el diálogo de impresión, abrí **Más configuraciones** y desmarcá esa opción.
+
+**El bloque de firmas se va solo a la última página.**
+Actualizado en v1.4.0: los espaciados se compactaron para que quepa junto con la tabla. Si tu tabla es muy larga, es normal que las firmas queden solas — el formato está diseñado así para darles espacio.
 
 ---
 

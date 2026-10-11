@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v1.3.0** — Producción · Octubre 2026
+**v1.4.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -20,6 +20,10 @@ AseptiQ administra el flujo completo de manufactura:
 - **Reportes operativos**: compras por proveedor, mermas y ajustes.
 - **Backup** completo a un ZIP con 13 tablas en CSV.
 - **Interfaz basada en modales** con botón `+` en cada listado, análisis gráfico logístico en la cobertura de OP, y modo claro/oscuro.
+- **Campana de notificaciones** en el sidebar con stock crítico, OPs vencidas y entregas recientes.
+- **Dashboard operativo** con widget de stock crítico, timeline de actividad y KPIs visuales.
+- **Impresión profesional**: OP con QR + firmas, kardex formato libro, conteo físico, y etiquetas QR configurables (pequeña/mediana/grande).
+- **Responsive total**: tablas se convierten en tarjetas en móvil.
 
 ## Stack
 
@@ -36,6 +40,7 @@ AseptiQ/
 ├── index.html              # Shell de la app + estilos
 ├── aseptiq_app.js          # Lógica de UI, red, estado
 ├── aseptiq_core.js         # Lógica de negocio pura (portable a .NET)
+├── logo-proclides.png      # Logo institucional (impresión)
 ├── schema.sql              # Esquema completo del backend (único archivo)
 ├── migraciones/            # Historial de migraciones (solo referencia)
 ├── CONTRATO_API.md         # Documentación del backend
@@ -104,6 +109,10 @@ Resumen rápido:
 - [x] Modales genéricos + botón "+" en cada listado
 - [x] Cobertura de OP con análisis gráfico logístico
 - [x] Devoluciones de producto terminado
+- [x] Campana de notificaciones + Dashboard operativo
+- [x] Impresión profesional (OP, kardex, conteo, etiquetas QR)
+- [x] Responsive mobile (tablas → tarjetas)
+- [ ] Trazabilidad de lotes end-to-end
 - [ ] Port a .NET (Blazor / MAUI)
 
 ## Documentación

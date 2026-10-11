@@ -106,6 +106,200 @@ document.addEventListener('click',function(ev){
   }
 },true);
 
+/* ============ CAMPANA DE NOTIFICACIONES ============ */
+let _notifData=null;
+let _notifAbierto=false;
+
+async function actualizarCampana(){
+  try{
+    const [insumos,ordenes,entregasHoy]=await Promise.all([
+      api('insumos?select=id,codigo,nombre,existencia_actual,punto_reorden,unidad_medida,unidad_consumo,conversiones&estado_activo=eq.true&order=nombre'),
+      api('ordenes_semanales?select=id,numero_op,lote,fecha_creacion,prioridad,codigo_pt,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&order=fecha_creacion.asc'),
+      api('entregas_op?select=id,fecha,cantidad,lote_entrega,ordenes_semanales(numero_op)&order=fecha.desc&limit=5')
+    ]);
+
+    /* Clasificar insumos */
+    const urgentes=[],reorden=[];
+    insumos.forEach(function(i){
+      const e=estadoInsumo(i);
+      if(e==='Urgente')urgentes.push(i);
+      else if(e==='Reorden')reorden.push(i);
+    });
+
+    /* OPs pendientes hace más de 5 días */
+    const ahora=Date.now();
+    const opsVencidas=ordenes.filter(function(o){
+      const dias=(ahora-new Date(o.fecha_creacion).getTime())/(1000*60*60*24);
+      return dias>=5;
+    });
+
+    /* Entregas registradas en las últimas 24h */
+    const hace24h=ahora-24*60*60*1000;
+    const entregasRecientes=entregasHoy.filter(function(e){
+      return new Date(e.fecha).getTime()>=hace24h;
+    });
+
+    _notifData={urgentes:urgentes,reorden:reorden,opsVencidas:opsVencidas,entregasRecientes:entregasRecientes};
+
+    /* Badge: urgentes + OPs vencidas */
+    const totalAlerta=urgentes.length+opsVencidas.length;
+    const badge=document.getElementById('campanaBadge');
+    const btn=document.getElementById('btnCampana');
+    if(!badge||!btn)return;
+    if(totalAlerta<=0){
+      badge.style.display='none';
+      btn.classList.remove('has-alerts');
+    } else {
+      badge.textContent=totalAlerta>99?'99+':String(totalAlerta);
+      badge.className='sidebar-bell-badge'+(urgentes.length>0?'':' warning');
+      badge.style.display='flex';
+      btn.classList.add('has-alerts');
+    }
+    /* Si el dropdown está abierto, re-renderizarlo con datos frescos */
+    if(_notifAbierto) renderNotifPanel();
+  }catch(e){
+    log('No se pudo actualizar la campana:',e);
+  }
+}
+
+function _renderNotifItemHTML(icon, variant, title, sub, tabTarget){
+  return '<div class="notif-item '+variant+'" data-notif-tab="'+(tabTarget||'')+'">'
+    +'<div class="notif-item-icon">'+icon+'</div>'
+    +'<div class="notif-item-content">'
+    +'<div class="notif-item-title">'+title+'</div>'
+    +'<div class="notif-item-sub">'+sub+'</div>'
+    +'</div>'
+    +'</div>';
+}
+
+function renderNotifPanel(){
+  const body=document.getElementById('notifBody');
+  const header=document.getElementById('notifHeaderMeta');
+  if(!body||!header||!_notifData)return;
+
+  const {urgentes,reorden,opsVencidas,entregasRecientes}=_notifData;
+  const totalAlerta=urgentes.length+opsVencidas.length;
+
+  header.textContent=totalAlerta>0
+    ? totalAlerta+' requiere'+(totalAlerta===1?'':'n')+' tu atención'
+    : 'Todo en orden';
+
+  const blocks=[];
+
+  if(urgentes.length>0){
+    blocks.push('<div class="notif-section">'
+      +'<div class="notif-section-title">🔴 Stock urgente</div>'
+      +urgentes.slice(0,5).map(function(i){
+        return _renderNotifItemHTML('⚠','danger',
+          i.nombre+' ('+num(i.existencia_actual)+' '+unidadConsumo(i)+')',
+          'Por debajo del umbral urgente · objetivo '+num(i.punto_reorden)+' '+unidadConsumo(i),
+          'insumos');
+      }).join('')
+      +(urgentes.length>5?'<div class="notif-item info" data-notif-tab="insumos"><div class="notif-item-icon">→</div><div class="notif-item-content"><div class="notif-item-title">Ver los '+(urgentes.length-5)+' restantes</div><div class="notif-item-sub">Ir a Insumos</div></div></div>':'')
+      +'</div>');
+  }
+
+  if(opsVencidas.length>0){
+    blocks.push('<div class="notif-section">'
+      +'<div class="notif-section-title">📋 OPs pendientes hace +5 días</div>'
+      +opsVencidas.slice(0,5).map(function(o){
+        const dias=Math.floor((Date.now()-new Date(o.fecha_creacion).getTime())/(1000*60*60*24));
+        const prod=o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;
+        return _renderNotifItemHTML('⏱','warning',
+          (o.numero_op||'OP')+' · '+prod,
+          'Pendiente hace '+dias+' día'+(dias===1?'':'s'),
+          'orden');
+      }).join('')
+      +(opsVencidas.length>5?'<div class="notif-item info" data-notif-tab="orden"><div class="notif-item-icon">→</div><div class="notif-item-content"><div class="notif-item-title">Ver las '+(opsVencidas.length-5)+' restantes</div><div class="notif-item-sub">Ir a Cargar orden</div></div></div>':'')
+      +'</div>');
+  }
+
+  if(reorden.length>0 && urgentes.length===0){
+    blocks.push('<div class="notif-section">'
+      +'<div class="notif-section-title">🟡 En reorden</div>'
+      +reorden.slice(0,3).map(function(i){
+        return _renderNotifItemHTML('!','warning',
+          i.nombre,
+          'Existencia '+num(i.existencia_actual)+' '+unidadConsumo(i)+' · cerca del mínimo',
+          'insumos');
+      }).join('')
+      +'</div>');
+  }
+
+  if(entregasRecientes.length>0){
+    blocks.push('<div class="notif-section">'
+      +'<div class="notif-section-title">✨ Entregas últimas 24h</div>'
+      +entregasRecientes.slice(0,5).map(function(e){
+        const op=e.ordenes_semanales?e.ordenes_semanales.numero_op:'OP';
+        return _renderNotifItemHTML('↗','success',
+          'Entrega registrada · '+num(e.cantidad)+' u',
+          (op||'')+(e.lote_entrega?' · lote '+e.lote_entrega:'')+' · '+new Date(e.fecha).toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'}),
+          'orden');
+      }).join('')
+      +'</div>');
+  }
+
+  if(blocks.length===0){
+    body.innerHTML='<div class="notif-empty">'
+      +'<span class="notif-empty-icon">✓</span>'
+      +'Todo en orden. No hay notificaciones pendientes.'
+      +'</div>';
+  } else {
+    body.innerHTML=blocks.join('');
+  }
+
+  /* Binds */
+  body.querySelectorAll('[data-notif-tab]').forEach(function(el){
+    el.addEventListener('click',function(){
+      const tab=el.dataset.notifTab;
+      if(tab){cerrarCampana();if(typeof irATab==='function')irATab(tab);}
+    });
+  });
+}
+
+function abrirCampana(){
+  const ov=document.getElementById('notifOverlay');
+  const btn=document.getElementById('btnCampana');
+  if(!ov||!btn)return;
+  /* Posicionar el panel al lado del sidebar */
+  const sb=document.getElementById('sidebarPrincipal');
+  const panel=ov.querySelector('.notif-panel');
+  if(panel&&sb){
+    const isCol=sb.classList.contains('collapsed');
+    panel.style.left=isCol?'76px':'236px';
+  }
+  ov.classList.add('open');
+  _notifAbierto=true;
+  renderNotifPanel();
+  /* Refrescar en background */
+  actualizarCampana();
+}
+
+function cerrarCampana(){
+  const ov=document.getElementById('notifOverlay');
+  if(!ov)return;
+  ov.classList.remove('open');
+  _notifAbierto=false;
+}
+
+(function initCampana(){
+  const btn=document.getElementById('btnCampana');
+  const ov=document.getElementById('notifOverlay');
+  if(!btn||!ov)return;
+  btn.addEventListener('click',function(ev){
+    ev.stopPropagation();
+    if(_notifAbierto)cerrarCampana();
+    else abrirCampana();
+  });
+  ov.addEventListener('click',function(ev){
+    /* Click fuera del panel cierra */
+    if(ev.target===ov) cerrarCampana();
+  });
+  document.addEventListener('keydown',function(ev){
+    if(ev.key==='Escape'&&_notifAbierto)cerrarCampana();
+  });
+})();
+
 /* ============ INDICADOR DE STOCK EN EL SIDEBAR ============ */
 async function actualizarIndicadorStock(){
   try{
@@ -165,6 +359,7 @@ async function intentarSesionExistente(){
     activarNavItem(tabGuardado);
     renderTab(tabGuardado);
     setTimeout(actualizarIndicadorStock, 600);
+    setTimeout(actualizarCampana, 800);
     return true;
   }catch(e){
     if(typeof log==='function') log('No se pudo recuperar sesión:',e);
@@ -390,6 +585,163 @@ function parsearFaltantes(msg){
     return JSON.parse(msg.slice(idx+'Faltantes: '.length));
   }catch(e){return null;}
 }
+/* ============ IMPRESIÓN / PDF ============ */
+const PRINT_LOGO_SVG = '<img src="logo-proclides.png" alt="Proclides" class="print-logo">';
+
+const PRINT_CSS_BASE = `
+  *{box-sizing:border-box;}
+  body{
+    font-family:'Helvetica','Arial',sans-serif;
+    color:#111;background:#fff;
+    margin:0;padding:0;
+    font-size:10.5pt;line-height:1.4;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .print-doc{padding:0;}
+  .print-header{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    gap:16px;padding-bottom:10px;
+    border-bottom:2px solid #111;margin-bottom:16px;
+  }
+  .print-brand{display:flex;align-items:center;gap:12px;}
+  .print-logo{height:52px;width:auto;display:block;flex-shrink:0;}
+  .print-company{font-size:11.5pt;font-weight:700;letter-spacing:-.01em;line-height:1.2;}
+  .print-company small{display:block;font-size:8.5pt;font-weight:400;color:#666;margin-top:2px;letter-spacing:.02em;}
+  .print-title{text-align:right;}
+  .print-title h1{
+    margin:0;font-size:14pt;font-weight:700;
+    text-transform:uppercase;letter-spacing:.03em;
+  }
+  .print-title .meta{font-size:9pt;color:#555;margin-top:3px;line-height:1.4;}
+  .print-section-title{
+    font-size:9.5pt;font-weight:700;text-transform:uppercase;
+    letter-spacing:.05em;color:#333;
+    margin:12px 0 6px;padding-bottom:3px;
+    border-bottom:1px solid #ccc;
+    page-break-after:avoid;
+  }
+  .print-info-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);
+    gap:10px 20px;font-size:10pt;margin-bottom:14px;
+  }
+  .print-info-grid .lbl{
+    font-size:8pt;text-transform:uppercase;letter-spacing:.05em;
+    color:#888;font-weight:600;margin-bottom:2px;
+  }
+  .print-info-grid .val{font-weight:500;color:#111;overflow-wrap:anywhere;}
+  table.print-table{
+    width:100%;border-collapse:collapse;
+    font-size:9.5pt;margin-bottom:14px;
+  }
+  table.print-table th{
+    text-align:left;background:#efefef;color:#222;
+    font-weight:700;font-size:8pt;text-transform:uppercase;
+    letter-spacing:.03em;padding:4px 6px;border:1px solid #bbb;
+  }
+  table.print-table td{
+    padding:4px 6px;border:1px solid #ddd;vertical-align:top;
+    font-size:9pt;
+  }
+  table.print-table td.num,
+  table.print-table th.num{
+    text-align:right;font-family:'Courier New',monospace;white-space:nowrap;
+  }
+  table.print-table tr:nth-child(even) td{background:#fafafa;}
+  .print-signatures{
+    display:grid;grid-template-columns:repeat(3,1fr);
+    gap:30px;margin-top:20px;padding-top:12px;
+    page-break-inside:avoid;
+    break-inside:avoid;
+  }
+  .print-signature{
+    border-top:1px solid #111;padding-top:5px;
+    font-size:9pt;text-align:center;
+  }
+  .print-signature .name{
+    font-weight:700;color:#111;text-transform:uppercase;letter-spacing:.03em;
+  }
+  .print-signature .role{color:#666;font-size:8.5pt;margin-top:2px;}
+  .print-qr-block{
+    display:flex;align-items:center;gap:10px;
+    font-size:8.5pt;color:#555;margin-bottom:14px;
+    padding:8px 10px;border:1px dashed #bbb;border-radius:4px;
+  }
+  .print-qr-block svg{display:block;}
+  .print-footer{
+    display:flex;justify-content:space-between;
+    font-size:8pt;color:#888;
+    border-top:1px solid #ddd;padding-top:6px;
+    margin-top:24px;
+  }
+  @page{ size:letter portrait; margin:14mm 12mm; }
+  @media print{
+    body{background:#fff !important;}
+    table.print-table tr{page-break-inside:avoid;}
+    table.print-table{page-break-inside:auto;}
+    .print-signatures{page-break-inside:avoid;page-break-before:avoid;break-before:avoid;}
+    .print-header,.print-info-grid,.print-qr-block{page-break-after:avoid;}
+    /* Empujar firmas hacia arriba si es la última página */
+    .print-signatures + .print-footer{page-break-before:avoid;}
+  }
+`;
+
+function qrSVG(texto, tam){
+  tam = tam || 64;
+  try{
+    if(typeof qrcode==='undefined') return '';
+    const qr = qrcode(0, 'M');
+    qr.addData(String(texto));
+    qr.make();
+    return qr.createSvgTag({cellSize: 2, margin: 0, scalable: true})
+      .replace('<svg', '<svg style="width:'+tam+'px;height:'+tam+'px;"');
+  }catch(e){ return ''; }
+}
+
+function printHeaderHTML(titulo, subtitulo){
+  return '<div class="print-header">'
+    +'<div class="print-brand">'+PRINT_LOGO_SVG
+    +'<div><div class="print-company">Proclides Soluciones Estériles S.A.S.<small>AseptiQ · Sistema de gestión</small></div></div>'
+    +'</div>'
+    +'<div class="print-title">'
+    +'<h1>'+titulo+'</h1>'
+    +(subtitulo?'<div class="meta">'+subtitulo+'</div>':'')
+    +'</div>'
+    +'</div>';
+}
+
+function printFooterHTML(){
+  const fecha = new Date().toLocaleString('es-CO');
+  const usuario = SUPA_PROFILE ? (SUPA_PROFILE.email || SUPA_PROFILE.nombre || '') : '';
+  return '<div class="print-footer">'
+    +'<span>AseptiQ · '+fecha+'</span>'
+    +'<span>'+(usuario||'')+'</span>'
+    +'</div>';
+}
+
+function imprimirHTML(contenidoHTML, tituloVentana, cssExtra){
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write('<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>'+(tituloVentana||'Imprimir')+'</title>');
+  doc.write('<style>'+PRINT_CSS_BASE+(cssExtra||'')+'</style>');
+  doc.write('</head><body><div class="print-doc">');
+  doc.write(contenidoHTML);
+  doc.write('</div></body></html>');
+  doc.close();
+  setTimeout(function(){
+    try{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }catch(e){console.warn('Error al imprimir:',e);}
+    setTimeout(function(){
+      if(iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    }, 2000);
+  }, 450);
+}
+
 function getConfig(){
   const def={prefijoInsumo:'INS-',prefijoSubproducto:'SUB-',prefijoProducto:'PT-',prefijoOP:'OP-',unidades:['u','m','kg','l','caja','rollo','m²']};
   try{const s=JSON.parse(localStorage.getItem('inv_config'));return s?Object.assign({},def,s):def;}catch(e){return def;}
@@ -759,6 +1111,7 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
     dialogInit();
     renderTab('dashboard');
     setTimeout(actualizarIndicadorStock, 600);
+    setTimeout(actualizarCampana, 800);
   }catch(e){
     const m=String(e.message||e);
     if(/Invalid login credentials/i.test(m)) errBox.textContent='Correo o contraseña incorrectos.';
@@ -778,6 +1131,76 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
 document.getElementById('rememberCreds').addEventListener('change',function(e){
   document.getElementById('credsWarning').style.display=e.target.checked?'block':'none';
 });
+
+/* ============ TABLAS RESPONSIVE ============ */
+/* Marca automáticamente cada tabla nueva con:
+   - clase .responsive-table
+   - data-label en cada <td> (tomado del <th> de su columna)
+   - clase .row-header en la fila que contiene los <th>
+   Esto permite que en móvil el CSS las convierta en tarjetas. */
+(function initResponsiveTables(){
+  function procesarTabla(tabla){
+    if(!tabla || tabla.dataset.responsiveReady==='1') return;
+    if(tabla.classList.contains('no-responsive')) return;
+    /* Fila de encabezados: la primera <tr> que tenga <th> */
+    const filas=tabla.querySelectorAll('tr');
+    let filaHeader=null;
+    for(let i=0;i<filas.length;i++){
+      if(filas[i].querySelector('th')){filaHeader=filas[i];break;}
+    }
+    if(!filaHeader) return;
+    const headers=Array.from(filaHeader.querySelectorAll('th')).map(function(th){
+      return th.textContent.replace(/[▲▼]/g,'').trim();
+    });
+    if(!headers.length) return;
+
+    tabla.classList.add('responsive-table');
+    filaHeader.classList.add('row-header');
+
+    filas.forEach(function(tr){
+      if(tr===filaHeader) return;
+      if(tr.querySelector('th')){tr.classList.add('row-header');return;}
+      Array.from(tr.children).forEach(function(td,i){
+        if(headers[i]!==undefined && headers[i]!=='') td.setAttribute('data-label',headers[i]);
+      });
+    });
+    tabla.dataset.responsiveReady='1';
+  }
+
+  function procesarTodo(){
+    document.querySelectorAll('table').forEach(procesarTabla);
+  }
+
+  /* Procesar todo lo que ya existe */
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',procesarTodo);
+  } else {
+    procesarTodo();
+  }
+
+  /* Observar cambios en el DOM para tablas nuevas (modales, re-renders) */
+  const obs=new MutationObserver(function(muts){
+    let hayNuevas=false;
+    muts.forEach(function(m){
+      if(!m.addedNodes||!m.addedNodes.length)return;
+      m.addedNodes.forEach(function(n){
+        if(n.nodeType!==1)return;
+        if(n.tagName==='TABLE'||(n.querySelector&&n.querySelector('table'))){hayNuevas=true;}
+      });
+    });
+    if(hayNuevas) procesarTodo();
+  });
+  if(document.body){
+    obs.observe(document.body,{childList:true,subtree:true});
+  } else {
+    document.addEventListener('DOMContentLoaded',function(){
+      obs.observe(document.body,{childList:true,subtree:true});
+    });
+  }
+
+  /* Exponer para llamar a mano si hiciera falta */
+  window._procesarTablasResponsive=procesarTodo;
+})();
 
 /* ============ DRAWER MÓVIL ============ */
 function esMobile(){
@@ -1200,8 +1623,9 @@ async function renderTab(tab){
     hideLoader();
     aplicarPermisos();
     prepararPaneles();
-    /* Refrescar el badge en segundo plano. No bloquea el render. */
+    /* Refrescar los indicadores en segundo plano. No bloquea el render. */
     setTimeout(actualizarIndicadorStock, 0);
+    setTimeout(actualizarCampana, 200);
   }
 }
 
@@ -1573,6 +1997,32 @@ async function renderDashboard(){
 
       ${(uIns+rIns)>0?(()=>{const total=uIns+rIns;const esUrgente=uIns>0;return `<div class="alert-banner ${esUrgente?'danger':'warning'}" id="alertStockBanner" data-total="${total}"><div class="alert-icon">${esUrgente?'⚠':'!'}</div><div class="alert-body"><strong>${total} insumo${total===1?'':'s'} ${esUrgente?'en estado urgente':'en reorden'}.</strong><span>Revisa existencias y programa reposición.</span></div><button class="alert-action" data-goto-tab="insumos">Ver insumos</button><button class="alert-close" data-dismiss-alert title="Ocultar por esta sesión">×</button></div>`;})():''}
 
+      ${(()=>{
+        const criticos=data.insumos.filter(function(i){const e=estadoInsumo(i);return e==='Urgente'||e==='Reorden';})
+          .sort(function(a,b){const ea=estadoInsumo(a)==='Urgente'?0:1;const eb=estadoInsumo(b)==='Urgente'?0:1;if(ea!==eb)return ea-eb;return (a.existencia_actual/(a.punto_reorden||1))-(b.existencia_actual/(b.punto_reorden||1));})
+          .slice(0,5);
+        if(!criticos.length) return '';
+        return `<div class="panel force-expanded no-scroll" style="border-left:3px solid ${uIns>0?'var(--danger)':'var(--warning)'};">
+          <div class="panel-header"><h3>🔴 Stock crítico del día</h3><button class="secondary small" data-goto-tab="insumos">Ver todos</button></div>
+          <table>
+            <thead><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Mínimo</th><th>Cobertura</th><th>Estado</th></tr></thead>
+            <tbody>
+            ${criticos.map(function(i){
+              const ex=Number(i.existencia_actual)||0;
+              const pr=Number(i.punto_reorden)||0;
+              const pct=pr>0?Math.min(100,Math.round(ex/pr*100)):0;
+              const color=estadoInsumo(i)==='Urgente'?'var(--danger)':'var(--warning)';
+              return '<tr><td>'+i.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+i.codigo+'</span></td>'
+                +'<td class="num" style="color:'+color+';font-weight:600;">'+num(ex)+' '+unidadConsumo(i)+'</td>'
+                +'<td class="num">'+num(pr)+' '+unidadConsumo(i)+'</td>'
+                +'<td style="min-width:120px;"><div style="background:var(--surface-3);border-radius:6px;height:6px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+color+';"></div></div><span style="font-size:10.5px;color:var(--text-muted);">'+pct+'%</span></td>'
+                +'<td>'+badgeFor(estadoInsumo(i))+'</td></tr>';
+            }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      })()}
+
       <h3 class="section-title">Insumos</h3>
       <div class="grid-cards">
         <div class="stat-card neutral"><p class="stat-label">Insumos activos</p><p class="stat-value">${data.insumos.length}</p></div>
@@ -1648,13 +2098,49 @@ async function renderDashboard(){
         </tr>
           ${paqView.map(function(p){const cu=data.costos.paqCosto[p.codigo_pt]||0;const pc=p.unidades_por_caja||1;const ex=p.existencia_actual||0;return '<tr><td>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span></td><td class="num">'+pc+'</td><td class="num">'+num(ex)+'</td><td class="num">'+money(cu)+'</td><td class="num">'+money(ex*cu)+'</td><td>'+badgeStockPT(p)+'</td></tr>';}).join('')}
         </table>`}
+      </div>
+
+      <div class="panel" id="panelTimeline">
+        <div class="panel-header"><h3>🕒 Actividad reciente</h3></div>
+        <div class="timeline-body" id="timelineBody"><div class="empty-state">Cargando actividad…</div></div>
       </div>`;
     filtrarTabla('buscar_dash_ins','tabla_dash_ins');
     filtrarTabla('buscar_dash_sub','tabla_dash_sub');
     filtrarTabla('buscar_dash_paq','tabla_dash_paq');
     bindSortHeaders(renderDashboard);
+
+    /* Timeline async — no bloquea el render */
+    construirTimeline(15).then(function(eventos){
+      const cont=document.getElementById('timelineBody');
+      if(!cont)return;
+      if(!eventos.length){
+        cont.innerHTML='<div class="empty-state">Sin actividad reciente.</div>';
+        return;
+      }
+      cont.innerHTML='<div class="timeline-list">'+eventos.map(function(ev){
+        return '<div class="timeline-item timeline-'+ev.variant+'">'
+          +'<div class="timeline-icon">'+ev.icon+'</div>'
+          +'<div class="timeline-content">'
+          +'<div class="timeline-title">'+ev.titulo+'</div>'
+          +'<div class="timeline-sub">'+ev.sub+'</div>'
+          +'</div>'
+          +'<div class="timeline-time">'+formatoRelativo(ev.fecha)+'</div>'
+          +'</div>';
+      }).join('')+'</div>';
+    }).catch(function(err){
+      const cont=document.getElementById('timelineBody');
+      if(cont) cont.innerHTML='<div class="empty-state">No se pudo cargar la actividad.</div>';
+    });
     
     /* Alerta de stock: bind de acciones */
+    /* Bind "Ver todos" del widget de stock crítico */
+    document.querySelectorAll('.panel [data-goto-tab="insumos"]').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        const item=document.querySelector('.nav-item[data-tab="insumos"]');
+        if(item) item.click();
+      });
+    });
+
     const alertAction=document.querySelector('[data-goto-tab="insumos"]');
     if(alertAction){
       /* Ocultar si el usuario ya la descartó esta sesión */
@@ -1673,6 +2159,185 @@ async function renderDashboard(){
       }
     }
   }catch(e){main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';}
+}
+
+/* ============ ETIQUETAS QR ============ */
+function abrirModalEtiquetas(tipo,item){
+  const nombre = item.nombre || '';
+  const codigo = item.codigo || item.codigo_pt || '';
+  abrirModalGenerico({
+    title: 'Imprimir etiquetas',
+    subtitle: codigo + ' · ' + nombre,
+    icon: '🏷',
+    variant: 'info',
+    size: 'md',
+    body: '<div class="form-grid" style="padding:0;">'
+      +'<div><label>Cantidad de etiquetas</label><input id="etq_cantidad" type="number" min="1" max="200" value="1"></div>'
+      +'<div><label>Tamaño de etiqueta</label><select id="etq_tamano">'
+      +'<option value="small">Pequeña · 48 × 25 mm (4 por fila)</option>'
+      +'<option value="medium" selected>Mediana · 63 × 38 mm (3 por fila)</option>'
+      +'<option value="large">Grande · 99 × 38 mm (2 por fila)</option>'
+      +'</select></div>'
+      +'<div class="full-span"><label>Campos a incluir</label>'
+      +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_codigo" checked><span>Código</span></label>'
+      +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_nombre" checked><span>Nombre</span></label>'
+      +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_unidad" checked><span>Unidad de consumo</span></label>'
+      +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_lote"><span>Línea para escribir lote</span></label>'
+      +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_fecha"><span>Línea para escribir fecha</span></label>'
+      +'</div>'
+      +'</div>',
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="etq_cancelar">Cancelar</button><button id="etq_imprimir">🖨 Imprimir etiquetas</button></div>',
+    onOpen: function(){
+      document.getElementById('etq_cancelar').addEventListener('click', cerrarModalGenerico);
+      document.getElementById('etq_imprimir').addEventListener('click', function(){
+        const cantidad = Math.max(1, Math.min(200, parseInt(document.getElementById('etq_cantidad').value,10)||1));
+        const tamano = document.getElementById('etq_tamano').value;
+        const campos = {
+          codigo: document.getElementById('etq_codigo').checked,
+          nombre: document.getElementById('etq_nombre').checked,
+          unidad: document.getElementById('etq_unidad').checked,
+          lote: document.getElementById('etq_lote').checked,
+          fecha: document.getElementById('etq_fecha').checked
+        };
+        imprimirEtiquetas(tipo, item, cantidad, tamano, campos);
+        cerrarModalGenerico();
+      });
+    }
+  });
+}
+
+function imprimirEtiquetas(tipo, item, cantidad, tamano, campos){
+  const sizes = {
+    small:{w:'48mm',h:'25mm',cols:4, qr:34, fsCod:'7pt', fsNom:'6.5pt', fsUni:'6pt'},
+    medium:{w:'63mm',h:'38mm',cols:3, qr:52, fsCod:'9pt', fsNom:'8pt', fsUni:'7.5pt'},
+    large:{w:'99mm',h:'38mm',cols:2, qr:68, fsCod:'10.5pt', fsNom:'9.5pt', fsUni:'8.5pt'}
+  };
+  const s = sizes[tamano] || sizes.medium;
+
+  const nombre = item.nombre || '';
+  const codigo = item.codigo || item.codigo_pt || '';
+  const unidad = tipo === 'insumo' ? unidadConsumo(item) : 'u';
+
+  const qr = qrSVG(codigo, s.qr);
+  const qrBox = qr ? '<div class="etiqueta-qr">'+qr+'</div>' : '';
+
+  let etiquetas = '';
+  for(let i = 0; i < cantidad; i++){
+    etiquetas += '<div class="etiqueta">'
+      + qrBox
+      + '<div class="etiqueta-info">'
+      +(campos.codigo ? '<div class="etiqueta-codigo">'+codigo+'</div>' : '')
+      +(campos.nombre ? '<div class="etiqueta-nombre">'+nombre+'</div>' : '')
+      +(campos.unidad ? '<div class="etiqueta-unidad">'+unidad+'</div>' : '')
+      +(campos.lote ? '<div class="etiqueta-linea"><span>Lote:</span><span class="linea"></span></div>' : '')
+      +(campos.fecha ? '<div class="etiqueta-linea"><span>Fecha:</span><span class="linea"></span></div>' : '')
+      + '</div>'
+      + '</div>';
+  }
+
+  const cssEtiquetas = `
+    @page{ size:letter portrait; margin:10mm; }
+    body{margin:0;padding:0;background:#fff;font-family:'Helvetica','Arial',sans-serif;color:#000;}
+    .hoja-etiquetas{
+      display:grid;
+      grid-template-columns:repeat(${s.cols},1fr);
+      gap:2mm;
+    }
+    .etiqueta{
+      width:${s.w};height:${s.h};
+      border:1px solid #999;border-radius:3px;
+      padding:2mm;
+      display:flex;align-items:center;gap:2mm;
+      overflow:hidden;background:#fff;
+      page-break-inside:avoid;
+      box-sizing:border-box;
+    }
+    .etiqueta-qr{flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+    .etiqueta-qr svg{display:block;}
+    .etiqueta-info{flex:1;min-width:0;overflow:hidden;line-height:1.15;}
+    .etiqueta-codigo{
+      font-family:'Courier New',monospace;font-weight:700;
+      font-size:${s.fsCod};color:#000;letter-spacing:.02em;
+      margin-bottom:1mm;
+    }
+    .etiqueta-nombre{
+      font-size:${s.fsNom};font-weight:500;color:#111;margin-bottom:.5mm;
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+    .etiqueta-unidad{
+      font-size:${s.fsUni};color:#555;text-transform:uppercase;letter-spacing:.05em;
+    }
+    .etiqueta-linea{
+      display:flex;align-items:baseline;gap:1.5mm;
+      font-size:${s.fsUni};color:#555;margin-top:1mm;
+    }
+    .etiqueta-linea .linea{flex:1;border-bottom:1px solid #999;height:1em;min-width:10mm;}
+    @media print{ .etiqueta{border:1px solid #999 !important;} }
+  `;
+
+  imprimirHTML('<div class="hoja-etiquetas">'+etiquetas+'</div>', 'Etiquetas '+codigo, cssEtiquetas);
+}
+
+/* ============ TIMELINE DE ACTIVIDAD (Dashboard) ============ */
+async function construirTimeline(limit){
+  limit=limit||15;
+  const [movs,entregas]=await Promise.all([
+    api('movimientos_inventario?select=id,fecha,tipo,cantidad,motivo,insumos(nombre,unidad_consumo,unidad_medida),subproductos(nombre),sys_proveedores(razon_social)&order=fecha.desc&limit='+limit),
+    api('entregas_op?select=id,fecha,cantidad,lote_entrega,ordenes_semanales(numero_op,productos_terminados(nombre))&order=fecha.desc&limit='+limit)
+  ]);
+
+  const eventos=[];
+  movs.forEach(function(m){
+    let icon='•',variant='info',titulo='',sub='';
+    const esSub=!!m.subproducto_id;
+    if(m.tipo==='Entrada'){
+      icon='📥';variant='success';
+      const nombre=esSub?(m.subproductos?m.subproductos.nombre:'Subproducto'):(m.insumos?m.insumos.nombre:'Insumo');
+      titulo='Entrada · '+nombre;
+      sub='+'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?unidadConsumo(m.insumos):''))+(m.sys_proveedores?' · '+m.sys_proveedores.razon_social:(m.motivo?' · '+m.motivo:''));
+    } else if(m.tipo==='Salida'){
+      icon='📤';variant=m.proveedor_id?'info':'danger';
+      const nombre=m.insumos?m.insumos.nombre:'Insumo';
+      titulo=(m.proveedor_id?'Devolución a proveedor · ':'Salida · ')+nombre;
+      sub='−'+num(m.cantidad)+' '+(m.insumos?unidadConsumo(m.insumos):'')+(m.motivo?' · '+m.motivo:'');
+    } else if(m.tipo==='Consumo'){
+      icon='⚙';variant='warning';
+      const nombre=esSub?(m.subproductos?m.subproductos.nombre:'Subproducto'):(m.insumos?m.insumos.nombre:'Insumo');
+      titulo='Consumo · '+nombre;
+      sub='−'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?unidadConsumo(m.insumos):''))+(m.motivo?' · '+m.motivo:'');
+    } else {
+      titulo=m.tipo+' · '+(m.insumos?m.insumos.nombre:'—');
+      sub=num(m.cantidad);
+    }
+    eventos.push({fecha:m.fecha,icon:icon,variant:variant,titulo:titulo,sub:sub});
+  });
+  entregas.forEach(function(e){
+    const op=e.ordenes_semanales?e.ordenes_semanales.numero_op:'OP';
+    const prod=e.ordenes_semanales&&e.ordenes_semanales.productos_terminados?e.ordenes_semanales.productos_terminados.nombre:'';
+    eventos.push({
+      fecha:e.fecha,
+      icon:'✨',
+      variant:'success',
+      titulo:'Entrega de OP · '+op+(prod?' · '+prod:''),
+      sub:'+'+num(e.cantidad)+' u entregadas'+(e.lote_entrega?' · lote '+e.lote_entrega:'')
+    });
+  });
+
+  eventos.sort(function(a,b){return new Date(b.fecha)-new Date(a.fecha);});
+  return eventos.slice(0,limit);
+}
+
+function formatoRelativo(fechaISO){
+  const diff=Date.now()-new Date(fechaISO).getTime();
+  const min=Math.floor(diff/60000);
+  if(min<1)return 'Hace instantes';
+  if(min<60)return 'Hace '+min+' min';
+  const hr=Math.floor(min/60);
+  if(hr<24)return 'Hace '+hr+' h';
+  const d=Math.floor(hr/24);
+  if(d<7)return 'Hace '+d+' d';
+  return new Date(fechaISO).toLocaleDateString('es-CO');
 }
 
 /* ============ INSUMOS ============ */
@@ -1702,7 +2367,7 @@ async function renderInsumos(){
         ${thSort('Valor','valor','lista_insumos',true)}
         <th>Estado</th><th class="actions"></th>
       </tr>
-        ${view.map(function(i){return '<tr><td class="mono">'+i.codigo+'</td><td>'+i.nombre+'</td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num"><span class="costo-click" data-ajuste-costo="'+i.id+'" data-costo="'+(i.costo_unitario||0)+'" data-nombre="'+String(i.nombre).replace(/"/g,'&quot;')+'" title="Click para ajustar el costo">'+money(i.costo_unitario)+'</span></td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td><td class="actions"><button class="ghost small" data-edit-insumo="'+i.id+'" title="Editar insumo">Editar</button><button class="danger-btn small" data-del-insumo="'+i.id+'" data-del-nombre="'+i.nombre+'" title="Eliminar insumo">Eliminar</button></td></tr>';}).join('')}
+        ${view.map(function(i){return '<tr><td class="mono">'+i.codigo+'</td><td>'+i.nombre+'</td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num"><span class="costo-click" data-ajuste-costo="'+i.id+'" data-costo="'+(i.costo_unitario||0)+'" data-nombre="'+String(i.nombre).replace(/"/g,'&quot;')+'" title="Click para ajustar el costo">'+money(i.costo_unitario)+'</span></td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td><td class="actions"><button class="ghost small" data-print-insumo="'+i.id+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">🏷</button><button class="ghost small" data-edit-insumo="'+i.id+'" title="Editar insumo">Editar</button><button class="danger-btn small" data-del-insumo="'+i.id+'" data-del-nombre="'+i.nombre+'" title="Eliminar insumo">Eliminar</button></td></tr>';}).join('')}
       </table>`}
     </div>`;
   filtrarTabla('buscar_insumos','tablaInsumos');
@@ -1733,6 +2398,12 @@ async function renderInsumos(){
     btn.addEventListener('click',function(){
       editandoInsumoId=btn.dataset.editInsumo;
       abrirModalInsumo(btn.dataset.editInsumo,insumos,cfg);
+    });
+  });
+  document.querySelectorAll('[data-print-insumo]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      const ins=insumos.find(function(x){return x.id===btn.dataset.printInsumo;});
+      if(ins) abrirModalEtiquetas('insumo',ins);
     });
   });
   document.querySelectorAll('[data-del-insumo]').forEach(function(btn){
@@ -1981,7 +2652,7 @@ async function renderProductos(){
         const margenPct=margen!=null&&precio>0?(margen/precio*100):null;
         const precioTxt=precio!=null?'<span style="color:var(--info);font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;">Precio: '+money(precio)+'</span>':'<span style="color:var(--text-muted);font-size:12px;">Sin precio</span>';
         const margenTxt=margen!=null?'<span style="color:'+(margen>=0?'var(--success)':'var(--danger)')+';font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;">Margen: '+money(margen)+' ('+num(margenPct,1)+'%)</span>':'';
-        return '<div class="list-item" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+badgeStockPT(p)+'</div><div class="item-actions"><button class="ghost small" data-edit-prod="'+p.codigo_pt+'" title="Editar paquete">Editar</button><button class="danger-btn small" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">Eliminar</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
+        return '<div class="list-item" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+badgeStockPT(p)+'</div><div class="item-actions"><button class="ghost small" data-print-prod="'+p.codigo_pt+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">🏷</button><button class="ghost small" data-edit-prod="'+p.codigo_pt+'" title="Editar paquete">Editar</button><button class="danger-btn small" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">Eliminar</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
       }).join('')}
     </div>`;
 
@@ -2079,6 +2750,12 @@ async function renderProductos(){
   document.querySelectorAll('[data-edit-prod]').forEach(function(btn){
     btn.addEventListener('click',function(){
       abrirModalPaquete(btn.dataset.editProd,data,cfg);
+    });
+  });
+  document.querySelectorAll('[data-print-prod]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      const p=productos.find(function(x){return x.codigo_pt===btn.dataset.printProd;});
+      if(p) abrirModalEtiquetas('pt',p);
     });
   });
   document.querySelectorAll('[data-del-prod]').forEach(function(btn){
@@ -2930,9 +3607,10 @@ function abrirModalDetalleOrden(orden){
     variant: 'info',
     size: 'wide',
     body: progresoHtml + tablaIns + tablaSubs + '<div id="modalDetalleEntregas"></div>',
-    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button id="det_cerrar">Cerrar</button></div>',
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="det_imprimir" title="Imprimir orden de producción">🖨 Imprimir OP</button><button id="det_cerrar">Cerrar</button></div>',
     onOpen: function(){
       document.getElementById('det_cerrar').addEventListener('click',cerrarModalGenerico);
+      document.getElementById('det_imprimir').addEventListener('click',function(){ imprimirOP(orden); });
 
       /* Cargar entregas async (no bloquea el render del modal) */
       const contEnt=document.getElementById('modalDetalleEntregas');
@@ -2963,6 +3641,90 @@ function abrirModalDetalleOrden(orden){
   });
 }
 
+
+function imprimirOP(orden){
+  if(!orden) return;
+  const d = orden.detalle_faltantes || {};
+  const insumosDet = Array.isArray(d) ? d : (d.insumos || []);
+  const subsDet = Array.isArray(d) ? [] : (d.subproductos || []);
+  const prodNombre = orden.productos_terminados ? orden.productos_terminados.nombre : orden.codigo_pt;
+  const proyectada = Number(orden.cantidad_proyectada) || 0;
+  const producida = Number(orden.cantidad_producida) || 0;
+  const pendiente = proyectada - producida;
+
+  const infoGrid = '<div class="print-info-grid">'
+    +'<div><div class="lbl">N° de OP</div><div class="val">'+(orden.numero_op||'—')+'</div></div>'
+    +'<div><div class="lbl">Lote</div><div class="val">'+(orden.lote||'—')+'</div></div>'
+    +'<div><div class="lbl">Prioridad</div><div class="val">'+(prioridadLabel(orden.prioridad)||'—')+'</div></div>'
+    +'<div><div class="lbl">Producto</div><div class="val">'+prodNombre+'</div></div>'
+    +'<div><div class="lbl">Cantidad proyectada</div><div class="val">'+num(proyectada)+' u</div></div>'
+    +'<div><div class="lbl">Estado</div><div class="val">'+(orden.estado_op||'—')+'</div></div>'
+    +'<div><div class="lbl">Producido</div><div class="val">'+num(producida)+' u</div></div>'
+    +'<div><div class="lbl">Pendiente</div><div class="val">'+num(pendiente)+' u</div></div>'
+    +'<div><div class="lbl">Fecha programada</div><div class="val">'+(orden.fecha_programada ? new Date(orden.fecha_programada+'T00:00:00').toLocaleDateString('es-CO') : '—')+'</div></div>'
+    +'</div>';
+
+  const qrText = 'OP:'+(orden.numero_op||'')+'|LOTE:'+(orden.lote||'')+'|PT:'+(orden.codigo_pt||'')+'|CANT:'+proyectada;
+  const qr = qrSVG(qrText, 80);
+  const qrBlock = qr ? '<div class="print-qr-block">'+qr
+    +'<div><b>Código de trazabilidad</b><br>OP '+(orden.numero_op||'')+(orden.lote?' · Lote '+orden.lote:'')+'</div></div>' : '';
+
+  let tablaIns = '';
+  if(insumosDet.length){
+    tablaIns = '<div class="print-section-title">Insumos proyectados</div>'
+      +'<table class="print-table"><thead><tr>'
+      +'<th>Insumo</th><th class="num">Consumo requerido</th><th class="num">Existencia al confirmar</th><th class="num">Faltante</th><th>Estado</th>'
+      +'</tr></thead><tbody>'
+      +insumosDet.map(function(x){
+        const uni = x.unidad || '';
+        const ex = x.existencia_consumo != null ? num(x.existencia_consumo) : (x.existencia != null ? num(x.existencia) : '—');
+        return '<tr>'
+          +'<td>'+x.nombre+'</td>'
+          +'<td class="num">'+num(x.consumo_total)+' '+uni+'</td>'
+          +'<td class="num">'+ex+' '+uni+'</td>'
+          +'<td class="num">'+(x.faltante>0?num(x.faltante)+' '+uni:'—')+'</td>'
+          +'<td>'+(x.estado||'')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table>';
+  }
+
+  let tablaSubs = '';
+  if(subsDet.length){
+    tablaSubs = '<div class="print-section-title">Subproductos requeridos</div>'
+      +'<table class="print-table"><thead><tr>'
+      +'<th>Subproducto</th><th>Tipo</th><th class="num">Requerido</th><th class="num">Stock al confirmar</th><th class="num">Faltante</th><th>Estado</th>'
+      +'</tr></thead><tbody>'
+      +subsDet.map(function(x){
+        return '<tr>'
+          +'<td>'+x.nombre+' <small style="color:#666;">'+(x.codigo||'')+'</small></td>'
+          +'<td>'+(x.tipo||'')+'</td>'
+          +'<td class="num">'+num(x.requerido)+' u</td>'
+          +'<td class="num">'+num(x.stock_actual)+'</td>'
+          +'<td class="num">'+(x.faltante>0?num(x.faltante)+' u':'—')+'</td>'
+          +'<td>'+(x.estado||'')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table>';
+  }
+
+  const firmas = '<div class="print-signatures">'
+    +'<div class="print-signature"><div class="name">Elaboró</div><div class="role">Producción</div></div>'
+    +'<div class="print-signature"><div class="name">Revisó</div><div class="role">Calidad</div></div>'
+    +'<div class="print-signature"><div class="name">Aprobó</div><div class="role">Dirección Técnica</div></div>'
+    +'</div>';
+
+  const html = printHeaderHTML('Orden de Producción',
+      'N° '+(orden.numero_op||'—')+(orden.lote?' · Lote '+orden.lote:''))
+    + infoGrid
+    + qrBlock
+    + tablaIns
+    + tablaSubs
+    + firmas
+    + printFooterHTML();
+
+  imprimirHTML(html, 'OP '+(orden.numero_op||''));
+}
 
 /* ============ ENTREGA PARCIAL DE OP ============ */
 let entregaOrdenActual=null;
@@ -3729,6 +4491,48 @@ function renderChartDoughnut(id,data){
   _initChartDefaults();
   const ctx=document.getElementById(id);
   if(!ctx||typeof Chart==='undefined')return;
+
+  /* Contenedor padre: div con position:relative y altura fija */
+  const wrapper=ctx.parentElement;
+  if(!wrapper) return;
+
+  /* Quitar mensaje previo si existe (por re-render con filtro) */
+  const oldMsg=wrapper.querySelector('.chart-empty-msg');
+  if(oldMsg) oldMsg.remove();
+
+  /* Analizar cuántas categorías tienen datos */
+  const valores=(data.datasets&&data.datasets[0]&&data.datasets[0].data)||[];
+  const total=valores.reduce(function(a,b){return a+Number(b||0);},0);
+  const categoriasConDatos=valores.filter(function(v){return Number(v)>0;}).length;
+
+  /* Fallback: 0 o 1 categoría con datos → mensaje en vez de anillo */
+  if(categoriasConDatos<=1){
+    ctx.style.display='none';
+    const labels=data.labels||[];
+    const idxConDato=valores.findIndex(function(v){return Number(v)>0;});
+    const nombreCategoria=idxConDato>=0?labels[idxConDato]:null;
+    const valorCategoria=idxConDato>=0?valores[idxConDato]:0;
+    let html;
+    if(total===0){
+      html='<div class="chart-empty-msg">'
+        +'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="36" height="36"><circle cx="12" cy="12" r="9"/><path d="M9 10h.01M15 10h.01M9.5 14.5s.8-1 2.5-1 2.5 1 2.5 1"/></svg>'
+        +'<div class="chart-empty-title">Sin movimientos</div>'
+        +'<div class="chart-empty-sub">No se registraron movimientos en este período.</div>'
+        +'</div>';
+    } else {
+      html='<div class="chart-empty-msg">'
+        +'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="36" height="36"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+        +'<div class="chart-empty-title">Datos insuficientes para comparar</div>'
+        +'<div class="chart-empty-sub">Solo hay movimientos de tipo <b>'+nombreCategoria+'</b> ('+valorCategoria+') en este período.</div>'
+        +'<div class="chart-empty-hint">Se necesita al menos un movimiento de otro tipo para mostrar la distribución.</div>'
+        +'</div>';
+    }
+    wrapper.insertAdjacentHTML('beforeend',html);
+    return;
+  }
+
+  /* 2+ categorías con datos → renderizar normalmente */
+  ctx.style.display='';
   chartInstances[id]=new Chart(ctx,{
     type:'doughnut',
     data:data,
@@ -4839,8 +5643,10 @@ async function renderKardex(){
     });
   });
   document.getElementById('btnKarConsultar').addEventListener('click',function(){generarKardex(insumos);});
-  document.getElementById('btnKarPrint').addEventListener('click',function(){window.print();});
+  document.getElementById('btnKarPrint').addEventListener('click',function(){imprimirKardex();});
 }
+let _kardexData=null;
+
 async function generarKardex(insumos){
   const box=document.getElementById('karResultado');
   const insumoId=document.getElementById('kar_insumo').value;
@@ -4953,9 +5759,78 @@ async function generarKardex(insumos){
       exportarCSV('kardex_'+ins.codigo,headers,rows);
     };
     paginarTabla('tablaKardex',50);
+
+    /* Guardar datos para imprimir */
+    _kardexData = {
+      insumo: ins,
+      filas: filas,
+      saldoAntesDelRango: saldoAntesDelRango,
+      totEnt: totEnt,
+      totSal: totSal,
+      desde: desde,
+      hasta: hasta,
+      tipo: tipo
+    };
   }catch(e){
     box.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
   }
+}
+
+function imprimirKardex(){
+  if(!_kardexData){ toast('Primero generá el kardex antes de imprimir.','error'); return; }
+  const d = _kardexData;
+  const ins = d.insumo;
+  const uCons = unidadConsumo(ins);
+
+  const infoGrid = '<div class="print-info-grid">'
+    +'<div><div class="lbl">Insumo</div><div class="val">'+ins.nombre+'</div></div>'
+    +'<div><div class="lbl">Código</div><div class="val">'+ins.codigo+'</div></div>'
+    +'<div><div class="lbl">Unidad de consumo</div><div class="val">'+uCons+'</div></div>'
+    +'<div><div class="lbl">Desde</div><div class="val">'+(d.desde||'—')+'</div></div>'
+    +'<div><div class="lbl">Hasta</div><div class="val">'+(d.hasta||'—')+'</div></div>'
+    +'<div><div class="lbl">Tipo de movimiento</div><div class="val">'+(d.tipo||'Todos')+'</div></div>'
+    +'</div>';
+
+  const kpiRow = '<table class="print-table"><thead><tr>'
+    +'<th class="num">Saldo antes del rango</th>'
+    +'<th class="num">Entradas en rango</th>'
+    +'<th class="num">Salidas en rango</th>'
+    +'<th class="num">Saldo actual</th>'
+    +'</tr></thead><tbody><tr>'
+    +'<td class="num">'+num(d.saldoAntesDelRango,4)+' '+uCons+'</td>'
+    +'<td class="num">+'+num(d.totEnt,4)+'</td>'
+    +'<td class="num">−'+num(d.totSal,4)+'</td>'
+    +'<td class="num"><b>'+num(ins.existencia_actual,4)+' '+uCons+'</b></td>'
+    +'</tr></tbody></table>';
+
+  const tabla = '<div class="print-section-title">Movimientos</div>'
+    +'<table class="print-table"><thead><tr>'
+    +'<th style="width:80px;">Fecha</th>'
+    +'<th style="width:70px;">Tipo</th>'
+    +'<th>Referencia</th>'
+    +'<th class="num" style="width:90px;">Entrada</th>'
+    +'<th class="num" style="width:90px;">Salida</th>'
+    +'<th class="num" style="width:110px;">Saldo</th>'
+    +'</tr></thead><tbody>'
+    +d.filas.map(function(f){
+      return '<tr>'
+        +'<td>'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td>'
+        +'<td>'+f.tipo+'</td>'
+        +'<td>'+f.referencia+'</td>'
+        +'<td class="num">'+(f.entrada>0?'+'+num(f.entrada,4):'')+'</td>'
+        +'<td class="num">'+(f.salida>0?'−'+num(f.salida,4):'')+'</td>'
+        +'<td class="num"><b>'+num(f.saldo,4)+' '+uCons+'</b></td>'
+        +'</tr>';
+    }).join('')
+    +'</tbody></table>';
+
+  const html = printHeaderHTML('Kardex de Insumo', ins.codigo+' · '+ins.nombre)
+    + infoGrid
+    + kpiRow
+    + tabla
+    + printFooterHTML();
+
+  imprimirHTML(html, 'Kardex '+ins.codigo);
 }
 
 /* ============ BACKUP ============ */
@@ -5345,7 +6220,7 @@ async function renderAuditoria(){
       <div class="form-actions">
         <button id="btnGenerarInforme" title="Generar informe">Generar informe</button>
         <button class="secondary" id="btnCargarConteo" style="display:none;" title="Cargar existencias">Cargar existencias</button>
-        <button class="secondary" id="btnImprimirInforme" title="Imprimir / PDF">Imprimir / PDF</button>
+        <button class="secondary" id="btnImprimirInforme" title="Imprimir el informe generado">🖨 Imprimir informe</button>
       </div>
     </div>
     <div id="informeResultado"></div>`;
@@ -5367,6 +6242,7 @@ async function renderAuditoria(){
     const filtroTipo = document.querySelector('#filtrosMov select#rep_tipo');
     if(filtroTipo && filtroTipo.parentNode) filtroTipo.parentNode.style.display = esAjustesCosto?'none':'';
     document.getElementById('informeResultado').innerHTML='';
+    _informeImpresion=null;
   });
     document.querySelectorAll('[data-rango]').forEach(function(b){
     b.addEventListener('click',function(){
@@ -5397,7 +6273,7 @@ async function renderAuditoria(){
   document.getElementById('btnGenerarInforme').addEventListener('click',generarInforme);
   /* Estado inicial coherente */
   document.getElementById('rep_tipo2').dispatchEvent(new Event('change'));
-  document.getElementById('btnImprimirInforme').addEventListener('click',function(){window.print();});
+  document.getElementById('btnImprimirInforme').addEventListener('click',imprimirInformeActual);
   document.getElementById('btnCargarConteo').addEventListener('click',generarConteoFisico);
 }
 
@@ -5432,6 +6308,52 @@ function abrirModalSalidaManual(insumos){
   });
 }
 
+/* Guarda el último informe generado para imprimirlo después */
+let _informeImpresion=null;
+
+function imprimirInformeActual(){
+  if(!_informeImpresion){
+    toast('Primero generá el informe con el botón "Generar informe".','error');
+    return;
+  }
+  const inf = _informeImpresion;
+
+  /* Info general (rango de fechas, tipo) */
+  let infoGrid = '<div class="print-info-grid">';
+  infoGrid += '<div><div class="lbl">Tipo de informe</div><div class="val">'+inf.tipoLabel+'</div></div>';
+  infoGrid += '<div><div class="lbl">Desde</div><div class="val">'+(inf.desde||'Sin filtro')+'</div></div>';
+  infoGrid += '<div><div class="lbl">Hasta</div><div class="val">'+(inf.hasta||'Sin filtro')+'</div></div>';
+  if(inf.filtroExtra){
+    infoGrid += '<div><div class="lbl">Filtro adicional</div><div class="val">'+inf.filtroExtra+'</div></div>';
+  }
+  infoGrid += '<div><div class="lbl">Registros</div><div class="val">'+inf.filas.length+'</div></div>';
+  infoGrid += '<div><div class="lbl">Generado</div><div class="val">'+new Date().toLocaleString('es-CO')+'</div></div>';
+  infoGrid += '</div>';
+
+  /* Tabla */
+  const tableHTML = '<table class="print-table"><thead><tr>'
+    + inf.headers.map(function(h){
+        return '<th'+(h.num?' class="num"':'')+'>'+h.label+'</th>';
+      }).join('')
+    + '</tr></thead><tbody>'
+    + inf.filas.map(function(fila){
+        return '<tr>'
+          + fila.map(function(celda,i){
+              const esNum = inf.headers[i] && inf.headers[i].num;
+              return '<td'+(esNum?' class="num"':'')+'>'+(celda==null?'—':String(celda))+'</td>';
+            }).join('')
+          + '</tr>';
+      }).join('')
+    + '</tbody></table>';
+
+  const html = printHeaderHTML(inf.tipoLabel, inf.subtitulo || '')
+    + infoGrid
+    + tableHTML
+    + printFooterHTML();
+
+  imprimirHTML(html, inf.tipoLabel);
+}
+
 async function generarInforme(){
   const modo=document.getElementById('rep_tipo2').value;
 
@@ -5446,6 +6368,32 @@ async function generarInforme(){
       if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
       if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
       const rows=await api(q);
+      /* Preparar datos para impresión */
+      _informeImpresion = rows.length ? {
+        tipoLabel: 'Ajustes de costo',
+        subtitulo: 'Auditoría · Historial de cambios manuales de costo',
+        desde: desde, hasta: hasta,
+        filtroExtra: null,
+        headers: [
+          {label:'Fecha'}, {label:'Insumo'}, {label:'Código'},
+          {label:'Costo anterior',num:true}, {label:'Costo nuevo',num:true},
+          {label:'Diferencia',num:true}, {label:'Motivo'}, {label:'Usuario'}
+        ],
+        filas: rows.map(function(r){
+          const ins=r.insumos||{};
+          const dif=Number(r.costo_nuevo)-Number(r.costo_anterior);
+          return [
+            new Date(r.fecha).toLocaleString('es-CO'),
+            ins.nombre||'',
+            ins.codigo||'',
+            money(r.costo_anterior),
+            money(r.costo_nuevo),
+            (dif>=0?'+':'')+money(dif),
+            r.motivo||'',
+            r.usuario_email||''
+          ];
+        })
+      } : null;
       box.innerHTML='<div class="panel"><div class="panel-header"><h3>Ajustes de costo ('+rows.length+')</h3>'+(rows.length?'<button class="secondary small" id="btnExportAjustesCosto" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(rows.length===0?'<div class="empty-state">No hay ajustes en este rango.</div>':'<table id="tablaAjustesCosto"><tr><th>Fecha</th><th>Insumo</th><th class="num">Costo anterior</th><th class="num">Costo nuevo</th><th class="num">Δ</th><th>Motivo</th><th>Usuario</th></tr>'+rows.map(function(r){
         const ins=r.insumos||{};
         const dif=Number(r.costo_nuevo)-Number(r.costo_anterior);
@@ -5510,6 +6458,26 @@ async function generarInforme(){
           referencia: m.motivo||'—'
         };
       });
+      /* Preparar datos para impresión */
+      _informeImpresion = filas.length ? {
+        tipoLabel: 'Movimientos de subproductos',
+        subtitulo: 'Auditoría · Historial de movimientos de subproductos',
+        desde: desde, hasta: hasta,
+        filtroExtra: tipo!=='Todos' ? ('Tipo: '+tipo) : null,
+        headers: [
+          {label:'Fecha'}, {label:'Tipo'}, {label:'Subproducto'},
+          {label:'Cantidad',num:true}, {label:'Referencia'}
+        ],
+        filas: filas.map(function(f){
+          return [
+            new Date(f.fecha).toLocaleDateString('es-CO'),
+            f.tipo,
+            f.item,
+            num(f.cantidad)+' '+(f.unidad||''),
+            f.referencia
+          ];
+        })
+      } : null;
       box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Subproducto</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+f.item+'</td><td class="num">'+num(f.cantidad)+' '+(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+f.referencia+'</td></tr>';}).join('')+'</table>')+'</div>';
       paginarTabla('tablaInforme');
       if(filas.length){
@@ -5575,6 +6543,30 @@ async function generarInforme(){
     });
   }
   filas.sort(function(a,b){return new Date(b.fecha)-new Date(a.fecha);});
+  /* Preparar datos para impresión */
+  const insumoNombre = insumoFiltro ? (insumos.find(function(x){return x.id===insumoFiltro;})||{}).nombre : null;
+  _informeImpresion = filas.length ? {
+    tipoLabel: 'Movimientos de insumos',
+    subtitulo: 'Auditoría · Historial de movimientos de insumos',
+    desde: desde, hasta: hasta,
+    filtroExtra: [
+      tipo!=='Todos' ? ('Tipo: '+tipo) : null,
+      insumoNombre ? ('Insumo: '+insumoNombre) : null
+    ].filter(Boolean).join(' · ') || null,
+    headers: [
+      {label:'Fecha'}, {label:'Tipo'}, {label:'Insumo'},
+      {label:'Cantidad',num:true}, {label:'Referencia'}
+    ],
+    filas: filas.map(function(f){
+      return [
+        new Date(f.fecha).toLocaleDateString('es-CO'),
+        f.tipo,
+        f.item,
+        num(f.cantidad)+' '+(f.unidad||''),
+        f.referencia
+      ];
+    })
+  } : null;
   box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Insumo</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+f.item+'</td><td class="num">'+num(f.cantidad)+' '+(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+f.referencia+'</td></tr>';}).join('')+'</table>')+'</div>';
   paginarTabla('tablaInforme');
   if(filas.length){
@@ -5600,7 +6592,7 @@ async function generarConteoFisico(){
     insumos.forEach(function(i){items.push({tipo:'insumo',id:i.id,codigo:i.codigo,nombre:i.nombre,unidad:unidadConsumo(i),existencia:i.existencia_actual});});
     subproductos.forEach(function(s){items.push({tipo:'subproducto',id:s.id,codigo:s.codigo,nombre:s.nombre,unidad:'u',existencia:s.existencia_actual});});
     const sorted=applySort(items,'conteo',{tipo:function(x){return x.tipo;},codigo:function(x){return x.codigo;},nombre:function(x){return x.nombre;},existencia:function(x){return x.existencia;}});
-    box.innerHTML='<div class="panel"><div class="panel-header"><h3>Conteo físico · '+items.length+' ítems</h3><div style="display:flex;gap:8px;"><button class="secondary small" id="btnExportConteo" title="Descargar CSV del conteo">Exportar CSV</button><span class="require-write"><button class="secondary small" id="btnAplicarAjustes" title="Guardar ajustes">Aplicar ajustes</button></span></div></div><div class="search-box"><input id="buscar_conteo" placeholder="Buscar por código o nombre…"></div><table id="tablaConteo"><thead><tr>'+thSort('Tipo','tipo','conteo')+thSort('Código','codigo','conteo')+thSort('Nombre','nombre','conteo')+'<th>Unidad</th>'+thSort('Sistema','existencia','conteo',true)+'<th class="num">Conteo físico</th><th class="num">Diferencia</th></tr></thead><tbody>'+sorted.map(function(it){
+    box.innerHTML='<div class="panel"><div class="panel-header"><h3>Conteo físico · '+items.length+' ítems</h3><div style="display:flex;gap:8px;"><button class="secondary small" id="btnExportConteo" title="Descargar CSV del conteo">Exportar CSV</button><button class="secondary small" id="btnImprimirConteo" title="Imprimir formato en blanco para llenar a mano">🖨 Imprimir formato</button><span class="require-write"><button class="secondary small" id="btnAplicarAjustes" title="Guardar ajustes">Aplicar ajustes</button></span></div></div><div class="search-box"><input id="buscar_conteo" placeholder="Buscar por código o nombre…"></div><table id="tablaConteo"><thead><tr>'+thSort('Tipo','tipo','conteo')+thSort('Código','codigo','conteo')+thSort('Nombre','nombre','conteo')+'<th>Unidad</th>'+thSort('Sistema','existencia','conteo',true)+'<th class="num">Conteo físico</th><th class="num">Diferencia</th></tr></thead><tbody>'+sorted.map(function(it){
       const key=it.tipo+':'+it.id;
       return '<tr data-tipo="'+it.tipo+'" data-id="'+it.id+'" data-sistema="'+it.existencia+'"><td>'+badgeTipoItem(it.tipo)+'</td><td class="mono">'+it.codigo+'</td><td>'+it.nombre+'</td><td>'+it.unidad+'</td><td class="num">'+num(it.existencia)+'</td><td class="num"><input type="number" step="0.0001" class="num-input" data-conteo="'+key+'" placeholder="—"></td><td class="num" data-dif="'+key+'">—</td></tr>';
     }).join('')+'</tbody></table></div>';
@@ -5626,7 +6618,59 @@ async function generarConteoFisico(){
       exportarCSV('conteo_fisico',headers,filasCSV);
     });
     document.getElementById('btnAplicarAjustes').addEventListener('click',aplicarAjustes);
+    document.getElementById('btnImprimirConteo').addEventListener('click',imprimirConteoFisico);
   }catch(e){box.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';}
+}
+
+async function imprimirConteoFisico(){
+  try{
+    const [insumos,subproductos]=await Promise.all([
+      api('insumos?select=id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,existencia_actual&order=nombre'),
+      api('subproductos?select=id,codigo,nombre,existencia_actual&order=nombre')
+    ]);
+    const items=[];
+    insumos.forEach(function(i){items.push({tipo:'Insumo',codigo:i.codigo,nombre:i.nombre,unidad:unidadConsumo(i),sistema:i.existencia_actual});});
+    subproductos.forEach(function(s){items.push({tipo:'Subproducto',codigo:s.codigo,nombre:s.nombre,unidad:'u',sistema:s.existencia_actual});});
+
+    const tabla = '<table class="print-table"><thead><tr>'
+      +'<th style="width:75px;">Tipo</th>'
+      +'<th style="width:90px;">Código</th>'
+      +'<th>Nombre</th>'
+      +'<th style="width:55px;">Unid.</th>'
+      +'<th class="num" style="width:80px;">Sistema</th>'
+      +'<th class="num" style="width:80px;">Conteo</th>'
+      +'<th class="num" style="width:70px;">Dif.</th>'
+      +'</tr></thead><tbody>'
+      +items.map(function(it){
+        return '<tr>'
+          +'<td>'+it.tipo+'</td>'
+          +'<td style="font-family:monospace;">'+it.codigo+'</td>'
+          +'<td>'+it.nombre+'</td>'
+          +'<td>'+it.unidad+'</td>'
+          +'<td class="num">'+num(it.sistema)+'</td>'
+          +'<td></td><td></td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table>';
+
+    const obs = '<div class="print-section-title">Observaciones</div>'
+      +'<div style="border:1px solid #bbb;padding:12px;min-height:70px;border-radius:3px;"></div>';
+
+    const firmas = '<div class="print-signatures">'
+      +'<div class="print-signature"><div class="name">Contó</div><div class="role">Bodega</div></div>'
+      +'<div class="print-signature"><div class="name">Revisó</div><div class="role">Supervisor</div></div>'
+      +'<div class="print-signature"><div class="name">Aprobó</div><div class="role">Auditoría</div></div>'
+      +'</div>';
+
+    const html = printHeaderHTML('Formato de Conteo Físico','Fecha: '+new Date().toLocaleDateString('es-CO'))
+      + '<p style="font-size:9.5pt;color:#444;margin:0 0 12px;">Instrucciones: escriba el conteo real en la columna <b>Conteo</b>. Calcule la diferencia contra el valor del <b>Sistema</b>.</p>'
+      + tabla
+      + obs
+      + firmas
+      + printFooterHTML();
+
+    imprimirHTML(html, 'Conteo físico');
+  }catch(e){ toast('Error: '+e.message, 'error'); }
 }
 function bindConteoInputs(){
   document.querySelectorAll('[data-conteo]').forEach(function(inp){
