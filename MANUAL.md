@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.5
+**Versión:** 1.6
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -98,6 +98,8 @@ Si intentás una acción no permitida, aparece: *"Tu rol es Consulta — solo le
 Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 
 **Arriba del sidebar:** logo AseptiQ, campana de notificaciones 🔔 y botón `◀` para colapsar.
+
+**Buscador del sidebar:** justo debajo del logo hay un input con lupa. Escribí el nombre del módulo (ej: "kardex", "trazabilidad") y el sidebar filtra en vivo. `Enter` navega al primer resultado. `Escape` o el botón `×` limpia.
 
 **Campana de notificaciones:** cuando hay stock urgente u OPs pendientes hace más de 5 días, la campana se sacude suavemente y muestra un badge rojo con el total. Click en la campana abre un panel con:
 - 🔴 **Stock urgente** — insumos por debajo del umbral.

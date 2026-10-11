@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v1.5.0** — Producción · Octubre 2026
+**v1.6.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -20,6 +20,8 @@ AseptiQ administra el flujo completo de manufactura:
 - **Reportes operativos**: compras por proveedor, mermas y ajustes.
 - **Backup** completo a un ZIP con 13 tablas en CSV.
 - **Interfaz basada en modales** con botón `+` en cada listado, análisis gráfico logístico en la cobertura de OP, y modo claro/oscuro.
+- **Sistema de iconos SVG** (sprite Lucide-style) en toda la app — sin emojis.
+- **Buscador de módulos en el sidebar** (Enter navega, Escape limpia).
 - **Campana de notificaciones** en el sidebar con stock crítico, OPs vencidas y entregas recientes.
 - **Dashboard operativo** con widget de stock crítico, timeline de actividad y KPIs visuales.
 - **Impresión profesional**: OP con QR + firmas, kardex formato libro, conteo físico, y etiquetas QR configurables (pequeña/mediana/grande).

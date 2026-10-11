@@ -60,6 +60,16 @@ async function withLoading(btn,fn){
     throw e;
   }
 }
+/* ============ SISTEMA DE ICONOS ============ */
+/* Devuelve el markup SVG listo para insertar en HTML.
+   icono('bell')            →  <svg class="icon"><use href="#ic-bell"/></svg>
+   icono('bell','lg')       →  con clase .icon-lg
+   icono('bell','xl')       →  con clase .icon-xl                          */
+function icono(nombre, size){
+  const cls = 'icon' + (size ? ' icon-'+size : '');
+  return '<svg class="'+cls+'" aria-hidden="true"><use href="#ic-'+nombre+'"/></svg>';
+}
+
 function debounce(fn,wait){let t;return function(){clearTimeout(t);const a=arguments,c=this;t=setTimeout(function(){fn.apply(c,a);},wait||200);};}
 function toast(msg,type){
   const area=document.getElementById('toastArea');
@@ -188,37 +198,37 @@ function renderNotifPanel(){
 
   if(urgentes.length>0){
     blocks.push('<div class="notif-section">'
-      +'<div class="notif-section-title">🔴 Stock urgente</div>'
+      +'<div class="notif-section-title">'+icono('alert-circle','sm')+' Stock urgente</div>'
       +urgentes.slice(0,5).map(function(i){
-        return _renderNotifItemHTML('⚠','danger',
+        return _renderNotifItemHTML(icono('alert-circle'),'danger',
           i.nombre+' ('+num(i.existencia_actual)+' '+unidadConsumo(i)+')',
           'Por debajo del umbral urgente · objetivo '+num(i.punto_reorden)+' '+unidadConsumo(i),
           'insumos');
       }).join('')
-      +(urgentes.length>5?'<div class="notif-item info" data-notif-tab="insumos"><div class="notif-item-icon">→</div><div class="notif-item-content"><div class="notif-item-title">Ver los '+(urgentes.length-5)+' restantes</div><div class="notif-item-sub">Ir a Insumos</div></div></div>':'')
+      +(urgentes.length>5?'<div class="notif-item info" data-notif-tab="insumos"><div class="notif-item-icon">'+icono('arrow-right')+'</div><div class="notif-item-content"><div class="notif-item-title">Ver los '+(urgentes.length-5)+' restantes</div><div class="notif-item-sub">Ir a Insumos</div></div></div>':'')
       +'</div>');
   }
 
   if(opsVencidas.length>0){
     blocks.push('<div class="notif-section">'
-      +'<div class="notif-section-title">📋 OPs pendientes hace +5 días</div>'
+      +'<div class="notif-section-title">'+icono('clipboard','sm')+' OPs pendientes hace +5 días</div>'
       +opsVencidas.slice(0,5).map(function(o){
         const dias=Math.floor((Date.now()-new Date(o.fecha_creacion).getTime())/(1000*60*60*24));
         const prod=o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;
-        return _renderNotifItemHTML('⏱','warning',
+        return _renderNotifItemHTML(icono('clock'),'warning',
           (o.numero_op||'OP')+' · '+prod,
           'Pendiente hace '+dias+' día'+(dias===1?'':'s'),
           'orden');
       }).join('')
-      +(opsVencidas.length>5?'<div class="notif-item info" data-notif-tab="orden"><div class="notif-item-icon">→</div><div class="notif-item-content"><div class="notif-item-title">Ver las '+(opsVencidas.length-5)+' restantes</div><div class="notif-item-sub">Ir a Cargar orden</div></div></div>':'')
+      +(opsVencidas.length>5?'<div class="notif-item info" data-notif-tab="orden"><div class="notif-item-icon">'+icono('arrow-right')+'</div><div class="notif-item-content"><div class="notif-item-title">Ver las '+(opsVencidas.length-5)+' restantes</div><div class="notif-item-sub">Ir a Cargar orden</div></div></div>':'')
       +'</div>');
   }
 
   if(reorden.length>0 && urgentes.length===0){
     blocks.push('<div class="notif-section">'
-      +'<div class="notif-section-title">🟡 En reorden</div>'
+      +'<div class="notif-section-title">'+icono('alert-triangle','sm')+' En reorden</div>'
       +reorden.slice(0,3).map(function(i){
-        return _renderNotifItemHTML('!','warning',
+        return _renderNotifItemHTML(icono('alert-triangle'),'warning',
           i.nombre,
           'Existencia '+num(i.existencia_actual)+' '+unidadConsumo(i)+' · cerca del mínimo',
           'insumos');
@@ -228,10 +238,10 @@ function renderNotifPanel(){
 
   if(entregasRecientes.length>0){
     blocks.push('<div class="notif-section">'
-      +'<div class="notif-section-title">✨ Entregas últimas 24h</div>'
+      +'<div class="notif-section-title">'+icono('sparkles','sm')+' Entregas últimas 24h</div>'
       +entregasRecientes.slice(0,5).map(function(e){
         const op=e.ordenes_semanales?e.ordenes_semanales.numero_op:'OP';
-        return _renderNotifItemHTML('↗','success',
+        return _renderNotifItemHTML(icono('sparkles'),'success',
           'Entrega registrada · '+num(e.cantidad)+' u',
           (op||'')+(e.lote_entrega?' · lote '+e.lote_entrega:'')+' · '+new Date(e.fecha).toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'}),
           'orden');
@@ -241,7 +251,7 @@ function renderNotifPanel(){
 
   if(blocks.length===0){
     body.innerHTML='<div class="notif-empty">'
-      +'<span class="notif-empty-icon">✓</span>'
+      +'<span class="notif-empty-icon">'+icono('check-circle','xl')+'</span>'
       +'Todo en orden. No hay notificaciones pendientes.'
       +'</div>';
   } else {
@@ -1280,16 +1290,29 @@ function aplicarSidebarColapsado(){
 
 /* Click en el logo lleva al Dashboard */
 (function(){
-  const brand=document.getElementById('brandHome');
-  if(!brand) return;
   const ir=function(){
-    /* Helper que no depende de que exista un botón */
     if(typeof irATab==='function') irATab('dashboard');
   };
-  brand.addEventListener('click',ir);
-  brand.addEventListener('keydown',function(ev){
-    if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();ir();}
-  });
+  /* Brand del sidebar */
+  const brand=document.getElementById('brandHome');
+  if(brand){
+    brand.addEventListener('click',ir);
+    brand.addEventListener('keydown',function(ev){
+      if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();ir();}
+    });
+  }
+  /* Brand del header móvil */
+  const mobileBrand=document.querySelector('.mobile-brand');
+  if(mobileBrand){
+    mobileBrand.style.cursor='pointer';
+    mobileBrand.setAttribute('role','button');
+    mobileBrand.setAttribute('tabindex','0');
+    mobileBrand.setAttribute('title','Ir al Dashboard');
+    mobileBrand.addEventListener('click',ir);
+    mobileBrand.addEventListener('keydown',function(ev){
+      if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();ir();}
+    });
+  }
 })();
 
 /* ============ ATAJOS DE TECLADO ============ */
@@ -1398,7 +1421,7 @@ function abrirModalGenerico(opts){
 
   /* Header */
   icon.className='modal-icon '+(opts.variant||'info');
-  icon.textContent=opts.icon||'ℹ';
+  icon.innerHTML=opts.icon||icono('info');
   title.textContent=opts.title||'';
   if(opts.subtitle){
     subtitle.textContent=opts.subtitle;
@@ -1494,6 +1517,108 @@ function _cerrarOverlay(id){
 })();
 
 /* ============ NAVEGACIÓN SIDEBAR ============ */
+
+/* ============ BÚSQUEDA EN EL SIDEBAR ============ */
+(function initSidebarSearch(){
+  const input=document.getElementById('sidebarSearch');
+  const clear=document.getElementById('sidebarSearchClear');
+  const nav=document.getElementById('sidebarNav');
+  if(!input||!nav) return;
+
+  /* Guardar el estado original de los grupos para restaurar al limpiar */
+  function limpiarBusqueda(){
+    input.value='';
+    clear.style.display='none';
+    nav.classList.remove('searching');
+    nav.querySelectorAll('.nav-item.hidden, .nav-group.hidden').forEach(function(el){
+      el.classList.remove('hidden');
+    });
+    const noRes=nav.querySelector('.sidebar-no-results');
+    if(noRes) noRes.remove();
+    /* Restaurar qué grupo estaba abierto antes de la búsqueda */
+    document.querySelectorAll('.nav-group').forEach(function(g){
+      g.classList.toggle('open', g===_grupoAbiertoAntes);
+    });
+  }
+
+  let _grupoAbiertoAntes=null;
+
+  function filtrar(){
+    const q=input.value.trim().toLowerCase();
+    if(!q){ limpiarBusqueda(); return; }
+
+    /* Recordar el grupo abierto solo la primera vez que se activa la búsqueda */
+    if(!nav.classList.contains('searching')){
+      _grupoAbiertoAntes=nav.querySelector('.nav-group.open');
+    }
+
+    clear.style.display='flex';
+    nav.classList.add('searching');
+
+    let totalVisible=0;
+    nav.querySelectorAll('.nav-group').forEach(function(grupo){
+      let visiblesEnGrupo=0;
+      grupo.querySelectorAll('.nav-item').forEach(function(item){
+        const txt=(item.textContent+' '+(item.title||'')).toLowerCase();
+        if(txt.indexOf(q)>=0){
+          item.classList.remove('hidden');
+          visiblesEnGrupo++;
+        } else {
+          item.classList.add('hidden');
+        }
+      });
+      if(visiblesEnGrupo>0){
+        grupo.classList.remove('hidden');
+        totalVisible+=visiblesEnGrupo;
+      } else {
+        grupo.classList.add('hidden');
+      }
+    });
+
+    /* Mensaje de "sin resultados" */
+    let noRes=nav.querySelector('.sidebar-no-results');
+    if(totalVisible===0){
+      if(!noRes){
+        noRes=document.createElement('div');
+        noRes.className='sidebar-no-results';
+        nav.appendChild(noRes);
+      }
+      noRes.textContent='Sin resultados para "'+input.value+'".';
+    } else if(noRes){
+      noRes.remove();
+    }
+  }
+
+  input.addEventListener('input',debounce(filtrar,120));
+
+  input.addEventListener('keydown',function(ev){
+    if(ev.key==='Escape'){
+      ev.preventDefault();
+      input.blur();
+      limpiarBusqueda();
+    } else if(ev.key==='Enter'){
+      ev.preventDefault();
+      /* Navegar al primer item visible */
+      const primero=nav.querySelector('.nav-item:not(.hidden)');
+      if(primero){
+        primero.click();
+        input.blur();
+        limpiarBusqueda();
+      }
+    }
+  });
+
+  clear.addEventListener('click',function(){
+    input.value='';
+    filtrar();
+    input.focus();
+  });
+
+  /* Atajo: al presionar "/" cuando el focus no está en un campo,
+     si el sidebar está visible, enfocar el buscador del sidebar.
+     (Se mantiene el atajo existente que busca en el módulo activo;
+      este solo actúa como fallback cuando NO hay buscador de módulo visible) */
+})();
 
 /* ============ NAVEGACIÓN CON GRUPOS ============ */
 /* Helper universal: ir a una pestaña sin depender del botón del sidebar */
@@ -1845,7 +1970,7 @@ function abrirModalUnidades(){
   abrirModalGenerico({
     title:'Unidades de medida',
     subtitle:'Agrega, edita o elimina unidades del catálogo.',
-    icon:'📏',
+    icon:icono('ruler','lg'),
     variant:'info',
     size:'md',
     body:`
@@ -1926,7 +2051,7 @@ function abrirModalUmbrales(){
   abrirModalGenerico({
     title:'Umbrales de stock',
     subtitle:'Porcentaje del stock objetivo para clasificar el estado.',
-    icon:'⚖',
+    icon:icono('scale','lg'),
     variant:'info',
     size:'md',
     body:`
@@ -2003,7 +2128,7 @@ async function renderDashboard(){
           .slice(0,5);
         if(!criticos.length) return '';
         return `<div class="panel force-expanded no-scroll" style="border-left:3px solid ${uIns>0?'var(--danger)':'var(--warning)'};">
-          <div class="panel-header"><h3>🔴 Stock crítico del día</h3><button class="secondary small" data-goto-tab="insumos">Ver todos</button></div>
+          <div class="panel-header"><h3 style="display:flex;align-items:center;gap:6px;">${icono('alert-circle','sm')} Stock crítico del día</h3><button class="secondary small" data-goto-tab="insumos">Ver todos</button></div>
           <table>
             <thead><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Mínimo</th><th>Cobertura</th><th>Estado</th></tr></thead>
             <tbody>
@@ -2101,7 +2226,7 @@ async function renderDashboard(){
       </div>
 
       <div class="panel" id="panelTimeline">
-        <div class="panel-header"><h3>🕒 Actividad reciente</h3></div>
+        <div class="panel-header"><h3 style="display:flex;align-items:center;gap:6px;">${icono('clock','sm')} Actividad reciente</h3></div>
         <div class="timeline-body" id="timelineBody"><div class="empty-state">Cargando actividad…</div></div>
       </div>`;
     filtrarTabla('buscar_dash_ins','tabla_dash_ins');
@@ -2168,7 +2293,7 @@ function abrirModalEtiquetas(tipo,item){
   abrirModalGenerico({
     title: 'Imprimir etiquetas',
     subtitle: codigo + ' · ' + nombre,
-    icon: '🏷',
+    icon: icono('tag','lg'),
     variant: 'info',
     size: 'md',
     body: '<div class="form-grid" style="padding:0;">'
@@ -2186,7 +2311,7 @@ function abrirModalEtiquetas(tipo,item){
       +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_fecha"><span>Línea para escribir fecha</span></label>'
       +'</div>'
       +'</div>',
-    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="etq_cancelar">Cancelar</button><button id="etq_imprimir">🖨 Imprimir etiquetas</button></div>',
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="etq_cancelar">Cancelar</button><button id="etq_imprimir">'+icono('printer','sm')+' Imprimir etiquetas</button></div>',
     onOpen: function(){
       document.getElementById('etq_cancelar').addEventListener('click', cerrarModalGenerico);
       document.getElementById('etq_imprimir').addEventListener('click', function(){
@@ -2289,20 +2414,20 @@ async function construirTimeline(limit){
 
   const eventos=[];
   movs.forEach(function(m){
-    let icon='•',variant='info',titulo='',sub='';
+    let icon=icono('info'),variant='info',titulo='',sub='';
     const esSub=!!m.subproducto_id;
     if(m.tipo==='Entrada'){
-      icon='📥';variant='success';
+      icon=icono('tray-down');variant='success';
       const nombre=esSub?(m.subproductos?m.subproductos.nombre:'Subproducto'):(m.insumos?m.insumos.nombre:'Insumo');
       titulo='Entrada · '+nombre;
       sub='+'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?unidadConsumo(m.insumos):''))+(m.sys_proveedores?' · '+m.sys_proveedores.razon_social:(m.motivo?' · '+m.motivo:''));
     } else if(m.tipo==='Salida'){
-      icon='📤';variant=m.proveedor_id?'info':'danger';
+      icon=icono('tray-up');variant=m.proveedor_id?'info':'danger';
       const nombre=m.insumos?m.insumos.nombre:'Insumo';
       titulo=(m.proveedor_id?'Devolución a proveedor · ':'Salida · ')+nombre;
       sub='−'+num(m.cantidad)+' '+(m.insumos?unidadConsumo(m.insumos):'')+(m.motivo?' · '+m.motivo:'');
     } else if(m.tipo==='Consumo'){
-      icon='⚙';variant='warning';
+      icon=icono('gear');variant='warning';
       const nombre=esSub?(m.subproductos?m.subproductos.nombre:'Subproducto'):(m.insumos?m.insumos.nombre:'Insumo');
       titulo='Consumo · '+nombre;
       sub='−'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?unidadConsumo(m.insumos):''))+(m.motivo?' · '+m.motivo:'');
@@ -2317,7 +2442,7 @@ async function construirTimeline(limit){
     const prod=e.ordenes_semanales&&e.ordenes_semanales.productos_terminados?e.ordenes_semanales.productos_terminados.nombre:'';
     eventos.push({
       fecha:e.fecha,
-      icon:'✨',
+      icon:icono('sparkles'),
       variant:'success',
       titulo:'Entrega de OP · '+op+(prod?' · '+prod:''),
       sub:'+'+num(e.cantidad)+' u entregadas'+(e.lote_entrega?' · lote '+e.lote_entrega:'')
@@ -2354,7 +2479,7 @@ async function renderInsumos(){
     <h2 class="page-title">Insumos</h2>
     <p class="page-sub">Cadena de conversiones: de unidad de compra a unidad de consumo.</p>
     <div class="panel">
-      <div class="panel-header"><h3>Listado</h3><div style="display:flex;gap:6px;align-items:center;"><button class="secondary small" id="btnExportInsumos" title="Descargar CSV">Exportar CSV</button>${botonRefreshHTML('insumos')}<button class="btn-add require-write" id="btnNuevoInsumo" title="Crear insumo">+</button></div></div>
+      <div class="panel-header"><h3>Listado</h3><div style="display:flex;gap:6px;align-items:center;"><button class="secondary small" id="btnExportInsumos" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button>${botonRefreshHTML('insumos')}<button class="btn-add require-write" id="btnNuevoInsumo" title="Crear insumo">+</button></div></div>
       <div class="search-box"><input id="buscar_insumos" placeholder="Buscar por nombre o código…"></div>
       ${insumos.length===0?'<div class="empty-state">No hay insumos todavía.</div>':`
       <table id="tablaInsumos"><tr>
@@ -2367,7 +2492,7 @@ async function renderInsumos(){
         ${thSort('Valor','valor','lista_insumos',true)}
         <th>Estado</th><th class="actions"></th>
       </tr>
-        ${view.map(function(i){return '<tr><td class="mono">'+i.codigo+'</td><td>'+i.nombre+'</td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num"><span class="costo-click" data-ajuste-costo="'+i.id+'" data-costo="'+(i.costo_unitario||0)+'" data-nombre="'+String(i.nombre).replace(/"/g,'&quot;')+'" title="Click para ajustar el costo">'+money(i.costo_unitario)+'</span></td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td><td class="actions"><button class="ghost small" data-print-insumo="'+i.id+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">🏷</button><button class="ghost small" data-edit-insumo="'+i.id+'" title="Editar insumo">Editar</button><button class="danger-btn small" data-del-insumo="'+i.id+'" data-del-nombre="'+i.nombre+'" title="Eliminar insumo">Eliminar</button></td></tr>';}).join('')}
+        ${view.map(function(i){return '<tr><td class="mono">'+i.codigo+'</td><td>'+i.nombre+'</td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num"><span class="costo-click" data-ajuste-costo="'+i.id+'" data-costo="'+(i.costo_unitario||0)+'" data-nombre="'+String(i.nombre).replace(/"/g,'&quot;')+'" title="Click para ajustar el costo">'+money(i.costo_unitario)+'</span></td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td><td class="actions"><button class="ghost small icon-only" data-print-insumo="'+i.id+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">'+icono('tag')+'</button><button class="ghost small" data-edit-insumo="'+i.id+'" title="Editar insumo">Editar</button><button class="danger-btn small" data-del-insumo="'+i.id+'" data-del-nombre="'+i.nombre+'" title="Eliminar insumo">Eliminar</button></td></tr>';}).join('')}
       </table>`}
     </div>`;
   filtrarTabla('buscar_insumos','tablaInsumos');
@@ -2459,7 +2584,7 @@ async function abrirModalInsumo(insumoId,insumos,cfg){
   abrirModalGenerico({
     title: insumo?'Editar insumo':'Nuevo insumo',
     subtitle: 'Cadena de conversiones: de unidad de compra a unidad de consumo.',
-    icon: insumo?'✎':'＋',
+    icon: icono(insumo?'pencil':'plus','lg'),
     variant: 'info',
     size: 'md',
     body: _htmlFormInsumo(insumo,cfg,numSug),
@@ -2631,7 +2756,7 @@ async function renderProductos(){
     </div>
 
     <div class="panel force-collapsed">
-      <div class="panel-header"><h3>Subproductos existentes</h3><button class="secondary small" id="btnExportSubs" title="Descargar CSV">Exportar CSV</button></div>
+      <div class="panel-header"><h3>Subproductos existentes</h3><button class="secondary small" id="btnExportSubs" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button></div>
       <div class="search-box"><input id="buscar_subproductos" placeholder="Buscar subproducto…"></div>
       ${subproductos.length===0?'<div class="empty-state">No hay subproductos todavía.</div>':subsView.map(function(s){
         const costo=data.costos.subCosto[s.id]||0;
@@ -2641,7 +2766,7 @@ async function renderProductos(){
     </div>
 
     <div class="panel force-collapsed">
-      <div class="panel-header"><h3>Paquetes existentes</h3><button class="secondary small" id="btnExportPaq" title="Descargar CSV">Exportar CSV</button></div>
+      <div class="panel-header"><h3>Paquetes existentes</h3><button class="secondary small" id="btnExportPaq" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button></div>
       <div class="search-box"><input id="buscar_paquetes" placeholder="Buscar paquete…"></div>
       ${productos.length===0?'<div class="empty-state">No hay paquetes todavía.</div>':prodsView.map(function(p){
         const costo=data.costos.paqCosto[p.codigo_pt]||0;
@@ -2652,7 +2777,7 @@ async function renderProductos(){
         const margenPct=margen!=null&&precio>0?(margen/precio*100):null;
         const precioTxt=precio!=null?'<span style="color:var(--info);font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;">Precio: '+money(precio)+'</span>':'<span style="color:var(--text-muted);font-size:12px;">Sin precio</span>';
         const margenTxt=margen!=null?'<span style="color:'+(margen>=0?'var(--success)':'var(--danger)')+';font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;">Margen: '+money(margen)+' ('+num(margenPct,1)+'%)</span>':'';
-        return '<div class="list-item" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+badgeStockPT(p)+'</div><div class="item-actions"><button class="ghost small" data-print-prod="'+p.codigo_pt+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">🏷</button><button class="ghost small" data-edit-prod="'+p.codigo_pt+'" title="Editar paquete">Editar</button><button class="danger-btn small" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">Eliminar</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
+        return '<div class="list-item" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+badgeStockPT(p)+'</div><div class="item-actions"><button class="ghost small icon-only" data-print-prod="'+p.codigo_pt+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">'+icono('tag')+'</button><button class="ghost small" data-edit-prod="'+p.codigo_pt+'" title="Editar paquete">Editar</button><button class="danger-btn small" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">Eliminar</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
       }).join('')}
     </div>`;
 
@@ -2850,7 +2975,7 @@ async function abrirModalSubproducto(subproductoId,data,cfg){
   abrirModalGenerico({
     title: sub?'Editar subproducto':'Nuevo subproducto',
     subtitle: 'Subproducto con receta de insumos y/o subproductos hijos.',
-    icon: sub?'✎':'＋',
+    icon: icono(sub?'pencil':'plus','lg'),
     variant: 'info',
     size: 'wide',
     body: `
@@ -2972,7 +3097,7 @@ async function abrirModalPaquete(codigoPT,data,cfg){
   abrirModalGenerico({
     title: prod?'Editar paquete (PT)':'Nuevo paquete (PT)',
     subtitle: 'Composición del paquete: subproductos + insumos directos.',
-    icon: prod?'✎':'＋',
+    icon: icono(prod?'pencil':'plus','lg'),
     variant: 'info',
     size: 'wide',
     body: `
@@ -3107,6 +3232,8 @@ function renderFilasSubproductoHijo(disponibles){
 /* ============ CARGAR ORDEN ============ */
 let mostrarFinalizadas=false;
 
+let _nuevaOPCtx=null;
+
 async function renderOrden(){
   const main=document.getElementById('mainContent');
   const cfg=getConfig();
@@ -3120,33 +3247,8 @@ async function renderOrden(){
   main.innerHTML=`
     <h2 class="page-title">Cargar orden semanal</h2>
     <p class="page-sub">El sistema explota insumos directos y los de cada subproducto (recursivo).</p>
-    <div class="panel require-write">
-      <div class="panel-header"><h3>Nueva OP</h3></div>
-      <div class="form-grid">
-        <div>
-          <label>Número de OP <span style="color:var(--danger);">*</span></label>
-          <div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoOP}</span><input id="orden_numero" placeholder="Ej: 045" title="Obligatorio. No se puede repetir." required autocomplete="off"></div>
-          <div class="field-validate" id="orden_numero_status"></div>
-          <div class="field-hint">Sugerido: <b class="mono" id="orden_sugerido">…</b> <button type="button" class="subtle-toggle" id="btnUsarSugerido" title="Rellenar con el número sugerido">usar</button></div>
-        </div>
-        <div>
-          <label>Lote <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional, único si se llena)</span></label>
-          <input id="orden_lote" placeholder="Ej: L-2026-014" autocomplete="off">
-          <div class="field-validate" id="orden_lote_status"></div>
-        </div>
-        <div><label>Producto terminado</label><select id="orden_pt">${productos.length?productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'">'+p.nombre+' (caja ×'+(p.unidades_por_caja||1)+')</option>';}).join(''):'<option value="">No hay paquetes</option>'}</select></div>
-        <div>
-          <label>Cantidad (unidades)</label>
-          <input id="orden_cantidad" type="number" placeholder="1200">
-          <div class="field-hint" id="orden_cantidad_preview"></div>
-        </div>
-        <div><label>Prioridad</label><select id="orden_prioridad">${prioridadOptionsHTML(3)}</select></div>
-        <div><label>Fecha programada</label><input id="orden_fecha_programada" type="date"></div>
-      </div>
-      <div class="form-actions"><button id="btnCalcular" title="Calcular cobertura de insumos">Calcular cobertura</button></div>
-    </div>
-    
-    <div class="panel">
+
+    <div class="panel force-collapsed">
       <div class="panel-header"><h3>Referencia · últimas 5 OPs cargadas</h3></div>
       ${ultimas.length===0?'<div class="empty-state">Aún no hay OPs cargadas.</div>':`
       <table><tr><th>N° OP</th><th>Lote</th><th>Producto</th><th class="num">Prior.</th><th>Programada</th><th>Fecha carga</th></tr>
@@ -3158,8 +3260,9 @@ async function renderOrden(){
         }).join('')}
       </table>`}
     </div>
+
     <div class="panel">
-      <div class="panel-header"><h3>Órdenes registradas</h3><div style="display:flex;gap:6px;align-items:center;"><button class="secondary small" id="btnExportOrdenes" title="Descargar CSV">Exportar CSV</button>${botonRefreshHTML('orden')}</div></div>
+      <div class="panel-header"><h3>Órdenes registradas</h3><div style="display:flex;gap:6px;align-items:center;"><button class="secondary small" id="btnExportOrdenes" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button>${botonRefreshHTML('orden')}<button class="btn-add require-write" id="btnNuevaOP" title="Crear nueva OP">+</button></div></div>
       <div class="search-box"><input id="buscar_ordenes" placeholder="Buscar por OP o producto…"></div>
       <label class="filter-toggle"><input type="checkbox" id="toggleFinalizadas" ${mostrarFinalizadas?'checked':''}><span>Mostrar también las órdenes terminadas y canceladas</span></label>
       ${ordenes.length===0?'<div class="empty-state">No hay órdenes para mostrar.</div>':`
@@ -3191,82 +3294,16 @@ async function renderOrden(){
     </div>`;
   filtrarTabla('buscar_ordenes','tablaOrdenes');
   bindSortHeaders(renderOrden);
+  paginarTabla('tablaOrdenes');
   document.getElementById('toggleFinalizadas').addEventListener('change',function(e){mostrarFinalizadas=e.target.checked;renderOrden();});
 
-  /* v19: sugerido + validación en vivo */
-  const sugerido=await siguienteOPDisponible(cfg.prefijoOP);
-  const lblSug=document.getElementById('orden_sugerido');
-  if(sugerido&&lblSug){
-    lblSug.textContent=sugerido;
-    document.getElementById('btnUsarSugerido').addEventListener('click',function(){
-      const inp=document.getElementById('orden_numero');
-      inp.value=sugerido;
-      inp.dispatchEvent(new Event('input'));
-    });
-  } else if(lblSug){
-    lblSug.textContent='—';
-    const btn=document.getElementById('btnUsarSugerido');
-    if(btn)btn.style.display='none';
-  }
+  /* Botón "+" → abre modal de Nueva OP */
+  document.getElementById('btnNuevaOP').addEventListener('click',function(){
+    abrirModalNuevaOP(productos,cfg);
+  });
 
-  const inputNum=document.getElementById('orden_numero');
-
-  /* Auto-rellenar el número sugerido si el campo está vacío.
-     El usuario puede editarlo; solo es un atajo. */
-  if(sugerido && inputNum && !inputNum.value.trim()){
-    inputNum.value = sugerido;
-    setTimeout(function(){inputNum.dispatchEvent(new Event('input'));},0);
-  }
-  const inputLote=document.getElementById('orden_lote');
-  const statNum=document.getElementById('orden_numero_status');
-  const statLote=document.getElementById('orden_lote_status');
-
-  const validarNum=debounce(async function(){
-    const v=inputNum.value.trim().replace(cfg.prefijoOP,'');
-    if(!v){statNum.className='field-validate';statNum.textContent='';return;}
-    const completo=cfg.prefijoOP+v;
-    try{
-      const r=await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(completo)+'&select=id&limit=1');
-      if(r.length){statNum.className='field-validate err';statNum.textContent='✕ Ya existe una OP con este número';}
-      else{statNum.className='field-validate ok';statNum.textContent='✓ Número disponible';}
-    }catch(e){statNum.className='field-validate';statNum.textContent='';}
-  },400);
-
-  const validarLote=debounce(async function(){
-    const v=inputLote.value.trim();
-    if(!v){statLote.className='field-validate';statLote.textContent='';return;}
-    try{
-      const r=await api('ordenes_semanales?lote=eq.'+encodeURIComponent(v)+'&select=id&limit=1');
-      if(r.length){statLote.className='field-validate err';statLote.textContent='✕ Ya existe una OP con este lote';}
-      else{statLote.className='field-validate ok';statLote.textContent='✓ Lote disponible';}
-    }catch(e){statLote.className='field-validate';statLote.textContent='';}
-  },400);
-
-  inputNum.addEventListener('input',validarNum);
-  inputLote.addEventListener('input',validarLote);
-
-  /* Preview en vivo de cajas según unidades por caja del PT */
-  const selPT=document.getElementById('orden_pt');
-  const inputCantidad=document.getElementById('orden_cantidad');
-  const previewCantidad=document.getElementById('orden_cantidad_preview');
-  function actualizarPreviewCantidad(){
-    const opt=selPT.options[selPT.selectedIndex];
-    if(!opt){previewCantidad.textContent='';return;}
-    const caja=parseInt(opt.dataset.caja,10)||1;
-    const cant=parseFloat(inputCantidad.value)||0;
-    if(cant>0&&caja>1){
-      const cajas=Math.ceil(cant/caja);
-      previewCantidad.textContent='≈ '+cajas+' caja'+(cajas===1?'':'s')+' de '+caja;
-    } else {
-      previewCantidad.textContent='';
-    }
-  }
-  selPT.addEventListener('change',actualizarPreviewCantidad);
-  inputCantidad.addEventListener('input',actualizarPreviewCantidad);
-  actualizarPreviewCantidad();
-  paginarTabla('tablaOrdenes');
-
-    document.getElementById('btnExportOrdenes').addEventListener('click',function(){
+  /* Export CSV */
+  document.getElementById('btnExportOrdenes').addEventListener('click',function(){
     const headers=['N° OP','Lote','Prioridad','Producto','Unidades','Cajas aprox.','Cobertura','Estado OP','Programada','Fecha carga','Fecha completado','Fecha cancelado','Motivo cancelación'];
     const filas=ordView.map(function(o){
       const prod=o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;
@@ -3291,20 +3328,7 @@ async function renderOrden(){
     exportarCSV('ordenes',headers,filas);
   });
 
-  document.getElementById('btnCalcular').addEventListener('click',async function(ev){
-    const codigo_pt=document.getElementById('orden_pt').value;
-    const cantidad=parseFloat(document.getElementById('orden_cantidad').value);
-    const numOp=document.getElementById('orden_numero').value.trim();
-    if(!codigo_pt||!cantidad){toast('Selecciona producto y cantidad.','error');return;}
-    const selPT=document.getElementById('orden_pt');
-    const nombrePT=selPT.options[selPT.selectedIndex]?selPT.options[selPT.selectedIndex].textContent:'';
-    await withLoading(ev.currentTarget,async function(){
-      try{
-        const res=await calcularCobertura(codigo_pt,cantidad);
-        abrirModalCobertura(res,codigo_pt,cantidad,numOp,nombrePT);
-      }catch(e){toast('Error calculando cobertura: '+traducirError(e.message),'error');}
-    });
-  });
+  /* Acciones sobre la tabla */
   document.querySelectorAll('[data-orden-detalle]').forEach(function(btn){
     btn.addEventListener('click',function(){
       const o=ordenes.find(function(x){return x.id===btn.dataset.ordenDetalle;});
@@ -3318,7 +3342,6 @@ async function renderOrden(){
       abrirModalEntrega(o);
     });
   });
-
   document.querySelectorAll('[data-orden-cancelar]').forEach(function(btn){
     btn.addEventListener('click',async function(){
       const motivo=await promptear({title:'Cancelar OP',message:'Escribe el motivo (opcional). Puedes dejarlo en blanco.',icon:'✕',variant:'warn',placeholder:'Ej: cliente canceló, error de digitación…',okText:'Cancelar OP'});
@@ -3329,11 +3352,168 @@ async function renderOrden(){
   });
 }
 
+async function abrirModalNuevaOP(productos,cfg){
+  if(!productos.length){
+    toast('Primero crea al menos un paquete (PT) en Productos & BOM.','error');
+    return;
+  }
+
+  /* Sugerir número de OP */
+  const sugerido=await siguienteOPDisponible(cfg.prefijoOP);
+
+  abrirModalGenerico({
+    title:'Nueva orden de producción',
+    subtitle:'El sistema explota insumos y subproductos al calcular la cobertura.',
+    icon:icono('plus','lg'),
+    variant:'info',
+    size:'md',
+    body:`
+      <div class="form-grid labels-bottom" style="padding:0;">
+        <div>
+          <label>Número de OP <span style="color:var(--danger);">*</span></label>
+          <div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoOP}</span><input id="orden_numero" placeholder="Ej: 045" title="Obligatorio. No se puede repetir." required autocomplete="off"></div>
+          <div class="field-validate" id="orden_numero_status"></div>
+          <div class="field-hint">Sugerido: <b class="mono" id="orden_sugerido">${sugerido||'—'}</b>${sugerido?' <button type="button" class="subtle-toggle" id="btnUsarSugerido" title="Rellenar con el número sugerido">usar</button>':''}</div>
+        </div>
+        <div>
+          <label>Lote <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional, único si se llena)</span></label>
+          <input id="orden_lote" placeholder="Ej: L-2026-014" autocomplete="off">
+          <div class="field-validate" id="orden_lote_status"></div>
+        </div>
+        <div><label>Producto terminado</label><select id="orden_pt">${productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'">'+p.nombre+' (caja ×'+(p.unidades_por_caja||1)+')</option>';}).join('')}</select></div>
+        <div>
+          <label>Cantidad (unidades)</label>
+          <input id="orden_cantidad" type="number" placeholder="1200">
+          <div class="field-hint" id="orden_cantidad_preview"></div>
+        </div>
+        <div><label>Prioridad</label><select id="orden_prioridad">${prioridadOptionsHTML(3)}</select></div>
+        <div><label>Fecha programada</label><input id="orden_fecha_programada" type="date"></div>
+      </div>`,
+    footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="nuevaop_cancelar">Cancelar</button><button id="nuevaop_calcular">Calcular cobertura</button></div>',
+    onOpen:function(){
+      const inputNum=document.getElementById('orden_numero');
+      const inputLote=document.getElementById('orden_lote');
+      const statNum=document.getElementById('orden_numero_status');
+      const statLote=document.getElementById('orden_lote_status');
+      const selPT=document.getElementById('orden_pt');
+      const inputCantidad=document.getElementById('orden_cantidad');
+      const previewCantidad=document.getElementById('orden_cantidad_preview');
+
+      /* Auto-rellenar con sugerido */
+      if(sugerido && inputNum && !inputNum.value.trim()){
+        inputNum.value = sugerido;
+      }
+
+      /* Validación en vivo: número OP */
+      const validarNum=debounce(async function(){
+        const v=inputNum.value.trim().replace(cfg.prefijoOP,'');
+        if(!v){statNum.className='field-validate';statNum.textContent='';return;}
+        const completo=cfg.prefijoOP+v;
+        try{
+          const r=await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(completo)+'&select=id&limit=1');
+          if(r.length){statNum.className='field-validate err';statNum.textContent='✕ Ya existe una OP con este número';}
+          else{statNum.className='field-validate ok';statNum.textContent='✓ Número disponible';}
+        }catch(e){statNum.className='field-validate';statNum.textContent='';}
+      },400);
+
+      /* Validación en vivo: lote */
+      const validarLote=debounce(async function(){
+        const v=inputLote.value.trim();
+        if(!v){statLote.className='field-validate';statLote.textContent='';return;}
+        try{
+          const r=await api('ordenes_semanales?lote=eq.'+encodeURIComponent(v)+'&select=id&limit=1');
+          if(r.length){statLote.className='field-validate err';statLote.textContent='✕ Ya existe una OP con este lote';}
+          else{statLote.className='field-validate ok';statLote.textContent='✓ Lote disponible';}
+        }catch(e){statLote.className='field-validate';statLote.textContent='';}
+      },400);
+
+      inputNum.addEventListener('input',validarNum);
+      inputLote.addEventListener('input',validarLote);
+
+      /* Preview en vivo de cajas */
+      function actualizarPreviewCantidad(){
+        const opt=selPT.options[selPT.selectedIndex];
+        if(!opt){previewCantidad.textContent='';return;}
+        const caja=parseInt(opt.dataset.caja,10)||1;
+        const cant=parseFloat(inputCantidad.value)||0;
+        if(cant>0&&caja>1){
+          const cajas=Math.ceil(cant/caja);
+          previewCantidad.textContent='≈ '+cajas+' caja'+(cajas===1?'':'s')+' de '+caja;
+        } else {
+          previewCantidad.textContent='';
+        }
+      }
+      selPT.addEventListener('change',actualizarPreviewCantidad);
+      inputCantidad.addEventListener('input',actualizarPreviewCantidad);
+      actualizarPreviewCantidad();
+
+      /* Botón "usar sugerido" */
+      const btnUsar=document.getElementById('btnUsarSugerido');
+      if(btnUsar){
+        btnUsar.addEventListener('click',function(){
+          inputNum.value=sugerido;
+          inputNum.dispatchEvent(new Event('input'));
+        });
+      }
+
+      /* Botón calcular cobertura */
+      document.getElementById('nuevaop_calcular').addEventListener('click',async function(ev){
+        const codigo_pt=selPT.value;
+        const cantidad=parseFloat(inputCantidad.value);
+        const numOp=inputNum.value.trim();
+        const lote=inputLote.value.trim();
+        if(!codigo_pt||!cantidad||cantidad<=0){toast('Selecciona producto y una cantidad válida.','error');return;}
+        if(!numOp){toast('El número de OP es obligatorio.','error');return;}
+
+        /* Guardar contexto para el modal de cobertura y para cobConfirmar */
+        const optPT=selPT.options[selPT.selectedIndex];
+        _nuevaOPCtx={
+          codigo_pt:codigo_pt,
+          cantidad:cantidad,
+          numOp:numOp,
+          lote:lote||null,
+          nombrePT:optPT?optPT.textContent:'',
+          prioridad:document.getElementById('orden_prioridad').value,
+          fecha_programada:document.getElementById('orden_fecha_programada').value||null
+        };
+
+        await withLoading(ev.currentTarget,async function(){
+          try{
+            const res=await calcularCobertura(codigo_pt,cantidad);
+            abrirModalCobertura(res,_nuevaOPCtx);
+          }catch(e){toast('Error calculando cobertura: '+traducirError(e.message),'error');}
+        });
+      });
+
+      document.getElementById('nuevaop_cancelar').addEventListener('click',function(){
+        _nuevaOPCtx=null;
+        cerrarModalGenerico();
+      });
+    },
+    onClose:function(){
+      /* Limpiar contexto si el usuario cierra sin confirmar
+         (pero solo si el modal de cobertura NO está abierto encima) */
+      setTimeout(function(){
+        const cob=document.getElementById('coberturaModal');
+        if(!cob || !cob.classList.contains('open')){
+          _nuevaOPCtx=null;
+        }
+      },200);
+    }
+  });
+}
+
 /* ============ MODAL DE COBERTURA ============ */
 let _cobCtx=null;
 
-function abrirModalCobertura(res,codigo_pt,cantidad,numOp,nombrePT){
-  _cobCtx={res:res,codigo_pt:codigo_pt,cantidad:cantidad,numOp:numOp,nombrePT:nombrePT};
+function abrirModalCobertura(res,ctx){
+  _cobCtx={res:res,codigo_pt:ctx.codigo_pt,cantidad:ctx.cantidad,numOp:ctx.numOp,nombrePT:ctx.nombrePT};
+
+  /* Variables derivadas (usadas en el resto de la función) */
+  const codigo_pt=ctx.codigo_pt;
+  const cantidad=ctx.cantidad;
+  const numOp=ctx.numOp;
+  const nombrePT=ctx.nombrePT;
   const overlay=document.getElementById('coberturaModal');
   if(!overlay) return;
 
@@ -3517,6 +3697,12 @@ function cerrarModalCobertura(){
   _destroyChart('cobChartCobertura');
   _destroyChart('cobChartFaltantes');
   _cobCtx=null;
+  /* Si el modal de Nueva OP sigue abierto (porque el usuario canceló
+     la cobertura), mantenemos el contexto; si no, lo limpiamos. */
+  const nuevaOpModal=document.getElementById('genericModal');
+  if(!nuevaOpModal || !nuevaOpModal.classList.contains('open')){
+    _nuevaOPCtx=null;
+  }
 }
 
 (function initModalCobertura(){
@@ -3539,7 +3725,10 @@ function cerrarModalCobertura(){
       return;
     }
     const numeroCompletoPrev=cfg.prefijoOP+numOpLimpio;
-    const lotePrev=(document.getElementById('orden_lote')||{}).value ? document.getElementById('orden_lote').value.trim() : '';
+    /* Los datos de lote/prioridad/fecha vienen del contexto de Nueva OP,
+       porque el formulario puede estar cerrado o fuera de foco. */
+    const ctx=_nuevaOPCtx||{};
+    const lotePrev=(ctx.lote||'').trim();
     try{
       const dupOP=await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompletoPrev)+'&select=id&limit=1');
       if(dupOP.length){toast('Ya existe una OP con ese número.','error');return;}
@@ -3554,9 +3743,9 @@ function cerrarModalCobertura(){
         const numeroCompleto=cfg.prefijoOP+numOpLimpio;
         const lote=lotePrev||null;
         const detalleGuardar={insumos:res.detalle,subproductos:res.detalleSub};
-        const prioridadRaw=document.getElementById('orden_prioridad')?document.getElementById('orden_prioridad').value:'3';
+        const prioridadRaw=ctx.prioridad!=null?String(ctx.prioridad):'3';
         const prioridad=prioridadRaw?parseInt(prioridadRaw,10):3;
-        const fechaProg=document.getElementById('orden_fecha_programada')?document.getElementById('orden_fecha_programada').value:null;
+        const fechaProg=ctx.fecha_programada||null;
         await rpc('confirmar_orden',{
           p_codigo_pt:codigo_pt,
           p_cantidad:cantidad,
@@ -3570,6 +3759,12 @@ function cerrarModalCobertura(){
         });
         toast('Orden registrada.','success');
         cerrarModalCobertura();
+        /* Cerrar también el modal de Nueva OP si sigue abierto detrás */
+        const nuevaOpModal=document.getElementById('genericModal');
+        if(nuevaOpModal && nuevaOpModal.classList.contains('open')){
+          _nuevaOPCtx=null;
+          cerrarModalGenerico();
+        }
         renderOrden();
       }catch(e){toast(e.message,'error');}
     });
@@ -3607,7 +3802,7 @@ function abrirModalDetalleOrden(orden){
     variant: 'info',
     size: 'wide',
     body: progresoHtml + tablaIns + tablaSubs + '<div id="modalDetalleEntregas"></div>',
-    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="det_imprimir" title="Imprimir orden de producción">🖨 Imprimir OP</button><button id="det_cerrar">Cerrar</button></div>',
+    footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="det_imprimir" title="Imprimir orden de producción">'+icono('printer','sm')+' Imprimir OP</button><button id="det_cerrar">Cerrar</button></div>',
     onOpen: function(){
       document.getElementById('det_cerrar').addEventListener('click',cerrarModalGenerico);
       document.getElementById('det_imprimir').addEventListener('click',function(){ imprimirOP(orden); });
@@ -4368,7 +4563,7 @@ function abrirModalProveedor(proveedorId,proveedores){
   abrirModalGenerico({
     title: prov?'Editar proveedor':'Nuevo proveedor',
     subtitle: 'Maestro de proveedores con dirección y contactos.',
-    icon: prov?'✎':'＋',
+    icon: icono(prov?'pencil':'plus','lg'),
     variant: 'info',
     size: 'md',
     body: _htmlFormProveedor(prov),
@@ -4911,7 +5106,7 @@ function _trazaInsumoHTML(ins, cant, lotesInfo){
     : '<div class="traza-lotes"><span class="traza-lote-chip traza-lote-empty">Sin entradas registradas</span></div>';
   return '<div class="traza-insumo">'
     +'<div class="traza-insumo-head">'
-      +'<span class="traza-icon">📦</span>'
+      +'<span class="traza-icon">'+icono('box')+'</span>'
       +'<span class="traza-insumo-nombre">'+ins.nombre+' <small class="mono">'+ins.codigo+'</small></span>'
       +'<span class="traza-cantidad">'+num(cant,4)+' '+u+'</span>'
     +'</div>'
@@ -4941,7 +5136,7 @@ function _trazaSubproductoHTML(sub, cant, data, depth, lotesPorInsumo){
   const abierto=depth<2?' open':'';
   return '<details class="traza-node traza-sub"'+abierto+'>'
     +'<summary>'
-      +'<span class="traza-icon">🔧</span>'
+      +'<span class="traza-icon">'+icono('wrench')+'</span>'
       +'<span class="traza-node-nombre">'+sub.nombre+' <small class="mono">'+sub.codigo+'</small></span>'
       +'<span class="traza-cantidad">'+num(cant,4)+' u</span>'
       +'<span class="traza-count">'+(rec.length+hijos.length)+' componentes</span>'
@@ -4969,8 +5164,8 @@ async function renderTrazabilidad(){
       <div class="panel force-expanded no-scroll">
         <div style="padding:14px 18px;">
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="secondary small tab-btn active" data-traza-modo="forward">🔍 ¿De dónde vino? (PT → insumos)</button>
-            <button class="secondary small tab-btn" data-traza-modo="backward">↩ ¿A dónde fue? (insumo → PTs)</button>
+            <button class="secondary small tab-btn active" data-traza-modo="forward">${icono('search','sm')} ¿De dónde vino? (PT → insumos)</button>
+            <button class="secondary small tab-btn" data-traza-modo="backward">${icono('undo','sm')} ¿A dónde fue? (insumo → PTs)</button>
           </div>
         </div>
       </div>
@@ -5140,30 +5335,30 @@ function ejecutarTrazaBackward(data,insumoId){
 
   if(ptsDirectos.size){
     html+='<details class="traza-node traza-pt" open>'
-      +'<summary><span class="traza-icon">📦</span><span class="traza-node-nombre">Uso directo en PT</span><span class="traza-count">'+ptsDirectos.size+'</span></summary>'
+      +'<summary><span class="traza-icon">'+icono('box')+'</span><span class="traza-node-nombre">Uso directo en PT</span><span class="traza-count">'+ptsDirectos.size+'</span></summary>'
       +'<div class="traza-children">'+Array.from(ptsDirectos).map(function(cod){
         const p=data.productos.find(function(x){return x.codigo_pt===cod;});
-        return '<div class="traza-insumo"><span class="traza-icon">📦</span><span class="traza-insumo-nombre">'+(p?p.nombre:cod)+' <small class="mono">'+cod+'</small></span></div>';
+        return '<div class="traza-insumo"><span class="traza-icon">'+icono('box')+'</span><span class="traza-insumo-nombre">'+(p?p.nombre:cod)+' <small class="mono">'+cod+'</small></span></div>';
       }).join('')+'</div>'
       +'</details>';
   }
 
   if(subIds.size){
     html+='<details class="traza-node traza-sub" open>'
-      +'<summary><span class="traza-icon">🔧</span><span class="traza-node-nombre">Se usa en subproductos</span><span class="traza-count">'+subIds.size+'</span></summary>'
+      +'<summary><span class="traza-icon">'+icono('wrench')+'</span><span class="traza-node-nombre">Se usa en subproductos</span><span class="traza-count">'+subIds.size+'</span></summary>'
       +'<div class="traza-children">'+Array.from(subIds).map(function(id){
         const s=data.subproductos.find(function(x){return x.id===id;});
-        return '<div class="traza-insumo"><span class="traza-icon">🔧</span><span class="traza-insumo-nombre">'+(s?s.nombre:'?')+' <small class="mono">'+(s?s.codigo:'')+'</small></span></div>';
+        return '<div class="traza-insumo"><span class="traza-icon">'+icono('wrench')+'</span><span class="traza-insumo-nombre">'+(s?s.nombre:'?')+' <small class="mono">'+(s?s.codigo:'')+'</small></span></div>';
       }).join('')+'</div>'
       +'</details>';
   }
 
   if(ptsViaSub.size){
     html+='<details class="traza-node traza-pt" open>'
-      +'<summary><span class="traza-icon">📦</span><span class="traza-node-nombre">PTs que lo contienen vía subproductos</span><span class="traza-count">'+ptsViaSub.size+'</span></summary>'
+      +'<summary><span class="traza-icon">'+icono('box')+'</span><span class="traza-node-nombre">PTs que lo contienen vía subproductos</span><span class="traza-count">'+ptsViaSub.size+'</span></summary>'
       +'<div class="traza-children">'+Array.from(ptsViaSub).map(function(cod){
         const p=data.productos.find(function(x){return x.codigo_pt===cod;});
-        return '<div class="traza-insumo"><span class="traza-icon">📦</span><span class="traza-insumo-nombre">'+(p?p.nombre:cod)+' <small class="mono">'+cod+'</small></span></div>';
+        return '<div class="traza-insumo"><span class="traza-icon">'+icono('box')+'</span><span class="traza-insumo-nombre">'+(p?p.nombre:cod)+' <small class="mono">'+cod+'</small></span></div>';
       }).join('')+'</div>'
       +'</details>';
   }
@@ -5401,7 +5596,7 @@ async function renderCompras(){
       </div>
       <div class="form-actions">
         <button id="btnCompGenerar">Generar reporte</button>
-        <button class="secondary" id="btnCompExport" style="display:none;">Exportar CSV</button>
+        <button class="secondary" id="btnCompExport" style="display:none;">${icono('download','sm')} Exportar CSV</button>
         <button class="secondary" id="btnCompPrint" style="display:none;">Imprimir / PDF</button>
       </div>
     </div>
@@ -5648,7 +5843,7 @@ async function renderMermas(){
       </div>
       <div class="form-actions">
         <button id="btnMerGenerar">Generar reporte</button>
-        <button class="secondary" id="btnMerExport" style="display:none;">Exportar CSV</button>
+        <button class="secondary" id="btnMerExport" style="display:none;">${icono('download','sm')} Exportar CSV</button>
         <button class="secondary" id="btnMerPrint" style="display:none;">Imprimir / PDF</button>
       </div>
     </div>
@@ -5936,7 +6131,7 @@ async function renderKardex(){
       </div>
       <div class="form-actions">
         <button id="btnKarConsultar" title="Cargar kardex del insumo">Consultar kardex</button>
-        <button class="secondary" id="btnKarExport" title="Descargar CSV" style="display:none;">Exportar CSV</button>
+        <button class="secondary" id="btnKarExport" title="Descargar CSV" style="display:none;">${icono('download','sm')} Exportar CSV</button>
         <button class="secondary" id="btnKarPrint" title="Imprimir / PDF" style="display:none;">Imprimir / PDF</button>
       </div>
     </div>
@@ -6534,7 +6729,7 @@ async function renderAuditoria(){
       <div class="form-actions">
         <button id="btnGenerarInforme" title="Generar informe">Generar informe</button>
         <button class="secondary" id="btnCargarConteo" style="display:none;" title="Cargar existencias">Cargar existencias</button>
-        <button class="secondary" id="btnImprimirInforme" title="Imprimir el informe generado">🖨 Imprimir informe</button>
+        <button class="secondary" id="btnImprimirInforme" title="Imprimir el informe generado">${icono('printer','sm')} Imprimir informe</button>
       </div>
     </div>
     <div id="informeResultado"></div>`;
@@ -6595,7 +6790,7 @@ function abrirModalSalidaManual(insumos){
   abrirModalGenerico({
     title:'Registrar salida manual',
     subtitle:'Registra una salida de inventario por merma, ajuste o uso interno.',
-    icon:'↩',
+    icon:icono('undo','lg'),
     variant:'warn',
     size:'md',
     body:
@@ -6708,7 +6903,7 @@ async function generarInforme(){
           ];
         })
       } : null;
-      box.innerHTML='<div class="panel"><div class="panel-header"><h3>Ajustes de costo ('+rows.length+')</h3>'+(rows.length?'<button class="secondary small" id="btnExportAjustesCosto" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(rows.length===0?'<div class="empty-state">No hay ajustes en este rango.</div>':'<table id="tablaAjustesCosto"><tr><th>Fecha</th><th>Insumo</th><th class="num">Costo anterior</th><th class="num">Costo nuevo</th><th class="num">Δ</th><th>Motivo</th><th>Usuario</th></tr>'+rows.map(function(r){
+      box.innerHTML='<div class="panel"><div class="panel-header"><h3>Ajustes de costo ('+rows.length+')</h3>'+(rows.length?'<button class="secondary small" id="btnExportAjustesCosto" title="Descargar CSV">'+icono('download','sm')+' Exportar CSV</button>':'')+'</div>'+(rows.length===0?'<div class="empty-state">No hay ajustes en este rango.</div>':'<table id="tablaAjustesCosto"><tr><th>Fecha</th><th>Insumo</th><th class="num">Costo anterior</th><th class="num">Costo nuevo</th><th class="num">Δ</th><th>Motivo</th><th>Usuario</th></tr>'+rows.map(function(r){
         const ins=r.insumos||{};
         const dif=Number(r.costo_nuevo)-Number(r.costo_anterior);
         const color=dif>0?'var(--danger)':(dif<0?'var(--success)':'var(--text-muted)');
@@ -6792,7 +6987,7 @@ async function generarInforme(){
           ];
         })
       } : null;
-      box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Subproducto</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+f.item+'</td><td class="num">'+num(f.cantidad)+' '+(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+f.referencia+'</td></tr>';}).join('')+'</table>')+'</div>';
+      box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">'+icono('download','sm')+' Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Subproducto</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+f.item+'</td><td class="num">'+num(f.cantidad)+' '+(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+f.referencia+'</td></tr>';}).join('')+'</table>')+'</div>';
       paginarTabla('tablaInforme');
       if(filas.length){
         document.getElementById('btnExportInforme').addEventListener('click',function(){
@@ -6906,10 +7101,10 @@ async function generarConteoFisico(){
     insumos.forEach(function(i){items.push({tipo:'insumo',id:i.id,codigo:i.codigo,nombre:i.nombre,unidad:unidadConsumo(i),existencia:i.existencia_actual});});
     subproductos.forEach(function(s){items.push({tipo:'subproducto',id:s.id,codigo:s.codigo,nombre:s.nombre,unidad:'u',existencia:s.existencia_actual});});
     const sorted=applySort(items,'conteo',{tipo:function(x){return x.tipo;},codigo:function(x){return x.codigo;},nombre:function(x){return x.nombre;},existencia:function(x){return x.existencia;}});
-    box.innerHTML='<div class="panel"><div class="panel-header"><h3>Conteo físico · '+items.length+' ítems</h3><div style="display:flex;gap:8px;"><button class="secondary small" id="btnExportConteo" title="Descargar CSV del conteo">Exportar CSV</button><button class="secondary small" id="btnImprimirConteo" title="Imprimir formato en blanco para llenar a mano">🖨 Imprimir formato</button><span class="require-write"><button class="secondary small" id="btnAplicarAjustes" title="Guardar ajustes">Aplicar ajustes</button></span></div></div><div class="search-box"><input id="buscar_conteo" placeholder="Buscar por código o nombre…"></div><table id="tablaConteo"><thead><tr>'+thSort('Tipo','tipo','conteo')+thSort('Código','codigo','conteo')+thSort('Nombre','nombre','conteo')+'<th>Unidad</th>'+thSort('Sistema','existencia','conteo',true)+'<th class="num">Conteo físico</th><th class="num">Diferencia</th></tr></thead><tbody>'+sorted.map(function(it){
+    box.innerHTML=`<div class="panel"><div class="panel-header"><h3>Conteo físico · ${items.length} ítems</h3><div style="display:flex;gap:8px;"><button class="secondary small" id="btnExportConteo" title="Descargar CSV del conteo">${icono('download','sm')} Exportar CSV</button><button class="secondary small" id="btnImprimirConteo" title="Imprimir formato en blanco para llenar a mano">${icono('printer','sm')} Imprimir formato</button><span class="require-write"><button class="secondary small" id="btnAplicarAjustes" title="Guardar ajustes">Aplicar ajustes</button></span></div></div><div class="search-box"><input id="buscar_conteo" placeholder="Buscar por código o nombre…"></div><table id="tablaConteo"><thead><tr>${thSort('Tipo','tipo','conteo')+thSort('Código','codigo','conteo')+thSort('Nombre','nombre','conteo')+'<th>Unidad</th>'+thSort('Sistema','existencia','conteo',true)+'<th class="num">Conteo físico</th><th class="num">Diferencia</th>'}</tr></thead><tbody>${sorted.map(function(it){
       const key=it.tipo+':'+it.id;
       return '<tr data-tipo="'+it.tipo+'" data-id="'+it.id+'" data-sistema="'+it.existencia+'"><td>'+badgeTipoItem(it.tipo)+'</td><td class="mono">'+it.codigo+'</td><td>'+it.nombre+'</td><td>'+it.unidad+'</td><td class="num">'+num(it.existencia)+'</td><td class="num"><input type="number" step="0.0001" class="num-input" data-conteo="'+key+'" placeholder="—"></td><td class="num" data-dif="'+key+'">—</td></tr>';
-    }).join('')+'</tbody></table></div>';
+    }).join('')}</tbody></table></div>`;
     bindConteoInputs();
     filtrarTablaConteo('buscar_conteo','tablaConteo');
     bindSortHeaders(function(){generarConteoFisico();});

@@ -1,3 +1,31 @@
+## [1.6.0] — Octubre 2026
+
+### Añadido
+- **Sistema de iconos SVG** (sprite Lucide-style, MIT):
+  - 36 iconos lineales coherentes con el tema oscuro/claro.
+  - Heredan color del contexto vía `currentColor`.
+  - Helper `icono(nombre, size)` en JS.
+  - Clases `.icon`, `.icon-sm`, `.icon-lg`, `.icon-xl`.
+- **Buscador de módulos en el sidebar**:
+  - Filtra items y oculta grupos sin coincidencias.
+  - Mensaje "Sin resultados para..." cuando no hay match.
+  - `Enter` navega al primer resultado, `Escape` limpia.
+  - Botón `×` para limpiar búsqueda.
+- Icono de descarga en todos los botones "Exportar CSV".
+
+### Cambiado
+- **Sidebar:** el highlight ahora marca el grupo **abierto** (no el que contiene el item activo).
+- **Branding mobile:** el "AseptiQ" del header ahora es clickeable y lleva al Dashboard.
+- **Modales:** el icono del header acepta HTML (SVG) además de texto.
+- **Botones de creación:** "+ Nuevo" ahora muestra icono `+` en SVG; al editar cambia a lápiz.
+
+### Eliminado
+- Todos los emojis de la interfaz (campana, timeline, trazabilidad, botones, modales).
+
+### Notas
+- El sprite vive en `aseptiq.html` dentro de un `<svg class="svg-sprite">` oculto.
+- Los botones con solo icono (`.icon-only`) tienen padding reducido para verse cuadrados.
+
 ## [1.5.0] — Octubre 2026
 
 ### Añadido
