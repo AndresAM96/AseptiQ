@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v1.6.0** — Producción · Octubre 2026
+**v1.7.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -22,6 +22,12 @@ AseptiQ administra el flujo completo de manufactura:
 - **Interfaz basada en modales** con botón `+` en cada listado, análisis gráfico logístico en la cobertura de OP, y modo claro/oscuro.
 - **Sistema de iconos SVG** (sprite Lucide-style) en toda la app — sin emojis.
 - **Buscador de módulos en el sidebar** (Enter navega, Escape limpia).
+- **Configuración centralizada en el backend** (`sys_config`) — prefijos, unidades y umbrales se comparten entre dispositivos.
+- **Notificaciones inteligentes** con marcar-como-vistas y silenciar items individuales.
+- **Lotes por insumo** (`insumo_lotes`) con soporte de multi-lote en una sola entrada (útil para rollos que vienen con lotes distintos).
+- **Códigos sugeridos inteligentes**: auto-select al enfocar, formato de 4 dígitos (`####`), validación en vivo de disponibilidad.
+- **Filtros desde notificaciones**: click en un item abre el módulo filtrado (Urgente, Reorden, Pendientes +5d).
+- **Detalle de insumo** con historial de lotes recibidos.
 - **Campana de notificaciones** en el sidebar con stock crítico, OPs vencidas y entregas recientes.
 - **Dashboard operativo** con widget de stock crítico, timeline de actividad y KPIs visuales.
 - **Impresión profesional**: OP con QR + firmas, kardex formato libro, conteo físico, y etiquetas QR configurables (pequeña/mediana/grande).
@@ -118,6 +124,11 @@ Resumen rápido:
 - [x] Impresión profesional (OP, kardex, conteo, etiquetas QR)
 - [x] Responsive mobile (tablas → tarjetas)
 - [x] Trazabilidad de lotes end-to-end (aproximada)
+- [x] Sistema de iconos SVG (sprite Lucide-style) en toda la app — sin emojis.
+- [x] Buscador de módulos en el sidebar (Enter navega, Escape limpia).
+- [x] Configuración en backend + notificaciones con vistas/silenciar
+- [x] Lotes por insumo (agregado, sin FIFO)
+- [x] Códigos sugeridos con auto-select y formato de 4 dígitos
 - [ ] FIFO estricto con asignación de lote por consumo
 - [ ] Formato INVIMA de recibo de mercancía
 - [ ] Port a .NET (Blazor / MAUI)

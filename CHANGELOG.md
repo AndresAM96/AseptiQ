@@ -1,3 +1,70 @@
+## [1.7.0] — Octubre 2026
+
+### Añadido
+- **Configuración centralizada en backend** (`sys_config` en Supabase):
+  - Prefijos, unidades y umbrales se comparten entre dispositivos.
+  - Migración automática desde localStorage en la primera carga.
+  - Cache en memoria + fallback offline a localStorage.
+- **Notificaciones con marcar-como-vistas**:
+  - Al abrir la campana, las notificaciones actuales quedan marcadas como vistas.
+  - El badge solo cuenta las **nuevas** (no vistas).
+  - Hash por item incluye estado, así un insumo que pasa de Reorden a Urgente vuelve a aparecer.
+  - Limpieza automática de vistos mayores a 60 días.
+- **Silenciar notificaciones**:
+  - Botón × en cada item para silenciar individualmente.
+  - Sección "Silenciados" al final del dropdown con opción de reactivar.
+- **Lotes por insumo** (`insumo_lotes`):
+  - Nueva tabla con cantidad acumulada por lote y proveedor.
+  - Trigger `mov_inv_sync_lotes` alimenta la tabla automáticamente al registrar entradas.
+  - Backfill de lotes históricos desde `movimientos_inventario`.
+  - Sección "Lotes recibidos" en el detalle de insumo.
+  - RPC `registrar_lotes_entrada` para insertar múltiples lotes de una vez.
+- **Modo multi-lote en Entrada mercancía**:
+  - Toggle "Recibir varios lotes (uno por línea)" debajo del campo Lote.
+  - Ideal para rollos que vienen con lotes distintos (Tela SMS).
+  - La cantidad total se divide por igual entre los N lotes.
+- **Códigos sugeridos mejorados**:
+  - Formato de 4 dígitos (`0001`–`9999`).
+  - Auto-select al enfocar el campo: escribir reemplaza el sugerido.
+  - Validación en vivo de disponibilidad (✓ / ✕).
+  - Cálculo local desde el rango existente (no depende del RPC).
+- **Filtros desde notificaciones**:
+  - Click en un item de la campana abre el módulo filtrado.
+  - Insumos: filtro por Urgente o Reorden.
+  - Cargar orden: filtro por "Pendientes +5 días".
+  - Chip visible arriba del listado con botón × para quitar.
+- **Header de subproductos y paquetes** con contador (`N subproductos`, `N paquetes`).
+- **Footer de paginación** unificado: "Mostrando X de Y registros".
+
+### Cambiado
+- **Modales solo se cierran con ESC o botones** (click fuera ya no los cierra).
+- **Toast por encima de modales** (z-index 600).
+- **Campana en móvil** movida al header (ya no queda tapada por el sidebar).
+- **Listados detalle**: botón "Editar" renombrado a **"Detalles"**; dentro del modal hay botón Editar.
+- **Preservación de scroll** al guardar cambios en Insumos y Productos & BOM:
+  - Se captura el scroll del panel específico (por `data-panel-key`).
+  - Se restaura exactamente donde estaba.
+  - Prioridad de `localStorage` sobre `force-collapsed` en la apertura de paneles.
+- **Search-box pegada arriba** al scrollear dentro de un panel.
+- **`saveConfig` es async** (guarda en backend + backup local).
+- **KPIs en móvil** forzados a 1 columna con `!important`.
+
+### Corregido
+- El panel de Insumos volvía al inicio al editar y guardar.
+- Los lotes de la Trazabilidad ahora muestran cantidad acumulada por lote (no solo la última entrada).
+- "Ver N restantes" en notificaciones ya lleva al módulo con filtro aplicado.
+
+### Migraciones
+- `v31_sys_config.sql` — tabla singleton de configuración.
+- `v32_insumo_lotes.sql` — tabla de lotes + trigger + backfill.
+- `v33_registrar_lotes_entrada.sql` — RPC para insertar N lotes.
+
+### Backlog
+- Multi-lote con textboxes individuales (cantidad por lote).
+- Etiquetas Zebra configurables (Fase 4 completa).
+- Formato INVIMA de recibo de mercancía.
+- FIFO estricto para trazabilidad exacta.
+
 ## [1.6.0] — Octubre 2026
 
 ### Añadido

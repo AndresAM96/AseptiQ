@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.6
+**Versión:** 1.7
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -102,11 +102,15 @@ Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
 **Buscador del sidebar:** justo debajo del logo hay un input con lupa. Escribí el nombre del módulo (ej: "kardex", "trazabilidad") y el sidebar filtra en vivo. `Enter` navega al primer resultado. `Escape` o el botón `×` limpia.
 
 **Campana de notificaciones:** cuando hay stock urgente u OPs pendientes hace más de 5 días, la campana se sacude suavemente y muestra un badge rojo con el total. Click en la campana abre un panel con:
-- 🔴 **Stock urgente** — insumos por debajo del umbral.
-- 📋 **OPs pendientes hace +5 días**.
-- 🟡 **En reorden** — insumos cerca del mínimo.
-- ✨ **Entregas últimas 24h**.
-Cada item es clickeable y lleva al módulo correspondiente. Se cierra con `Escape` o click fuera.
+- **Stock urgente** — insumos por debajo del umbral.
+- **OPs pendientes hace +5 días**.
+- **En reorden** — insumos cerca del mínimo.
+- **Entregas últimas 24h**.
+Cada item es clickeable y **lleva al módulo ya filtrado** (solo urgentes, solo reorden, solo OPs vencidas). Se cierra con `Escape` o click fuera.
+
+**Marcar como vistas:** al abrir la campana, todas las notificaciones actuales se marcan como vistas y el badge se limpia. El badge solo vuelve a aparecer cuando hay **nuevas** (por ejemplo, si un insumo pasa de Reorden a Urgente, o si aparece una nueva OP vencida).
+
+**Silenciar:** cada item tiene un botón **×** para silenciarlo. Los silenciados dejan de aparecer hasta que los reactives desde la sección **"Silenciados"** al final del dropdown.
 
 **Abajo:** correo, rol, y **Cerrar sesión**.
 
@@ -202,9 +206,12 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 
 **Crear / editar:** click en el botón `+` (arriba a la derecha del listado) o en **Editar** de cualquier fila → se abre un modal con el formulario completo (datos + cadena de conversiones).
 
+**Código sugerido:** el campo Código viene precargado con el siguiente número disponible en **4 dígitos** (ej: `0089`). Al hacer click en el campo, se selecciona todo el texto; al empezar a tipear, el sugerido se reemplaza automáticamente. Debajo aparece la validación en vivo: "✓ Código disponible" o "✕ Ya existe un registro con este código".
+
 **Acciones:**
 
 - **🏷 Etiquetas**: imprime etiquetas QR configurables (pequeña 48×25mm / mediana 63×38mm / grande 99×38mm). Elegís cantidad, tamaño y campos a incluir (código, nombre, unidad, línea para lote, línea para fecha).
+- **Detalles**: abre el modal con la ficha técnica del insumo, incluyendo la sección **"Lotes recibidos"** con la cantidad acumulada por lote y su proveedor.
 - **Eliminar**: solo si no está en uso.
 - **Click en el costo**: ajustar costo manual con trazabilidad en Auditoría.
 
@@ -242,9 +249,19 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 2. Cantidad en unidad de compra.
 3. Costo (opcional).
 4. Proveedor. Si no está en la lista, click en **"+ El proveedor no está en la lista, crear uno nuevo"** → se abre un modal con el formulario completo (NIT, razón social, dirección y contactos múltiples). Al guardar, el nuevo proveedor queda seleccionado automáticamente.
-5. **Lote del proveedor** (opcional): el número de lote que viene en la factura o remisión. Se usa para trazabilidad INVIMA y para la vista de Trazabilidad.
+5. **Lote del proveedor** (opcional): el número de lote que viene en la factura o remisión.
 6. Si es variable, rendimiento real.
 7. **Registrar entrada** → recalcula costo promedio.
+
+**Recibir varios lotes:** si el insumo viene en rollos o unidades cada uno con su propio lote (típico en Tela SMS), click en **"Recibir varios lotes (uno por línea)"** debajo del campo Lote. Aparece un textarea grande donde pegás un lote por línea:
+
+````
+LOTE-001
+LOTE-002
+LOTE-003
+````
+
+La cantidad total se divide por igual entre los N lotes. La cantidad total se registra como una sola entrada de inventario, pero cada lote queda en el historial del insumo. Para volver al modo normal, click en "Volver a un solo lote".
 
 **Tipo subproducto:**
 
@@ -384,7 +401,7 @@ Análisis bidireccional de lotes. Atajo: `G` + `T`.
    - Subproductos que lo usan (cadena recursiva).
    - PTs que lo contienen **vía subproductos**.
 
-**Nota técnica:** la trazabilidad es aproximada — muestra los lotes disponibles, no el lote exacto consumido (eso requeriría FIFO estricto). El disclaimer está al pie del árbol.
+**Nota técnica:** la trazabilidad es aproximada — muestra los lotes disponibles y su cantidad acumulada, no el lote exacto consumido en cada OP (eso requeriría FIFO estricto). El disclaimer está al pie del árbol. Los datos vienen de la tabla `insumo_lotes`, que se alimenta automáticamente cada vez que se registra una entrada con lote.
 
 ### 6.17 Usuarios (solo admin)
 
@@ -400,6 +417,8 @@ No podés cambiar tu propio rol ni desactivar tu propia cuenta.
 - **Prefijos de códigos** — panel colapsado por defecto.
 - **Unidades de medida** — botón `+` abre un modal con la lista y opciones de agregar / renombrar / eliminar.
 - **Umbrales de stock** (urgente %, reorden %) — botón `+` abre un modal con los inputs.
+
+**Importante:** toda la configuración (prefijos, unidades, umbrales y el estado de notificaciones) se guarda en el **backend** (`sys_config`). Si cambiás la config en un dispositivo, los demás la ven al refrescar.
 
 ### 6.19 Backup (solo admin)
 
@@ -542,6 +561,18 @@ Son los "encabezados y pies de página" del navegador. En el diálogo de impresi
 
 **El bloque de firmas se va solo a la última página.**
 Actualizado en v1.4.0: los espaciados se compactaron para que quepa junto con la tabla. Si tu tabla es muy larga, es normal que las firmas queden solas — el formato está diseñado así para darles espacio.
+
+**Cambié un prefijo/unidad/umbral en Configuración pero no lo veo reflejado.**
+La configuración se guarda en el backend. Al cambiarla, se aplica a todos los dispositivos en el próximo refresco. Si editás desde el celular y no ves el cambio en el PC, refrescá la página (Ctrl+Shift+R).
+
+**Silencié un insumo pero lo quiero recuperar.**
+Abrí la campana → al final del dropdown hay una sección **"Silenciados"**. Expandila y click en **Reactivar** en el item correspondiente.
+
+**Cada vez que abro la app, la campana tiene el mismo número.**
+Actualizado en v1.7.0: al abrir la campana, las notificaciones se marcan como vistas y el badge se limpia. Solo vuelve a aparecer cuando hay **nuevas** (por ejemplo, un insumo que cambia de Reorden a Urgente, o una nueva OP vencida).
+
+**Cargué una entrada con un solo lote pero quiero dividirlo entre varios lotes.**
+Andá a **Entrada mercancía**, seleccioná el insumo, y en el campo Lote click en **"Recibir varios lotes (uno por línea)"**. Pegá cada lote en una línea y la cantidad total se divide por igual entre ellos.
 
 **¿Por qué la Trazabilidad muestra varios lotes para el mismo insumo?**
 Porque el sistema no asigna lotes exactos a cada consumo (eso requeriría FIFO estricto). La vista muestra los lotes que **existen** para ese insumo en las últimas entradas registradas. Sirve para saber qué lotes podrían haber sido consumidos, no cuál fue exactamente.
