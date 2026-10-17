@@ -751,6 +751,8 @@
   .mini-form h4{font-size:12.5px;margin:0 0 10px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
   .modal-overlay{position:fixed;inset:0;background:rgba(8,10,14,0);backdrop-filter:blur(0px);display:none;align-items:center;justify-content:center;z-index:300;padding:24px;transition:background .38s cubic-bezier(.22,1,.36,1),backdrop-filter .38s cubic-bezier(.22,1,.36,1);}
   .modal-overlay.open{display:flex;background:rgba(8,10,14,.55);backdrop-filter:blur(4px);}
+  /* El diálogo de confirmación/prompt siempre va encima de cualquier otro modal */
+  #dialogModal{z-index:700;}
   .modal-box{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5);opacity:0;transform:translateY(18px) scale(.98);transition:opacity .38s cubic-bezier(.22,1,.36,1),transform .38s cubic-bezier(.22,1,.36,1);}
   .modal-overlay.open .modal-box{opacity:1;transform:translateY(0) scale(1);}
   .modal-header{display:flex;gap:14px;align-items:flex-start;padding:22px 24px 16px;border-bottom:1px solid var(--border);}

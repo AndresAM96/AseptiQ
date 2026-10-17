@@ -446,15 +446,26 @@ async function dessilenciarNotif(clave){
 
 function abrirCampana(){
   const ov=document.getElementById('notifOverlay');
-  const btn=document.getElementById('btnCampana');
-  if(!ov||!btn)return;
-  /* Posicionar el panel al lado del sidebar */
+  if(!ov)return;
   const sb=document.getElementById('sidebarPrincipal');
   const panel=ov.querySelector('.notif-panel');
-  if(panel&&sb){
-    const isCol=sb.classList.contains('collapsed');
-    panel.style.left=isCol?'76px':'236px';
+
+  if(panel){
+    if(typeof esMobile==='function' && esMobile()){
+      /* En móvil el CSS controla el layout (left/right:12px). Limpiar cualquier
+         estilo inline que haya quedado de una apertura anterior en desktop. */
+      panel.style.left='';
+      panel.style.right='';
+      panel.style.width='';
+    } else if(sb){
+      /* En desktop: pegado al lado del sidebar */
+      const isCol=sb.classList.contains('collapsed');
+      panel.style.left=isCol?'76px':'236px';
+      panel.style.right='';
+      panel.style.width='';
+    }
   }
+
   ov.classList.add('open');
   _notifAbierto=true;
   renderNotifPanel();
@@ -1026,10 +1037,12 @@ async function cargarConfig(){
   _configCargando=(async function(){
     try{
       const rows=await api('sys_config?id=eq.1&select=config');
+      console.log('[AseptiQ] Config leída del backend:',rows);
       if(rows && rows.length && rows[0].config && Object.keys(rows[0].config).length>0){
         _configCache=rows[0].config;
         /* Sincronizar a localStorage como backup offline */
         try{localStorage.setItem('inv_config',JSON.stringify(_configCache));}catch(e){}
+        console.log('[AseptiQ] Config cargada del backend:',_configCache);
         return _configCache;
       }
       /* Tabla vacía: migrar la config de localStorage si existe */
@@ -1037,13 +1050,21 @@ async function cargarConfig(){
       try{local=JSON.parse(localStorage.getItem('inv_config'));}catch(e){}
       if(local && Object.keys(local).length>0){
         _configCache=Object.assign({},CONFIG_DEFAULT,local);
-        await api('sys_config?id=eq.1',{method:'PATCH',body:JSON.stringify({config:_configCache})});
+        console.log('[AseptiQ] Migrando config de localStorage a backend:',_configCache);
+        try{
+          await api('sys_config',{
+            method:'POST',
+            headers:apiHeaders({'Prefer':'resolution=merge-duplicates'}),
+            body:JSON.stringify({id:1,config:_configCache})
+          });
+        }catch(err){console.error('[AseptiQ] ERROR al migrar config:',err);}
         return _configCache;
       }
       _configCache=Object.assign({},CONFIG_DEFAULT);
+      console.log('[AseptiQ] Config default aplicada (backend vacío):',_configCache);
       return _configCache;
     }catch(e){
-      log('No se pudo cargar config de Supabase, usando localStorage:',e);
+      console.error('[AseptiQ] ERROR al leer config del backend:',e);
       try{
         const s=JSON.parse(localStorage.getItem('inv_config'));
         _configCache=s?Object.assign({},CONFIG_DEFAULT,s):Object.assign({},CONFIG_DEFAULT);
@@ -1062,9 +1083,16 @@ async function saveConfig(c){
   _configCache=Object.assign({},CONFIG_DEFAULT,c||{});
   try{localStorage.setItem('inv_config',JSON.stringify(_configCache));}catch(e){}
   try{
-    await api('sys_config?id=eq.1',{method:'PATCH',body:JSON.stringify({config:_configCache})});
+    /* UPSERT: inserta si no existe, actualiza si existe.
+       PostgREST lo hace con POST + Prefer: resolution=merge-duplicates */
+    const res=await api('sys_config',{
+      method:'POST',
+      headers:apiHeaders({'Prefer':'resolution=merge-duplicates,return=representation'}),
+      body:JSON.stringify({id:1,config:_configCache})
+    });
+    console.log('[AseptiQ] Config guardada en backend:',res);
   }catch(e){
-    log('No se pudo guardar config en Supabase:',e);
+    console.error('[AseptiQ] ERROR al guardar config en backend:',e);
     throw e;
   }
 }
@@ -1586,9 +1614,24 @@ function cerrarDrawer(){
       if(sb && sb.classList.contains('drawer-open')) cerrarDrawer();
     }
   });
-  /* Al cambiar de tamaño: si pasamos a desktop, cerramos drawer por las dudas */
+  /* Al cambiar de tamaño: si pasamos a desktop, cerramos drawer por las dudas.
+     Si hay notificaciones abiertas, limpiamos el left inline para que el CSS móvil aplique. */
   window.addEventListener('resize', debounce(function(){
     if(!esMobile()) cerrarDrawer();
+    const panel=document.querySelector('#notifOverlay .notif-panel');
+    if(panel){
+      if(esMobile()){
+        panel.style.left='';
+        panel.style.right='';
+        panel.style.width='';
+      } else {
+        const sb=document.getElementById('sidebarPrincipal');
+        if(sb){
+          const isCol=sb.classList.contains('collapsed');
+          panel.style.left=isCol?'76px':'236px';
+        }
+      }
+    }
   }, 200));
 })();
 
