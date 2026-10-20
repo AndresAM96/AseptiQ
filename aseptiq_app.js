@@ -1082,13 +1082,20 @@ async function saveConfig(c){
   /* Guarda en Supabase y mantiene localStorage como backup */
   _configCache=Object.assign({},CONFIG_DEFAULT,c||{});
   try{localStorage.setItem('inv_config',JSON.stringify(_configCache));}catch(e){}
+
+  const payloadStr = JSON.stringify({id:1,config:_configCache});
+  if(payloadStr.length > 900 * 1024){
+    const kb = Math.round(payloadStr.length / 1024);
+    throw new Error('La configuración es demasiado grande ('+kb+' KB). Supabase tiene un límite de 1 MB. Si cargaste logos, usá archivos de menos de 100 KB o eliminalos.');
+  }
+
   try{
     /* UPSERT: inserta si no existe, actualiza si existe.
        PostgREST lo hace con POST + Prefer: resolution=merge-duplicates */
     const res=await api('sys_config',{
       method:'POST',
       headers:apiHeaders({'Prefer':'resolution=merge-duplicates,return=representation'}),
-      body:JSON.stringify({id:1,config:_configCache})
+      body:payloadStr
     });
     console.log('[AseptiQ] Config guardada en backend:',res);
   }catch(e){
@@ -1406,14 +1413,22 @@ function comboInput(prefix,idx,options,selectedId,placeholder){
   const sel=(options||[]).find(function(o){return o.id===selectedId;});
   const display=sel?sel.nombre:'';
   const dlId=prefix+'_dl_'+idx;
-  const opts=(options||[]).map(function(o){return '<option value="'+String(o.nombre).replace(/"/g,'&quot;')+'" data-id="'+o.id+'"></option>';}).join('');
+  const opts=(options||[]).map(function(o){
+    /* El texto visible tendrá nombre y código para búsqueda exacta */
+    const txt = o.nombre + (o.codigo ? ' ('+o.codigo+')' : '');
+    return '<option value="'+String(txt).replace(/"/g,'&quot;')+'" data-id="'+o.id+'" data-name="'+String(o.nombre).replace(/"/g,'&quot;')+'" data-codigo="'+String(o.codigo||'')+'"></option>';
+  }).join('');
   return '<input type="text" class="combo" id="'+prefix+'_sel_'+idx+'" list="'+dlId+'" value="'+String(display).replace(/"/g,'&quot;')+'" placeholder="'+(placeholder||'Buscar…')+'"><datalist id="'+dlId+'">'+opts+'</datalist>';
 }
 function getComboValue(inputId){
   const el=document.getElementById(inputId);if(!el)return '';
   const dl=document.getElementById(el.getAttribute('list'));if(!dl)return '';
   const v=el.value.trim();
-  const found=Array.from(dl.options).find(function(o){return o.value===v;});
+  /* Buscar por valor exacto, o por nombre, o por código si el usuario tipeó solo el código */
+  let found=Array.from(dl.options).find(function(o){return o.value===v;});
+  if(!found){
+    found=Array.from(dl.options).find(function(o){return o.dataset.name===v || o.dataset.codigo===v;});
+  }
   return found?found.dataset.id:'';
 }
 
@@ -1782,75 +1797,112 @@ document.addEventListener('click',async function(ev){
   }catch(e){toast(e.message,'error');}
 });
 
-/* ============ MODAL GENÉRICO ============ */
-let _genericModalOnClose=null;
+/* ============ MODAL GENÉRICO (SOPORTA APILAMIENTO) ============ */
+let _modalCounter = 0;
+const _modalStack = [];
 
 function abrirModalGenerico(opts){
-  const overlay=document.getElementById('genericModal');
-  const box=document.getElementById('genericModalBox');
-  const icon=document.getElementById('genericModalIcon');
-  const title=document.getElementById('genericModalTitle');
-  const subtitle=document.getElementById('genericModalSubtitle');
-  const body=document.getElementById('genericModalBody');
-  const footer=document.getElementById('genericModalFooter');
-  if(!overlay||!box||!body) return;
+  const modalId = 'genModal_' + (++_modalCounter);
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = modalId;
+  overlay.innerHTML = `
+    <div class="modal-box" id="${modalId}Box">
+      <div class="modal-header">
+        <div class="modal-icon info" id="${modalId}Icon"></div>
+        <div style="flex:1;min-width:0;">
+          <h3 id="${modalId}Title"></h3>
+          <p id="${modalId}Subtitle"></p>
+        </div>
+        <button class="ghost small" id="${modalId}Close" title="Cerrar" style="padding:6px 10px;">×</button>
+      </div>
+      <div class="modal-body" id="${modalId}Body"></div>
+      <div class="modal-footer" id="${modalId}Footer" style="display:none;"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
 
-  /* Configurar tamaño */
-  box.className='modal-box'+(opts.size==='md'?' modal-md':(opts.size==='wide'?' modal-wide':''));
+  const box = overlay.querySelector(`#${modalId}Box`);
+  const icon = overlay.querySelector(`#${modalId}Icon`);
+  const title = overlay.querySelector(`#${modalId}Title`);
+  const subtitle = overlay.querySelector(`#${modalId}Subtitle`);
+  const body = overlay.querySelector(`#${modalId}Body`);
+  const footer = overlay.querySelector(`#${modalId}Footer`);
 
-  /* Header */
-  icon.className='modal-icon '+(opts.variant||'info');
-  icon.innerHTML=opts.icon||icono('info');
-  title.textContent=opts.title||'';
-  if(opts.subtitle){
-    subtitle.textContent=opts.subtitle;
-    subtitle.style.display='block';
+  box.className = 'modal-box' + (opts.size === 'md' ? ' modal-md' : (opts.size === 'wide' ? ' modal-wide' : ''));
+  icon.className = 'modal-icon ' + (opts.variant || 'info');
+  icon.innerHTML = opts.icon || icono('info');
+  title.textContent = opts.title || '';
+  
+  if (opts.subtitle) {
+    subtitle.textContent = opts.subtitle;
+    subtitle.style.display = 'block';
   } else {
-    subtitle.textContent='';
-    subtitle.style.display='none';
+    subtitle.textContent = '';
+    subtitle.style.display = 'none';
   }
 
-  /* Body */
-  body.innerHTML=opts.body||'';
+  body.innerHTML = opts.body || '';
 
-  /* Footer */
-  if(opts.footer){
-    footer.innerHTML=opts.footer;
-    footer.style.display='flex';
+  if (opts.footer) {
+    footer.innerHTML = opts.footer;
+    footer.style.display = 'flex';
   } else {
-    footer.innerHTML='';
-    footer.style.display='none';
+    footer.innerHTML = '';
+    footer.style.display = 'none';
   }
 
-  _genericModalOnClose=opts.onClose||null;
+  overlay.querySelector(`#${modalId}Close`).onclick = () => cerrarModalGenerico(modalId);
+  
+  const keydownHandler = (ev) => {
+    if (ev.key === 'Escape' && overlay.classList.contains('open')) {
+      cerrarModalGenerico(modalId);
+    }
+  };
+  document.addEventListener('keydown', keydownHandler);
 
-  _abrirOverlay('genericModal');
+  _modalStack.push({ id: modalId, overlay: overlay, onClose: opts.onClose, keydownHandler: keydownHandler });
 
-  /* Callback post-render para bindings */
-  if(typeof opts.onOpen==='function') {
-    setTimeout(function(){opts.onOpen(body);},30);
+  _abrirOverlay(modalId);
+
+  if (typeof opts.onOpen === 'function') {
+    setTimeout(() => opts.onOpen(body), 30);
   }
+
+  return modalId;
 }
 
-function cerrarModalGenerico(){
-  const overlay=document.getElementById('genericModal');
-  if(overlay) _cerrarOverlay('genericModal');
-  const cb=_genericModalOnClose;
-  _genericModalOnClose=null;
-  if(typeof cb==='function') {
-    try { cb(); } catch(e) { console.warn('onClose error',e); }
+function cerrarModalGenerico(modalId){
+  let index = -1;
+  
+  /* Si nos pasan un string válido (como el ID del modal), buscamos ese modal.
+     Si nos pasan un Evento (por un addEventListener) o nada, cerramos el último (el de arriba). */
+  if (typeof modalId === 'string') {
+    index = _modalStack.findIndex(m => m.id === modalId);
+  }
+  
+  /* Si no encontramos el ID o no nos pasaron uno, cerramos el modal superior de la pila */
+  if (index === -1 && _modalStack.length > 0) {
+    index = _modalStack.length - 1;
+  }
+
+  if (index === -1) return;
+  
+  const modal = _modalStack[index];
+  _cerrarOverlay(modal.id);
+  
+  document.removeEventListener('keydown', modal.keydownHandler);
+
+  setTimeout(() => {
+    if (modal.overlay.parentNode) modal.overlay.parentNode.removeChild(modal.overlay);
+  }, 400);
+
+  _modalStack.splice(index, 1);
+
+  if (typeof modal.onClose === 'function') {
+    try { modal.onClose(); } catch(e) { console.warn('onClose error',e); }
   }
 }
-
-(function initModalGenerico(){
-  const overlay=document.getElementById('genericModal');
-  if(!overlay) return;
-  document.getElementById('genericModalClose').addEventListener('click',cerrarModalGenerico);
-  /* Click fuera NO cierra el modal: solo botones o ESC */
-  document.addEventListener('keydown',function(ev){
-    if(ev.key==='Escape' && overlay.classList.contains('open')) cerrarModalGenerico();
-  });
-})();
 
 /* Helper universal para modal overlays con fade-out */
 function _abrirOverlay(id){
@@ -2302,6 +2354,14 @@ async function renderConfig(){
         <br>Haz click en <b>+</b> para editarlos.
       </div>
     </div>
+
+    <div class="panel force-collapsed">
+      <div class="panel-header"><h3>Datos de etiquetas</h3><button class="btn-add" id="btnEditarEtiquetas" title="Editar datos de etiquetas">+</button></div>
+      <div style="padding:14px 18px;font-size:12.5px;color:var(--text-secondary);line-height:1.5;">
+        Empresas (Proclides, Allers), registros INVIMA, tamaños de etiqueta y logos.
+        <br>Haz click en <b>+</b> para editarlos.
+      </div>
+    </div>
   `;
 
   /* Slider de tema */
@@ -2336,6 +2396,7 @@ async function renderConfig(){
   /* Botones "+" que abren modales */
   document.getElementById('btnGestionarUnidades').addEventListener('click',abrirModalUnidades);
   document.getElementById('btnEditarUmbrales').addEventListener('click',abrirModalUmbrales);
+  document.getElementById('btnEditarEtiquetas').addEventListener('click',abrirModalDatosEtiquetas);
 }
 
 function actualizarIconoTema(){
@@ -2421,6 +2482,239 @@ function abrirModalUnidades(){
       document.getElementById('uni_cerrar').addEventListener('click',function(){
         cerrarModalGenerico();
         renderConfig();
+      });
+    }
+  });
+}
+
+function abrirModalDatosEtiquetas(){
+  const etq = getEtiquetasConfig();
+  const empresas = etq.empresas;
+  const invimas = etq.invimas;
+  const medidas = etq.medidas;
+  const logos = etq.logos;
+
+  function _empresaHTML(id, emp){
+    return '<div class="etq-empresa-block">'
+      +'<div class="etq-empresa-title">'+(id==='proclides'?'Proclides':'Allers / Allmed')+'</div>'
+      +'<div class="form-grid" style="padding:0;">'
+        +'<div><label>Razón social</label><input id="etq_'+id+'_razon" value="'+(emp.razonSocial||'').replace(/"/g,'&quot;')+'"></div>'
+        +'<div><label>NIT</label><input id="etq_'+id+'_nit" value="'+(emp.nit||'').replace(/"/g,'&quot;')+'"></div>'
+        +'<div class="full-span"><label>Dirección</label><input id="etq_'+id+'_dir" value="'+(emp.direccion||'').replace(/"/g,'&quot;')+'"></div>'
+        +'<div><label>Teléfono</label><input id="etq_'+id+'_tel" value="'+(emp.telefono||'').replace(/"/g,'&quot;')+'"></div>'
+        +'<div><label>Web</label><input id="etq_'+id+'_web" value="'+(emp.web||'').replace(/"/g,'&quot;')+'"></div>'
+        +'<div class="full-span"><label>Correos (uno por línea)</label><textarea id="etq_'+id+'_correos" rows="2" style="font-family:inherit;">'+((emp.correos||[]).join('\n'))+'</textarea></div>'
+      +'</div>'
+    +'</div>';
+  }
+
+  function _logoUploadHTML(id, label, dataUrl){
+    const preview = dataUrl ? '<img src="'+dataUrl+'" alt="'+label+'" class="etq-logo-preview">' : '<span class="etq-logo-empty">Sin imagen</span>';
+    return '<div class="etq-logo-row">'
+      +'<div class="etq-logo-info">'
+        +'<div class="det-lbl">'+label+'</div>'
+        +'<div class="etq-logo-box">'+preview+'</div>'
+      +'</div>'
+      +'<div class="etq-logo-actions">'
+        +'<input type="file" id="etq_logo_'+id+'" accept="image/png,image/jpeg,image/svg+xml" style="display:none;">'
+        +'<button type="button" class="secondary small" data-etq-pick-logo="'+id+'">Elegir archivo</button>'
+        +'<button type="button" class="ghost small" data-etq-clear-logo="'+id+'" '+(dataUrl?'':'style="display:none;"')+'>Quitar</button>'
+      +'</div>'
+    +'</div>';
+  }
+
+  const bodyHTML =
+    '<div class="det-section-title" style="margin-top:0;padding-top:0;border-top:none;">Empresas</div>'
+    + _empresaHTML('proclides', empresas.proclides)
+    + _empresaHTML('allers', empresas.allers)
+
+    + '<div class="det-section-title">Registros INVIMA</div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">'
+      +'Cada PT elige su registro INVIMA desde Productos &amp; BOM. Si un producto no requiere registro, dejalo sin asignar.'
+    +'</div>'
+    + '<div id="etq_invima_list"></div>'
+    + '<div style="margin-top:10px;"><button type="button" class="secondary small" id="etq_add_invima">+ Agregar registro INVIMA</button></div>'
+
+    + '<div class="det-section-title">Medidas de etiquetas</div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">'
+      +'Ancho × alto en milímetros. Ajustar según la impresora Zebra.'
+    +'</div>'
+    + '<div class="form-grid" style="padding:0;">'
+      +'<div><label>Pequeña — ancho (mm)</label><input id="etq_med_peq_w" type="number" min="20" max="200" value="'+(medidas.pequena.w||50)+'"></div>'
+      +'<div><label>Pequeña — alto (mm)</label><input id="etq_med_peq_h" type="number" min="15" max="200" value="'+(medidas.pequena.h||25)+'"></div>'
+      +'<div><label>Mediana — ancho (mm)</label><input id="etq_med_med_w" type="number" min="30" max="250" value="'+(medidas.mediana.w||80)+'"></div>'
+      +'<div><label>Mediana — alto (mm)</label><input id="etq_med_med_h" type="number" min="20" max="250" value="'+(medidas.mediana.h||44)+'"></div>'
+      +'<div><label>Grande — ancho (mm)</label><input id="etq_med_gra_w" type="number" min="50" max="300" value="'+(medidas.grande.w||150)+'"></div>'
+      +'<div><label>Grande — alto (mm)</label><input id="etq_med_gra_h" type="number" min="50" max="300" value="'+(medidas.grande.h||100)+'"></div>'
+    +'</div>'
+
+    + '<div class="det-section-title">Logos</div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">'
+      +'PNG, JPG o SVG. Peso máximo recomendado: 200 KB por archivo. Se guardan en el backend y aplican a todos los dispositivos.'
+    +'</div>'
+    + _logoUploadHTML('proclides', 'Logo Proclides', logos.proclides)
+    + _logoUploadHTML('allmed', 'Logo Allmed', logos.allmed)
+    + _logoUploadHTML('allers', 'Logo Allers Group', logos.allers);
+
+  abrirModalGenerico({
+    title:'Datos de etiquetas',
+    subtitle:'Empresas, INVIMA, medidas y logos usados en la impresión.',
+    icon: icono('tag','lg'),
+    variant:'info',
+    size:'wide',
+    body: bodyHTML,
+    footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="etq_cancelar">Cancelar</button><button id="etq_guardar">Guardar datos</button></div>',
+    onOpen: function(body){
+      /* Estado local de logos (para no perder cambios si el usuario navega) */
+      const logosLocal = {
+        proclides: logos.proclides||'',
+        allmed: logos.allmed||'',
+        allers: logos.allers||''
+      };
+      /* Estado local de INVIMAs */
+      let invimasLocal = invimas.slice();
+
+      /* Render de INVIMAs */
+      function renderInvimas(){
+        const cont = body.querySelector('#etq_invima_list');
+        if(!invimasLocal.length){
+          cont.innerHTML = '<div class="empty-state" style="padding:12px 0;">Sin registros INVIMA.</div>';
+          return;
+        }
+        cont.innerHTML = invimasLocal.map(function(inv, idx){
+          return '<div class="dyn-row conv-recipe" style="padding:6px 0;">'
+            +'<input id="etq_inv_nom_'+idx+'" placeholder="Nombre (ej: Paquetes)" value="'+(inv.nombre||'').replace(/"/g,'&quot;')+'">'
+            +'<input id="etq_inv_num_'+idx+'" placeholder="Número (ej: 2026DM-0032255)" value="'+(inv.numero||'').replace(/"/g,'&quot;')+'" style="font-family:\'IBM Plex Mono\',monospace;">'
+            +'<span></span>'
+            +'<button type="button" class="danger-btn small" data-etq-del-invima="'+idx+'">×</button>'
+            +'</div>';
+        }).join('');
+        cont.querySelectorAll('[data-etq-del-invima]').forEach(function(btn){
+          btn.addEventListener('click',function(){
+            syncInvimas();
+            invimasLocal.splice(parseInt(btn.dataset.etqDelInvima,10),1);
+            renderInvimas();
+          });
+        });
+      }
+      function syncInvimas(){
+        invimasLocal = invimasLocal.map(function(_,idx){
+          return {
+            id: invimasLocal[idx].id || ('inv-'+idx+'-'+Date.now()),
+            nombre: (body.querySelector('#etq_inv_nom_'+idx)||{}).value||'',
+            numero: (body.querySelector('#etq_inv_num_'+idx)||{}).value||''
+          };
+        });
+      }
+      renderInvimas();
+      body.querySelector('#etq_add_invima').addEventListener('click',function(){
+        syncInvimas();
+        invimasLocal.push({ id: 'inv-'+Date.now(), nombre:'', numero:'' });
+        renderInvimas();
+      });
+
+      /* Logos: file input → data URL */
+      ['proclides','allmed','allers'].forEach(function(id){
+        const input = body.querySelector('#etq_logo_'+id);
+        const pickBtn = body.querySelector('[data-etq-pick-logo="'+id+'"]');
+        if(pickBtn && input){
+          pickBtn.addEventListener('click', function(){ input.click(); });
+        }
+        if(!input) return;
+        input.addEventListener('change', function(){
+          const file = input.files && input.files[0];
+          if(!file) return;
+          if(file.size > 100*1024){
+            toast('El archivo supera 100 KB. Reducilo antes de subirlo.','error');
+            input.value='';
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = function(ev){
+            logosLocal[id] = ev.target.result;
+            /* Actualizar preview */
+            const row = input.closest('.etq-logo-row');
+            if(row){
+              const box = row.querySelector('.etq-logo-box');
+              if(box) box.innerHTML = '<img src="'+logosLocal[id]+'" alt="logo" class="etq-logo-preview">';
+              const clearBtn = row.querySelector('[data-etq-clear-logo]');
+              if(clearBtn) clearBtn.style.display='';
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      /* Quitar logo */
+      body.querySelectorAll('[data-etq-clear-logo]').forEach(function(btn){
+        btn.addEventListener('click',function(){
+          const id = btn.dataset.etqClearLogo;
+          logosLocal[id] = '';
+          const row = btn.closest('.etq-logo-row');
+          if(row){
+            const box = row.querySelector('.etq-logo-box');
+            if(box) box.innerHTML = '<span class="etq-logo-empty">Sin imagen</span>';
+            btn.style.display='none';
+          }
+        });
+      });
+
+      /* Cancelar */
+      document.getElementById('etq_cancelar').addEventListener('click',cerrarModalGenerico);
+
+      /* Guardar */
+      document.getElementById('etq_guardar').addEventListener('click',async function(ev){
+        syncInvimas();
+        const getVal=function(id){const el=body.querySelector('#'+id);return el?el.value:'';};
+        const parseCorreos=function(str){return String(str||'').split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);};
+
+        const nuevas = {
+          empresas: {
+            proclides: {
+              razonSocial: getVal('etq_proclides_razon').trim(),
+              nit: getVal('etq_proclides_nit').trim(),
+              direccion: getVal('etq_proclides_dir').trim(),
+              telefono: getVal('etq_proclides_tel').trim(),
+              correos: parseCorreos(getVal('etq_proclides_correos')),
+              web: getVal('etq_proclides_web').trim()
+            },
+            allers: {
+              razonSocial: getVal('etq_allers_razon').trim(),
+              nit: getVal('etq_allers_nit').trim(),
+              direccion: getVal('etq_allers_dir').trim(),
+              telefono: getVal('etq_allers_tel').trim(),
+              correos: parseCorreos(getVal('etq_allers_correos')),
+              web: getVal('etq_allers_web').trim()
+            }
+          },
+          invimas: invimasLocal.filter(function(i){return i.nombre||i.numero;}),
+          medidas: {
+            pequena: {
+              w: parseInt(body.querySelector('#etq_med_peq_w').value,10)||50,
+              h: parseInt(body.querySelector('#etq_med_peq_h').value,10)||25
+            },
+            mediana: {
+              w: parseInt(body.querySelector('#etq_med_med_w').value,10)||80,
+              h: parseInt(body.querySelector('#etq_med_med_h').value,10)||44
+            },
+            grande: {
+              w: parseInt(body.querySelector('#etq_med_gra_w').value,10)||150,
+              h: parseInt(body.querySelector('#etq_med_gra_h').value,10)||100
+            }
+          },
+          logos: logosLocal
+        };
+
+        try{
+          await withLoading(ev.currentTarget, async function(){
+            const cfg = getConfig();
+            cfg.etiquetas = nuevas;
+            await saveConfig(cfg);
+          });
+          toast('Datos de etiquetas guardados.','success');
+          cerrarModalGenerico();
+          renderConfig();
+        }catch(e){toast('Error al guardar: '+e.message,'error');}
       });
     }
   });
@@ -2671,11 +2965,94 @@ async function renderDashboard(){
 }
 
 /* ============ ETIQUETAS QR ============ */
-function abrirModalEtiquetas(tipo,item){
+function abrirModalEtiquetas(tipo,item,data){
   const nombre = item.nombre || '';
   const codigo = item.codigo || item.codigo_pt || '';
+  
+  if(tipo === 'pt') {
+    const cfg = getConfig();
+    const etqCfg = getEtiquetasConfig();
+    const plantilla = item.plantilla_etiqueta || 'esteril_proclides';
+    const plantillasNombres = {
+      'esteril_proclides': 'Estéril Proclides (150×100mm)',
+      'esteril_allmed': 'Estéril Allmed (150×100mm)',
+      'noesteril_allmed': 'No Estéril Allmed (150×100mm)',
+      'noesteril_proclides_grande': 'No Estéril Proclides Grande (150×100mm)',
+      'noesteril_proclides_mediana': 'No Estéril Proclides Mediana (80×44mm)'
+    };
+    const hoy = new Date().toISOString().slice(0,10);
+
+    const undsPorCaja = item.unidades_por_caja || 1;
+
+    abrirModalGenerico({
+      title: 'Imprimir etiquetas PT',
+      subtitle: codigo + ' · ' + nombre,
+      icon: icono('tag','lg'),
+      variant: 'info',
+      size: 'md',
+      body: '<div class="form-grid" style="padding:0;">'
+        +'<div class="full-span" style="margin-bottom:12px; padding:10px; background:var(--surface-2); border-radius:8px; border:1px solid var(--border);">'
+          +'<div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); font-weight:600; margin-bottom:4px;">Plantilla asignada</div>'
+          +'<div style="font-size:14px; font-weight:600; color:var(--accent);">'+ (plantillasNombres[plantilla] || plantilla) +'</div>'
+        +'</div>'
+        +'<div><label>Paquetes a imprimir</label><input id="etq_cantidad" type="number" min="1" max="1000" value="1" oninput="document.getElementById(\'etq_cajas\').value = Math.ceil(this.value / '+undsPorCaja+')"></div>'
+        +'<div><label>Cajas a imprimir</label><input id="etq_cajas" type="number" min="0" max="100" value="'+(undsPorCaja>1?1:0)+'"></div>'
+        +'<div><label>Lote de producción</label><input id="etq_lote" placeholder="Ej: 3619"></div>'
+        +'<div><label>Fecha de fabricación</label><input id="etq_fecha_fab" type="date" value="'+hoy+'"></div>'
+        +'<div class="full-span" style="font-size:11px; color:var(--text-muted); line-height:1.4; margin-top:6px;">'
+          +'Si el producto tiene '+undsPorCaja+' paquetes por caja, se generarán las etiquetas de caja automáticamente.'
+        +'</div>'
+        +'</div>',
+      footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="etq_cancelar">Cancelar</button><button id="etq_imprimir">'+icono('printer','sm')+' Imprimir etiquetas</button></div>',
+      onOpen: function(){
+        document.getElementById('etq_cancelar').addEventListener('click', cerrarModalGenerico);
+        document.getElementById('etq_imprimir').addEventListener('click', async function(ev){
+          const cantidad = Math.max(1, parseInt(document.getElementById('etq_cantidad').value,10)||1);
+          const cantidadCajas = Math.max(0, parseInt(document.getElementById('etq_cajas').value,10)||0);
+          const lote = document.getElementById('etq_lote').value.trim() || 'SIN LOTE';
+          const fechaFab = document.getElementById('etq_fecha_fab').value;
+          
+          imprimirEtiquetasPT(item, data, plantilla, {cantidad, cantidadCajas, lote, fechaFab});
+          cerrarModalGenerico();
+
+          /* Preguntar al usuario si la impresión se realizó correctamente */
+          setTimeout(async function() {
+            const confirmado = await confirmar({
+              title: 'Registrar impresión',
+              message: '¿Las etiquetas se imprimieron correctamente? Si confirmas, se registrará el conteo para trazabilidad.',
+              icon: '🖨',
+              variant: 'info',
+              okText: 'Sí, registrar'
+            });
+
+            if (confirmado) {
+              try {
+                await api('etiquetas_impresas', {
+                  method:'POST',
+                  body: JSON.stringify({
+                    codigo_pt: item.codigo_pt,
+                    lote: lote,
+                    cantidad_paquetes: cantidad,
+                    cantidad_cajas: cantidadCajas,
+                    usuario_email: SUPA_PROFILE ? SUPA_PROFILE.email : 'desconocido'
+                  })
+                });
+                toast('Impresión registrada exitosamente','success');
+              } catch(err) {
+                console.warn('No se pudo registrar la impresión:', err);
+                toast('Error al registrar la impresión en la base de datos', 'error');
+              }
+            }
+          }, 1500); // 1.5s de margen para que el diálogo de impresión aparezca y el usuario decida
+        });
+      }
+    });
+    return;
+  }
+
+  // Si no es PT (es insumo), usa el modal genérico original
   abrirModalGenerico({
-    title: 'Imprimir etiquetas',
+    title: 'Imprimir etiquetas QR',
     subtitle: codigo + ' · ' + nombre,
     icon: icono('tag','lg'),
     variant: 'info',
@@ -2683,9 +3060,7 @@ function abrirModalEtiquetas(tipo,item){
     body: '<div class="form-grid" style="padding:0;">'
       +'<div><label>Cantidad de etiquetas</label><input id="etq_cantidad" type="number" min="1" max="200" value="1"></div>'
       +'<div><label>Tamaño de etiqueta</label><select id="etq_tamano">'
-      +'<option value="small">Pequeña · 48 × 25 mm (4 por fila)</option>'
-      +'<option value="medium" selected>Mediana · 63 × 38 mm (3 por fila)</option>'
-      +'<option value="large">Grande · 99 × 38 mm (2 por fila)</option>'
+      +'<option value="small" selected>Pequeña · 50 × 25 mm (4 por fila)</option>'
       +'</select></div>'
       +'<div class="full-span"><label>Campos a incluir</label>'
       +'<label class="check-row" style="margin:6px 0;"><input type="checkbox" id="etq_codigo" checked><span>Código</span></label>'
@@ -2786,6 +3161,440 @@ function imprimirEtiquetas(tipo, item, cantidad, tamano, campos){
   `;
 
   imprimirHTML('<div class="hoja-etiquetas">'+etiquetas+'</div>', 'Etiquetas '+codigo, cssEtiquetas);
+}
+
+/* ============ GENERADORES DE ETIQUETAS PT ============ */
+function imprimirEtiquetasPT(prod, data, plantilla, opts){
+  const etqCfg = getEtiquetasConfig();
+  const empPro = etqCfg.empresas.proclides;
+  const empAll = etqCfg.empresas.allers;
+  
+  const fFab = new Date(opts.fechaFab + 'T12:00:00');
+  const fVenc = calcularVencimiento(fFab);
+  const strFab = formatoMesAnio(fFab);
+  const strVenc = formatoMesAnio(fVenc);
+  const lote = opts.lote;
+  const undsPorCaja = prod.unidades_por_caja || 1;
+
+  const regexEmpaque = /PGM|BOLSA|ETIQUETA|CAJA/i;
+  let contenido = [];
+  if(data && data.paqueteSubs && data.subproductos) {
+    const comp = data.paqueteSubs.filter(x => x.codigo_pt === prod.codigo_pt);
+    contenido = comp.map(c => {
+      const sub = data.subproductos.find(x => x.id === c.subproducto_id);
+      return { cant: c.cantidad, nombre: sub ? sub.nombre : '?' };
+    }).filter(c => !regexEmpaque.test(c.nombre));
+  }
+
+  let barcodeHtml = '';
+  if (prod.codigo_barras && prod.codigo_barras.trim() !== '') {
+    barcodeHtml = `<div style="width:100%; height:12mm;">${barcodeSVG(prod.codigo_barras, {alto:40, ancho:1.5})}</div>`;
+  }
+
+  const htmls = [];
+
+  // Paquetes
+  for(let i=0; i<opts.cantidad; i++) {
+    if(plantilla === 'esteril_proclides') htmls.push(_tplEsterilProclides(prod, empPro, lote, strFab, strVenc, contenido, etqCfg, false, undsPorCaja));
+    else if(plantilla === 'esteril_allmed') htmls.push(_tplEsterilAllmed(prod, empAll, empPro, lote, strFab, strVenc, contenido, barcodeHtml, etqCfg, false, undsPorCaja));
+    else if(plantilla === 'noesteril_allmed') htmls.push(_tplNoEsterilAllmed(prod, empAll, lote, strVenc, barcodeHtml, etqCfg, false, undsPorCaja));
+    else if(plantilla === 'noesteril_proclides_grande') htmls.push(_tplNoEsterilProclidesGrande(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, false, undsPorCaja));
+    else if(plantilla === 'noesteril_proclides_mediana') htmls.push(_tplNoEsterilProclidesMediana(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, false, undsPorCaja));
+  }
+
+  // Cajas
+  if (opts.cantidadCajas > 0 && undsPorCaja > 1) {
+    for(let i=1; i<=opts.cantidadCajas; i++) {
+      const boxCode = prod.codigo_pt + '-C' + String(i).padStart(3,'0');
+      /* El QR es un poco más pequeño para la etiqueta mediana (80x44mm) */
+      const isMediana = plantilla === 'noesteril_proclides_mediana';
+      const qrTam = isMediana ? 40 : 60;
+      /* Convertimos píxeles a milímetros para que encaje perfecto */
+      const qrHtml = `<div style="width:${qrTam * 0.264583}mm; height:${qrTam * 0.264583}mm;">${qrSVG(boxCode, qrTam)}</div>`;
+      
+      if(plantilla === 'esteril_proclides') htmls.push(_tplEsterilProclides(prod, empPro, lote, strFab, strVenc, contenido, etqCfg, true, undsPorCaja, i, qrHtml));
+      else if(plantilla === 'esteril_allmed') htmls.push(_tplEsterilAllmed(prod, empAll, empPro, lote, strFab, strVenc, contenido, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
+      else if(plantilla === 'noesteril_allmed') htmls.push(_tplNoEsterilAllmed(prod, empAll, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
+      else if(plantilla === 'noesteril_proclides_grande') htmls.push(_tplNoEsterilProclidesGrande(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
+      else if(plantilla === 'noesteril_proclides_mediana') htmls.push(_tplNoEsterilProclidesMediana(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
+    }
+  }
+
+  const w = plantilla === 'noesteril_proclides_mediana' ? 80 : 150;
+  const h = plantilla === 'noesteril_proclides_mediana' ? 44 : 100;
+  const css = `
+    @page { size: ${w}mm ${h}mm; margin: 0; }
+    html, body { margin:0 !important; padding:0 !important; background:#fff; width: ${w}mm; height: ${h}mm; font-family:Arial,Helvetica,sans-serif; color:#000; -webkit-print-color-adjust:exact; }
+    .etq-wrapper { width:${w}mm; height:${h}mm; box-sizing:border-box; display:flex; flex-direction:column; page-break-after:always; overflow:hidden; border:0.5mm solid #000; position:relative; }
+    .etq-wrapper:last-child { page-break-after:auto; }
+    .barcode svg { width:100%; height:100%; }
+  `;
+  imprimirHTML(htmls.join(''), 'Etiquetas PT', css);
+}
+
+// --- PLANTILLAS UNIFICADAS ---
+
+function _tplEsterilProclides(prod, emp, lote, fFab, fVenc, contenido, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
+  const logo = cfg.logos.proclides || 'logo-proclides.png';
+  const contList = contenido.map(c => `<div>- ${c.cant} ${c.nombre}</div>`).join('');
+  
+  return `
+    <div class="etq-wrapper" style="flex-direction:row; padding:4mm;">
+      ${!isCaja ? `
+      <div style="flex:1; border:2px solid #000; display:flex; flex-direction:column; padding:2mm;">
+        <div style="font-weight:bold; font-size:12pt; border-bottom:1px solid #000; padding-bottom:1mm; margin-bottom:2mm;">CONTENIDO</div>
+        <div style="font-size:9pt; line-height:1.3; flex:1; overflow:hidden;">${contList}</div>
+        <div style="font-size:6pt; margin-top:1mm; line-height:1.2;">Conservese en un lugar fresco, seco y libre de polvo.</div>
+      </div>
+      ` : `
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between; padding-right:4mm;">
+         <div style="font-size:14pt; font-weight:bold;">CAJA #${cajaNum}</div>
+         <div style="font-size:24pt; font-weight:bold; line-height:1;">CAJA X<br>${undsPorCaja} PAQUETES</div>
+         ${qrHtml}
+      </div>
+      `}
+      <div style="width:65mm; padding-left:4mm; display:flex; flex-direction:column; justify-content:space-between;">
+        <div style="text-align:center;">
+          <div style="font-weight:bold; font-size:10pt; text-transform:uppercase; line-height:1.1; margin-bottom:2mm;">${prod.nombre}</div>
+          <div style="font-size:9pt; font-family:monospace;">${prod.codigo_pt}</div>
+        </div>
+        <div style="text-align:center;"><img src="${logo}" style="max-height:20mm; max-width:100%;"></div>
+        <div style="text-align:center; margin:1mm 0;">
+          ${iconosEsterilHTML()}
+          <div style="font-size:7pt; border:1px solid #000; padding:1mm; margin-top:1mm;">INVIMA: ${prod.registro_invima || 'No requiere'}</div>
+        </div>
+        <div style="font-size:8pt; line-height:1.5;">
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:18mm;">LOTE:</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm; font-weight:bold;">${lote}</div></div>
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaFabHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fFab}</div></div>
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaVencHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fVenc}</div></div>
+          <div style="display:flex; align-items:center;"><span style="width:18mm;">LOTE EO:</span><div style="flex:1; border:1px solid #000; height:5mm;"></div></div>
+        </div>
+        <div style="font-size:5.5pt; text-align:center; line-height:1.1; margin-top:1mm;">
+          Fabricado y Distribuido por:<br><b>${emp.razonSocial}</b><br>${emp.direccion}<br>${emp.telefono} · ${emp.correos.join(' / ')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _tplEsterilAllmed(prod, empAll, empPro, lote, fFab, fVenc, contenido, barcodeHtml, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
+  const logo = cfg.logos.allmed || 'logo-allmed.png';
+  const contList = contenido.map(c => `<div>- ${c.cant} ${c.nombre}</div>`).join('');
+  return `
+    <div class="etq-wrapper" style="flex-direction:row; padding:4mm;">
+      ${!isCaja ? `
+      <div style="flex:1; display:flex; flex-direction:column;">
+        <div style="font-weight:bold; font-size:11pt; margin-bottom:1mm;">${prod.nombre}</div>
+        <div style="font-size:10pt; font-family:monospace; margin-bottom:2mm;">${prod.codigo_pt}</div>
+        <div style="border:2px solid #000; padding:2mm; flex:1;">
+          <div style="font-weight:bold; font-size:10pt; border-bottom:1px solid #000; padding-bottom:1mm; margin-bottom:2mm;">CONTENIDO</div>
+          <div style="font-size:8pt; line-height:1.3;">${contList}</div>
+        </div>
+      </div>
+      ` : `
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between; padding-right:4mm;">
+         <div style="font-size:14pt; font-weight:bold;">CAJA #${cajaNum}</div>
+         <div style="font-size:24pt; font-weight:bold; line-height:1;">CAJA X<br>${undsPorCaja} PAQUETES</div>
+         ${qrHtml}
+      </div>
+      `}
+      <div style="width:65mm; padding-left:4mm; display:flex; flex-direction:column; justify-content:space-between;">
+        <div style="text-align:center;"><img src="${logo}" style="max-height:20mm; max-width:100%;"></div>
+        <div style="text-align:center; margin:1mm 0;">
+          ${iconosEsterilHTML()}
+          <div style="font-size:7pt; border:1px solid #000; padding:1mm; margin-top:1mm;">INVIMA: ${prod.registro_invima || 'No requiere'}</div>
+        </div>
+        <div style="font-size:8pt; line-height:1.5;">
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:18mm;">LOTE:</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm; font-weight:bold;">${lote}</div></div>
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaFabHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fFab}</div></div>
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaVencHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fVenc}</div></div>
+          <div style="display:flex; align-items:center;"><span style="width:18mm;">LOTE EO:</span><div style="flex:1; border:1px solid #000; height:5mm;"></div></div>
+        </div>
+        <div style="margin:1mm 0;">${barcodeHtml}</div>
+        <div style="font-size:5.5pt; text-align:right; line-height:1.1;">
+          Fabricado por: <b>${empPro.razonSocial}</b><br>
+          Distribuido por: <b>${empAll.razonSocial}</b> · NIT: ${empAll.nit}<br>${empAll.direccion}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _tplNoEsterilProclidesGrande(prod, emp, lote, fVenc, barcodeHtml, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
+  const logo = cfg.logos.proclides || 'logo-proclides.png';
+  return `
+    <div class="etq-wrapper" style="padding:4mm; flex-direction:row;">
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
+        <div>
+          <div style="text-align:left; font-size:9pt; margin-bottom:2mm;">
+            <b>Fabricado por:</b><br>${emp.razonSocial}<br>${emp.direccion}
+          </div>
+          <table style="width:100%; font-size:9pt; border-collapse:collapse; margin-bottom:2mm;">
+            <tr><td style="width:30mm; padding:1mm 0;">Nombre del Producto:</td><td style="font-weight:bold;">${prod.nombre}</td></tr>
+            <tr><td style="padding:1mm 0;">Código PT:</td><td style="font-weight:bold;">${prod.codigo_pt}</td></tr>
+            <tr><td style="padding:1mm 0;">Marca:</td><td style="font-weight:bold;">PROCLIDES S.A.S</td></tr>
+            <tr><td style="padding:1mm 0;">Lote:</td><td style="font-weight:bold;">${lote}</td></tr>
+            <tr><td style="padding:1mm 0;">Fecha de Vencimiento:</td><td style="font-weight:bold;">${fVenc}</td></tr>
+          </table>
+        </div>
+        <div style="font-size:8pt; line-height:1.4;">
+          <b>Advertencias</b><br>- Almacenar a temperatura inferior a 30°<br>- No requiere registro INVIMA<br>- Producto desechable usar solo una vez
+        </div>
+        ${isCaja ? `<div style="font-size:14pt; font-weight:bold; margin-top:4mm;">CAJA #${cajaNum}</div>` : ''}
+      </div>
+      <div style="width:55mm; display:flex; flex-direction:column; justify-content:space-between; align-items:center; text-align:center; padding-top:5mm; padding-bottom:2mm; height:100%;">
+        <div style="display:flex; flex-direction:column; align-items:center;">
+          <img src="${logo}" style="max-width:100%; max-height:35mm; margin-bottom:5mm;">
+          ${isCaja ? `<div style="font-size:22pt; font-weight:bold; line-height:1; text-align:center;">CAJA X<br>${undsPorCaja} PAQUETES</div>` : `<div style="transform: scale(1.5); margin-top:10mm;">${iconoNoReusoHTML()}</div>`}
+        </div>
+        <div style="width:100%; display:flex; justify-content:flex-end; align-items:flex-end;">
+          ${isCaja ? qrHtml : `<div style="font-size:7pt; width:100%; text-align:center;">${emp.web}</div>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _tplNoEsterilAllmed(prod, empAll, lote, fVenc, barcodeHtml, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
+  const logo = cfg.logos.allmed || 'logo-allmed.png';
+  return `
+    <div class="etq-wrapper" style="padding:4mm; flex-direction:row;">
+      ${!isCaja ? `
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
+        <div style="text-align:center; margin-bottom:2mm;"><img src="${logo}" style="max-height:18mm;"></div>
+        <div style="font-weight:bold; font-size:12pt; text-transform:uppercase; text-align:center; margin-bottom:2mm;">${prod.nombre}</div>
+        <div style="display:flex; justify-content:space-between; font-size:9pt; margin-bottom:2mm;">
+          <span><b>PT:</b> ${prod.codigo_pt}</span>
+          <span><b>LOTE:</b> ${lote}</span>
+          <span><b>VENCE:</b> ${fVenc}</span>
+        </div>
+        <div style="flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
+          <div style="width:100%;">${barcodeHtml}</div>
+        </div>
+        <div style="font-size:8pt; text-align:center; margin-bottom:2mm;">PRESENTACIONES E IMPORTACIONES</div>
+        <div style="font-size:6.5pt; text-align:center; line-height:1.2;">
+          DISTRIBUIDO POR: <b>${empAll.razonSocial}</b> · NIT: ${empAll.nit} · ${empAll.direccion}<br>${empAll.telefono} · ${empAll.web}
+        </div>
+        <div style="border-top:2px solid #000; margin-top:2mm; padding-top:1mm; text-align:center; font-size:7pt; font-weight:bold;">
+          MADE IN COLOMBIA - NO REQUIERE REGISTRO INVIMA
+        </div>
+      </div>
+      <div style="width:40mm; padding-left:4mm; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <div style="transform:scale(1.2);">${iconoNoReusoHTML()}</div>
+      </div>
+      ` : `
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
+        <div>
+          <div style="text-align:center; margin-bottom:2mm;"><img src="${logo}" style="max-height:18mm;"></div>
+          <div style="font-weight:bold; font-size:14pt; text-transform:uppercase; text-align:center; margin-bottom:2mm;">${prod.nombre}</div>
+          
+          <div style="display:flex; justify-content:center; margin-bottom:2mm;">
+             <div style="transform:scale(1.2);">${iconoNoReusoHTML()}</div>
+          </div>
+          
+          <div style="display:flex; justify-content:space-between; font-size:10pt; margin-bottom:2mm;">
+            <span><b>PT:</b> ${prod.codigo_pt}</span>
+            <span><b>LOTE:</b> ${lote}</span>
+            <span><b>VENCE:</b> ${fVenc}</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:8pt; text-align:center; margin-bottom:1mm;">PRESENTACIONES E IMPORTACIONES</div>
+          <div style="font-size:7pt; text-align:center; line-height:1.2;">
+            DISTRIBUIDO POR: <b>${empAll.razonSocial}</b> · NIT: ${empAll.nit} · ${empAll.direccion}<br>${empAll.telefono} · ${empAll.web}
+          </div>
+          <div style="border-top:2px solid #000; margin-top:2mm; padding-top:1mm; text-align:center; font-size:7.5pt; font-weight:bold;">
+            MADE IN COLOMBIA - NO REQUIERE REGISTRO INVIMA
+          </div>
+          <div style="font-size:14pt; font-weight:bold; margin-top:4mm;">CAJA #${cajaNum}</div>
+        </div>
+      </div>
+      <div style="width:70mm; padding-left:4mm; display:flex; flex-direction:column; justify-content:flex-start; align-items:center; text-align:center; padding-top:10mm;">
+        <div style="font-size:32pt; font-weight:bold; line-height:1; text-align:center; width:100%;">CAJA X<br>${undsPorCaja} PAQUETES</div>
+        <div style="margin-top:8mm;">${qrHtml}</div>
+      </div>
+      `}
+    </div>
+  `;
+}
+
+function _tplNoEsterilProclidesMediana(prod, emp, lote, fVenc, barcodeHtml, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
+  const txtUnidades = isCaja ? `CAJA X ${undsPorCaja} PAQUETES` : `UNIDADES: ${undsPorCaja || 1}`;
+  return `
+    <div class="etq-wrapper" style="padding:2mm; text-align:center; display:flex; flex-direction:column; height:100%;">
+      <div style="font-size:7.5pt; font-weight:bold; line-height:1.1;">${emp.razonSocial}</div>
+      <div style="font-size:6pt; line-height:1.1; margin-bottom:1.5mm;">${emp.direccion}<br>${emp.telefono} · ${emp.correos.join(' / ')}</div>
+      
+      <div style="font-size:7.5pt; font-weight:bold; line-height:1.3; margin-bottom:1.5mm;">
+        REF: ${prod.nombre.toUpperCase()}<br>
+        ${prod.codigo_pt}<br>
+        LOTE: ${lote} | VENCE: ${fVenc}<br>
+        ${txtUnidades}
+      </div>
+      
+      <div style="font-size:5.5pt; line-height:1.2;">
+        Advertencia:<br>
+        - Almacenar a temperatura inferior a 30°<br>
+        - Producto desechable usar solo una vez<br>
+        - No requiere Registro Invima
+      </div>
+      ${!isCaja && barcodeHtml ? `<div style="margin-top:1mm; display:flex; justify-content:center;">${barcodeHtml}</div>` : ''}
+      
+      ${isCaja ? `
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:auto; width:100%; padding-top:1mm;">
+          <div style="font-size:8pt; font-weight:bold;">CAJA #${cajaNum}</div>
+          ${qrHtml}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+/* Genera un código de barras SVG a partir de un texto. */
+function barcodeSVG(texto, opts){
+  opts = opts || {};
+  const ancho = opts.ancho || 1.8;   // px por módulo
+  const alto = opts.alto || 50;      // alto en px
+  const mostrarTexto = opts.mostrarTexto !== false;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  try{
+    if(typeof JsBarcode === 'undefined') return '';
+    /* Creamos un SVG temporal en memoria */
+    const svg = document.createElementNS(svgNS, 'svg');
+    JsBarcode(svg, String(texto), {
+      format: 'CODE128',
+      width: ancho,
+      height: alto,
+      displayValue: mostrarTexto,
+      fontSize: 12,
+      margin: 4,
+      font: 'Helvetica'
+    });
+    return svg.outerHTML;
+  }catch(e){
+    console.warn('Error generando barcode:', e);
+    return '';
+  }
+}
+
+/* Icono SVG inline del símbolo "ESTERILE EO" + temperatura + no reuso.
+   Es una tira que va horizontal en las etiquetas esteriles. */
+function iconosEsterilHTML(){
+  return `<div class="etq-iconos" style="display:flex; gap:2mm; align-items:center; justify-content:center;">
+    <div style="display:flex; border:1.5px solid #000; font-family:Arial, sans-serif; font-weight:bold; font-size:8pt; line-height:1;">
+      <div style="padding:1mm 1.5mm; border-right:1.5px solid #000;">STERILE</div>
+      <div style="padding:1mm 1.5mm;">EO</div>
+    </div>
+    <svg viewBox="0 0 24 24" width="6mm" height="6mm">
+      <path d="M9 4v10a3 3 0 1 0 6 0V4a3 3 0 1 0-6 0z" fill="none" stroke="#000" stroke-width="1.5"/>
+      <path d="M12 10v4" stroke="#000" stroke-width="1.5"/>
+      <text x="12" y="22" font-family="Arial" font-size="6" text-anchor="middle">30°</text>
+    </svg>
+    <svg viewBox="0 0 24 24" width="6mm" height="6mm">
+      <path d="M12 3c-4 0-7 3-7 7h14c0-4-3-7-7-7z" fill="none" stroke="#000" stroke-width="1.5"/>
+      <path d="M12 10v8a2 2 0 0 1-2 2h-1" fill="none" stroke="#000" stroke-width="1.5"/>
+    </svg>
+    <svg viewBox="0 0 24 24" width="6mm" height="6mm">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="#000" stroke-width="1.5"/>
+      <text x="12" y="15" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">2</text>
+      <line x1="5" y1="5" x2="19" y2="19" stroke="#000" stroke-width="1.5"/>
+    </svg>
+  </div>`;
+}
+
+function iconoNoReusoHTML(){
+  return `<svg viewBox="0 0 24 24" width="8mm" height="8mm">
+    <circle cx="12" cy="12" r="9" fill="none" stroke="#000" stroke-width="1.5"/>
+    <text x="12" y="15" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">2</text>
+    <line x1="5" y1="5" x2="19" y2="19" stroke="#000" stroke-width="1.5"/>
+  </svg>`;
+}
+
+function iconoFechaFabHTML() {
+  return `<svg viewBox="0 0 24 24" width="6mm" height="6mm">
+    <rect x="3" y="6" width="18" height="15" rx="2" fill="none" stroke="#000" stroke-width="1.5"/>
+    <path d="M8 3v4M16 3v4M3 10h18" stroke="#000" stroke-width="1.5"/>
+    <text x="12" y="18" font-family="Arial" font-size="7" text-anchor="middle" font-weight="bold">FAB</text>
+  </svg>`;
+}
+
+function iconoFechaVencHTML() {
+  return `<svg viewBox="0 0 24 24" width="6mm" height="6mm">
+    <rect x="3" y="6" width="18" height="15" rx="2" fill="none" stroke="#000" stroke-width="1.5"/>
+    <path d="M8 3v4M16 3v4M3 10h18" stroke="#000" stroke-width="1.5"/>
+    <text x="12" y="18" font-family="Arial" font-size="7" text-anchor="middle" font-weight="bold">EXP</text>
+  </svg>`;
+}
+
+function formatoMesAnio(fecha){
+  if(!fecha) return '';
+  const d = (fecha instanceof Date) ? fecha : new Date(fecha);
+  if(isNaN(d.getTime())) return '';
+  return String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+}
+
+/* Vida útil: 3 años - 1 mes - 1 día = 35 meses - 1 día */
+function calcularVencimiento(fechaFab) {
+  if(!fechaFab) return null;
+  const d = new Date(fechaFab);
+  d.setMonth(d.getMonth() + 35);
+  d.setDate(d.getDate() - 1);
+  return d;
+}
+
+/* Vida útil: 3 años - 1 mes - 1 día = 35 meses - 1 día */
+function calcularVencimiento(fechaFab) {
+  if(!fechaFab) return null;
+  const d = new Date(fechaFab);
+  d.setMonth(d.getMonth() + 35);
+  d.setDate(d.getDate() - 1);
+  return d;
+}
+
+/* Devuelve true si el config tiene los logos cargados. */
+function etiquetasTienenLogos(cfg){
+  const e = (cfg && cfg.etiquetas) || {};
+  const l = e.logos || {};
+  return !!(l.proclides || l.allmed || l.allers);
+}
+
+/* Devuelve los datos de etiquetas desde la config (o defaults). */
+function getEtiquetasConfig(){
+  const cfg = getConfig();
+  const def = {
+    empresas: {
+      proclides: {
+        razonSocial: 'PROCLIDES SOLUCIONES ESTÉRILES S.A.S',
+        nit: '901.849.726-1',
+        direccion: 'Acopí Yumbo, Valle del Cauca - Colombia',
+        telefono: '+57 315 493 2658',
+        correos: ['gestion@proclides.co','logistica@proclides.co','dtproclides@gmail.com'],
+        web: 'www.proclides.co'
+      },
+      allers: {
+        razonSocial: 'ALLERS S.A.S',
+        nit: '890.312.452-4',
+        direccion: 'Carrera 67 N° 1B-35, Cali - Colombia',
+        telefono: '(602) 4890000',
+        correos: ['allers@allers.com.co'],
+        web: 'www.allers.com.co'
+      }
+    },
+    invimas: [
+      { id: 'paquetes', nombre: 'Paquetes', numero: '2026DM-0032255' },
+      { id: 'campos',   nombre: 'Campos',   numero: '2026DM-0032276' }
+    ],
+    medidas: {
+      pequena: { w: 50, h: 25 },
+      mediana: { w: 80, h: 44 },
+      grande:  { w: 150, h: 100 }
+    },
+    logos: {
+      proclides: '',
+      allmed: '',
+      allers: ''
+    }
+  };
+  return Object.assign({}, def, (cfg.etiquetas||{}));
 }
 
 /* ============ TIMELINE DE ACTIVIDAD (Dashboard) ============ */
@@ -3172,7 +3981,7 @@ function abrirModalDetallePaquete(prod,data,cfg){
   });
 }
 
-async function abrirModalInsumo(insumoId,insumos,cfg){
+async function abrirModalInsumo(insumoId,insumos,cfg,onSaveCallback){
   const insumo=insumoId?insumos.find(function(i){return i.id===insumoId;}):null;
   if(insumoId&&!insumo){toast('Insumo no encontrado.','error');return;}
 
@@ -3268,9 +4077,17 @@ async function abrirModalInsumo(insumoId,insumos,cfg){
             }
           });
           toast(insumo?'Insumo actualizado.':'Insumo creado.','success');
-          cerrarModalGenerico();
-          window._preservarScroll=true;
-          renderInsumos();
+          
+          if (onSaveCallback) {
+            const nuevos = await api('insumos?order=nombre');
+            const item = nuevos.find(x => x.codigo === body.codigo);
+            onSaveCallback(item);
+            cerrarModalGenerico();
+          } else {
+            cerrarModalGenerico();
+            window._preservarScroll=true;
+            renderInsumos();
+          }
         }catch(e){toast('Error: '+traducirError(e.message),'error');}
       });
     }
@@ -3516,7 +4333,7 @@ async function renderProductos(){
   document.querySelectorAll('[data-print-prod]').forEach(function(btn){
     btn.addEventListener('click',function(){
       const p=productos.find(function(x){return x.codigo_pt===btn.dataset.printProd;});
-      if(p) abrirModalEtiquetas('pt',p);
+      if(p) abrirModalEtiquetas('pt',p,data);
     });
   });
   document.querySelectorAll('[data-del-prod]').forEach(function(btn){
@@ -3595,7 +4412,7 @@ function sincronizarInsumoSub(){
 }
 function sincronizarSubHijo(){filasSubproductoHijo=filasSubproductoHijo.map(function(_,idx){return {subproducto_id:getComboValue('subhijo_sel_'+idx),cantidad:document.getElementById('subhijo_cant_'+idx)?document.getElementById('subhijo_cant_'+idx).value:''};});}
 
-async function abrirModalSubproducto(subproductoId,data,cfg){
+async function abrirModalSubproducto(subproductoId,data,cfg,onSaveCallback){
   const sub=subproductoId?data.subproductos.find(function(s){return s.id===subproductoId;}):null;
   if(subproductoId&&!sub){toast('Subproducto no encontrado.','error');return;}
 
@@ -3673,29 +4490,13 @@ async function abrirModalSubproducto(subproductoId,data,cfg){
       document.getElementById('btnAgregarFilaInsumoSub').addEventListener('click',function(){sincronizarInsumoSub();filasInsumoSub.push({insumo_id:'',cantidad:'',conversion:false,unidad_receta:'',factor_receta:1});renderFilasInsumoSub(insumoOpts);});
       document.getElementById('btnAgregarFilaSubHijo').addEventListener('click',function(){sincronizarSubHijo();filasSubproductoHijo.push({subproducto_id:'',cantidad:''});renderFilasSubproductoHijo(subOptsParaHijos);});
 
-      /* Crear insumo inline */
+      /* Crear insumo (llamando al modal completo) */
       document.getElementById('btnCrearInsumoInline').addEventListener('click',function(){
-        const cont=document.getElementById('inlineInsumoContainer');
-        if(cont.innerHTML.trim()){cont.innerHTML='';return;}
-        const cfgU=getConfig();
-        cont.innerHTML='<div class="mini-form"><h4>Nuevo insumo rápido</h4><div class="form-grid" style="padding:0;"><div><label>Nombre</label><input id="ii_nombre" placeholder="Nombre del insumo"></div><div><label>Unidad de medida</label><select id="ii_unidad">'+cfgU.unidades.map(function(u){return '<option value="'+u+'">'+u+'</option>';}).join('')+'</select></div><div><label>Costo unitario</label><input id="ii_costo" type="number" step="0.01" min="0" value="0"></div><div><label>Punto de reorden</label><input id="ii_reorden" type="number" step="0.0001" min="0.0001" value="1"></div></div><div class="form-actions" style="padding:10px 0 0;"><button class="small" id="ii_guardar" title="Crear insumo">Crear</button><button class="ghost small" id="ii_cancelar" title="Cancelar">Cancelar</button></div></div>';
-        document.getElementById('ii_cancelar').addEventListener('click',function(){cont.innerHTML='';});
-        document.getElementById('ii_guardar').addEventListener('click',async function(ev){
-          const nombre=document.getElementById('ii_nombre').value.trim();
-          const unidad=document.getElementById('ii_unidad').value;
-          const costo=parseFloat(document.getElementById('ii_costo').value)||0;
-          const pr=parseFloat(document.getElementById('ii_reorden').value);
-          if(!nombre){toast('Escribe el nombre del insumo.','error');return;}
-          if(!pr||pr<=0){toast('Punto de reorden > 0.','error');return;}
-          try{
-            await withLoading(ev.currentTarget,async function(){
-              let num2;try{num2=await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoInsumo,p_tabla:'insumos'});}catch(e){num2=siguienteCodigoLocal(cfg.prefijoInsumo,data.insumos);}
-              await api('insumos',{method:'POST',body:JSON.stringify({codigo:cfg.prefijoInsumo+num2,nombre:nombre,unidad_medida:unidad,existencia_actual:0,punto_reorden:pr,costo_unitario:costo,conversiones:[{unidad:unidad,factor:1}],tipo_conversion:'fijo'})});
-            });
-            toast('Insumo creado.','success');
-            cerrarModalGenerico();
-            renderProductos();
-          }catch(e){toast('Error: '+traducirError(e.message),'error');}
+        abrirModalInsumo(null, data.insumos, cfg, function(nuevoIns){
+          data.insumos.push(nuevoIns);
+          filasInsumoSub.push({insumo_id: nuevoIns.id, cantidad: '1', conversion: false, unidad_receta: '', factor_receta: 1});
+          const insumoOpts = data.insumos.map(i => ({id: i.id, nombre: i.nombre + ' (' + unidadConsumo(i) + ')'}));
+          renderFilasInsumoSub(insumoOpts);
         });
       });
 
@@ -3727,20 +4528,31 @@ async function abrirModalSubproducto(subproductoId,data,cfg){
             await rpc('guardar_subproducto',{p_id:sub?sub.id:null,p_codigo:cod,p_nombre:nombre,p_existencia:parseFloat(document.getElementById('sub_existencia').value)||0,p_punto_reorden:0,p_receta:receta,p_hijos:hijos,p_tipo:tipo});
           });
           toast(sub?'Subproducto actualizado.':'Subproducto creado.','success');
-          cerrarModalGenerico();
-          window._preservarScroll=true;
-          renderProductos();
+          
+          if (onSaveCallback) {
+            const nuevos = await api('subproductos?order=nombre');
+            const item = nuevos.find(x => x.codigo === cod);
+            onSaveCallback(item);
+            cerrarModalGenerico();
+          } else {
+            cerrarModalGenerico();
+            window._preservarScroll=true;
+            renderProductos();
+          }
         }catch(e){toast(e.message,'error');}
       });
     }
   });
 }
 
-async function abrirModalPaquete(codigoPT,data,cfg){
+async function abrirModalPaquete(codigoPT,data,cfg,draft){
   const prod=codigoPT?data.productos.find(function(p){return p.codigo_pt===codigoPT;}):null;
   if(codigoPT&&!prod){toast('Paquete no encontrado.','error');return;}
 
-  if(prod){
+  if(draft){
+    filasSubproducto = draft.filasSub;
+    filasInsumoBom = draft.filasIns;
+  } else if(prod){
     const cs=data.paqueteSubs.filter(function(p){return p.codigo_pt===prod.codigo_pt;});
     const bi=data.bom.filter(function(b){return b.codigo_pt===prod.codigo_pt;});
     filasSubproducto=cs.length?cs.map(function(r){return {subproducto_id:r.subproducto_id,cantidad:r.cantidad};}):[{subproducto_id:'',cantidad:''}];
@@ -3769,9 +4581,40 @@ async function abrirModalPaquete(codigoPT,data,cfg){
     body: `
       <div class="form-grid" style="padding:0;">
         <div><label>Código PT</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoProducto}</span><input id="prod_codigo_num" value="${numProdSug}" ${prod?'disabled':''} autocomplete="off"></div><div class="field-validate" id="prod_codigo_status"></div></div>
-        <div><label>Nombre del paquete</label><input id="prod_nombre" placeholder="Cirugía General Proclides" value="${prod?prod.nombre:''}"></div>
-        <div><label>Unidades por caja</label><input id="prod_por_caja" type="number" min="1" step="1" value="${prod?prod.unidades_por_caja:1}"></div>
-        <div><label>Precio de venta <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(por unidad, opcional)</span></label><input id="prod_precio" type="number" step="0.01" min="0" value="${prod&&prod.precio_venta!=null?prod.precio_venta:''}" placeholder="Ej: 12500"></div>
+        <div><label>Nombre del paquete</label><input id="prod_nombre" placeholder="Cirugía General Proclides" value="${draft?draft.nombre:(prod?prod.nombre:'')}"></div>
+        <div><label>Unidades por caja</label><input id="prod_por_caja" type="number" min="1" step="1" value="${draft?draft.pc:(prod?prod.unidades_por_caja:1)}"></div>
+        <div><label>Precio de venta <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(por unidad, opcional)</span></label><input id="prod_precio" type="number" step="0.01" min="0" value="${draft?draft.precio:(prod&&prod.precio_venta!=null?prod.precio_venta:'')}" placeholder="Ej: 12500"></div>
+      </div>
+      
+      <div class="divider-label">Configuración de etiquetas</div>
+      <div class="form-grid" style="padding:0;">
+        <div class="full-span">
+          <label>Código de barras del cliente <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional, si lo tiene)</span></label>
+          <input id="prod_codigo_barras" placeholder="Ej: 7707333721666" value="${draft?draft.codigo_barras:(prod&&prod.codigo_barras?prod.codigo_barras:'')}" style="font-family:'IBM Plex Mono',monospace;">
+        </div>
+        <div>
+          <label>Plantilla de etiqueta</label>
+          <select id="prod_plantilla">
+            <option value="esteril_proclides" ${(!draft&&!prod||(draft&&draft.plantilla==='esteril_proclides')||(prod&&prod.plantilla_etiqueta==='esteril_proclides'))?'selected':''}>Estéril Proclides (Grande)</option>
+            <option value="esteril_allmed" ${(draft&&draft.plantilla==='esteril_allmed')||(prod&&prod.plantilla_etiqueta==='esteril_allmed')?'selected':''}>Estéril Allmed (Grande)</option>
+            <option value="noesteril_allmed" ${(draft&&draft.plantilla==='noesteril_allmed')||(prod&&prod.plantilla_etiqueta==='noesteril_allmed')?'selected':''}>No Estéril Allmed (Grande)</option>
+            <option value="noesteril_proclides_grande" ${(draft&&draft.plantilla==='noesteril_proclides_grande')||(prod&&prod.plantilla_etiqueta==='noesteril_proclides_grande')?'selected':''}>No Estéril Proclides (Grande)</option>
+            <option value="noesteril_proclides_mediana" ${(draft&&draft.plantilla==='noesteril_proclides_mediana')||(prod&&prod.plantilla_etiqueta==='noesteril_proclides_mediana')?'selected':''}>No Estéril Proclides (Mediana)</option>
+          </select>
+        </div>
+        <div>
+          <label>Vida útil (meses)</label>
+          <input id="prod_vida_util" type="number" min="1" value="${draft?draft.vida_util:(prod&&prod.vida_util_meses!=null?prod.vida_util_meses:35)}">
+        </div>
+        <div class="full-span">
+          <label>Registro INVIMA</label>
+          <select id="prod_invima">
+            <option value="">— No requiere registro —</option>
+            ${(getEtiquetasConfig().invimas||[]).map(function(inv){
+              return '<option value="'+inv.numero+'" '+((draft&&draft.invima===inv.numero)||(prod&&prod.registro_invima===inv.numero)?'selected':'')+'>'+inv.nombre+' ('+inv.numero+')</option>';
+            }).join('')}
+          </select>
+        </div>
       </div>
       <div class="divider-label">Subproductos que componen el paquete</div>
       <div id="filasSubproductoContainer"></div>
@@ -3783,7 +4626,10 @@ async function abrirModalPaquete(codigoPT,data,cfg){
       <div class="divider-label">Receta de insumos directa del paquete (cantidad por unidad individual, no por caja)</div>
       <div style="font-size:11.5px;color:var(--text-muted);padding:0 0 8px;line-height:1.5;"><b>Ejemplo:</b> si un paquete se entrega en cajas ×1000 y cada unidad individual consume 1 bolsa, aquí va <b>1</b>, no 1000.</div>
       <div id="filasInsumoContainer"></div>
-      <div class="dyn-row-add"><button class="secondary small" id="btnAgregarFilaInsumo" title="Agregar insumo directo">+ Agregar insumo</button></div>`,
+      <div class="dyn-row-add">
+        <button class="secondary small" id="btnAgregarFilaInsumo" title="Agregar insumo directo">+ Agregar insumo</button>
+        <button class="ghost small" id="btnCrearInsumoInlinePT" title="Crear un insumo nuevo">+ Crear insumo nuevo</button>
+      </div>`,
     footer: '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="prod_cancelar">Cancelar</button><button id="prod_guardar">'+(prod?'Guardar cambios':'Crear paquete')+'</button></div>',
     onOpen: function(body){
       renderFilasSubproducto(subOptsPaq);
@@ -3802,25 +4648,23 @@ async function abrirModalPaquete(codigoPT,data,cfg){
       document.getElementById('btnAgregarFilaSub').addEventListener('click',function(){sincronizarSub();filasSubproducto.push({subproducto_id:'',cantidad:''});renderFilasSubproducto(subOptsPaq);});
       document.getElementById('btnAgregarFilaInsumo').addEventListener('click',function(){sincronizarInsBom();filasInsumoBom.push({insumo_id:'',cantidad:''});renderFilasInsumo(insumoOpts);});
 
-      /* Crear subproducto inline */
+      /* Crear insumo apilado */
+      document.getElementById('btnCrearInsumoInlinePT').addEventListener('click',function(){
+        abrirModalInsumo(null, data.insumos, cfg, function(nuevoIns) {
+          data.insumos.push(nuevoIns);
+          filasInsumoBom.push({ insumo_id: nuevoIns.id, cantidad: '1' });
+          const insumoOpts = data.insumos.map(i => ({id: i.id, nombre: i.nombre + ' (' + unidadConsumo(i) + ')'}));
+          renderFilasInsumo(insumoOpts);
+        });
+      });
+
+      /* Crear subproducto apilado */
       document.getElementById('btnCrearSubproductoInline').addEventListener('click',function(){
-        const cont=document.getElementById('inlineSubproductoContainer');
-        if(cont.innerHTML.trim()){cont.innerHTML='';return;}
-        cont.innerHTML='<div class="mini-form"><h4>Nuevo subproducto rápido</h4><div class="form-grid" style="padding:0;"><div><label>Nombre</label><input id="is_nombre" placeholder="Nombre del subproducto"></div><div><label>Tipo</label><select id="is_tipo"><option value="final">Final (solo paquetes)</option><option value="intermedio">Intermedio</option><option value="ambos">Ambos</option></select></div></div><div class="form-actions" style="padding:10px 0 0;"><button class="small" id="is_guardar" title="Crear subproducto">Crear</button><button class="ghost small" id="is_cancelar" title="Cancelar">Cancelar</button></div></div>';
-        document.getElementById('is_cancelar').addEventListener('click',function(){cont.innerHTML='';});
-        document.getElementById('is_guardar').addEventListener('click',async function(ev){
-          const nombre=document.getElementById('is_nombre').value.trim();
-          const tipo=document.getElementById('is_tipo').value;
-          if(!nombre){toast('Escribe el nombre.','error');return;}
-          try{
-            await withLoading(ev.currentTarget,async function(){
-              let cod;try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,data.subproductos);}
-              await rpc('guardar_subproducto',{p_id:null,p_codigo:cod,p_nombre:nombre,p_existencia:0,p_punto_reorden:0,p_receta:[],p_hijos:[],p_tipo:tipo});
-            });
-            toast('Subproducto creado.','success');
-            cerrarModalGenerico();
-            renderProductos();
-          }catch(e){toast('Error: '+traducirError(e.message),'error');}
+        abrirModalSubproducto(null, data, cfg, function(nuevoSub) {
+          data.subproductos.push(nuevoSub);
+          filasSubproducto.push({ subproducto_id: nuevoSub.id, cantidad: '1' });
+          const subOptsPaq = data.subproductos.filter(s => s.tipo !== 'intermedio').map(s => ({id: s.id, nombre: s.nombre + ' (' + s.codigo + ')'}));
+          renderFilasSubproducto(subOptsPaq);
         });
       });
 
@@ -3837,6 +4681,10 @@ async function abrirModalPaquete(codigoPT,data,cfg){
         if(precio!==null&&precio<0){toast('El precio de venta no puede ser negativo.','error');return;}
         const subs=filasSubproducto.filter(function(f){return f.subproducto_id&&f.cantidad;}).map(function(f){return {subproducto_id:f.subproducto_id,cantidad:parseFloat(f.cantidad)};});
         const ins=filasInsumoBom.filter(function(f){return f.insumo_id&&f.cantidad;}).map(function(f){return {insumo_id:f.insumo_id,cantidad:parseFloat(f.cantidad)};});
+        const plantilla=document.getElementById('prod_plantilla').value;
+        const vidaUtil=parseInt(document.getElementById('prod_vida_util').value,10)||36;
+        const invima=document.getElementById('prod_invima').value||null;
+
         try{
           await withLoading(ev.currentTarget,async function(){
             let cod=prod?prod.codigo_pt:null;
@@ -3851,7 +4699,19 @@ async function abrirModalPaquete(codigoPT,data,cfg){
                 try{cod=cfg.prefijoProducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){cod=cfg.prefijoProducto+siguienteCodigoLocal(cfg.prefijoProducto,data.productos);}
               }
             }
+            /* 1. Guardar la composición y datos base (RPC) */
             await rpc('guardar_paquete',{p_codigo_pt:cod,p_es_nuevo:!prod,p_nombre:nombre,p_subproductos:subs,p_insumos:ins,p_unidades_por_caja:pc,p_precio_venta:precio});
+            
+            /* 2. Actualizar los campos nuevos de etiquetas con un PATCH */
+            await api('productos_terminados?codigo_pt=eq.'+encodeURIComponent(cod), {
+              method:'PATCH',
+              body:JSON.stringify({
+                plantilla_etiqueta: plantilla,
+                vida_util_meses: vidaUtil,
+                registro_invima: invima,
+                codigo_barras: document.getElementById('prod_codigo_barras').value.trim() || null
+              })
+            });
           });
           toast(prod?'Paquete actualizado.':'Paquete creado.','success');
           cerrarModalGenerico();

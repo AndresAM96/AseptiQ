@@ -1,3 +1,40 @@
+## [1.8.0] — Octubre 2026
+
+### Añadido
+- **Nuevo motor de etiquetas PT**:
+  - 5 plantillas rediseñadas con HTML/CSS precisos (Proclides Estéril, Allmed Estéril, Allmed No Estéril, Proclides No Estéril Grande y Mediana).
+  - Íconos de STERILE|EO, FAB, VENC y No Reuso rediseñados en HTML/SVG nítido.
+  - Filtro automático de materiales de empaque (PGM, BOLSA, ETIQUETA, CAJA) en el listado de contenido.
+  - Generación de **Etiqueta de Caja** con QR único por caja y formato idéntico al del paquete pero indicando "CAJA X N PAQUETES".
+  - Lógica de fechas calculada: 3 años - 1 mes - 1 día (35 meses exactos).
+- **Código de barras del cliente**:
+  - Nuevo campo `codigo_barras` en el formulario de PT.
+  - Generación con JsBarcode si el cliente lo provee, si no, se omite (en paquetes).
+- **Modales Apilados**:
+  - El motor de modales ahora soporta múltiples capas. Se puede abrir el modal de "Crear subproducto" o "Crear insumo" desde el modal de PT sin cerrar ni perder los datos del PT.
+- **Trazabilidad de impresión**:
+  - Nueva tabla `etiquetas_impresas` para llevar un registro histórico.
+  - Modal de confirmación post-impresión: pregunta al usuario "¿Se imprimieron correctamente?" antes de registrar el conteo en la base de datos.
+- **Migración v35** (implícita en el flujo): columnas `codigo_barras`, `plantilla_etiqueta`, `vida_util_meses`, `registro_invima` en `productos_terminados`.
+
+### Cambiado
+- Búsqueda en combos (autocompletar): ahora busca de forma exacta tanto por nombre como por código del ítem.
+- Se eliminó el "Crear subproducto rápido" (formulario inline) en favor del modal completo.
+
+### Corregido
+- Problema donde la vida útil del producto calculaba mal la fecha de vencimiento.
+- Búsqueda difusa en recetas que arrojaba coincidencias parciales (ej. buscar 0102006 traía 0102007).
+- Redimensionamiento del QR en la etiqueta Mediana para que no se salga del margen físico.
+
+## [1.7.1] — Octubre 2026
+
+### Corregido
+- **Configuración en backend no persistía correctamente**: 
+  - `saveConfig` ahora usa UPSERT (`POST` + `Prefer: resolution=merge-duplicates`) en vez de PATCH.
+  - Antes el PATCH podía devolver 200 sin afectar filas (RLS, fila inexistente) y la config se perdía silenciosamente.
+- Migración `sys_config_upsert.sql`: agrega policy de INSERT y asegura que la fila inicial existe.
+- `cargarConfig` ahora loguea en consola lo que lee del backend (útil para diagnosticar).
+
 ## [1.7.0] — Octubre 2026
 
 ### Añadido
@@ -119,7 +156,7 @@
 - La trazabilidad por lote es **aproximada**: muestra los lotes disponibles para cada insumo, no el lote exacto consumido. La trazabilidad exacta requiere FIFO estricto con asignación de lote por consumo (roadmap futuro).
 - El wrapper de `registrar_entrada` con 7 args es **retrocompatible**: Postgres resuelve por aridad, así que las llamadas de 6 args siguen funcionando.
 
-## [1.4.0] — 10 Octubre 2026
+## [1.4.0] — Octubre 2026
 
 ### Añadido
 - Campana de notificaciones en el sidebar con badge inteligente:
@@ -156,7 +193,7 @@
 - `logo-proclides.png` agregado a la raíz del proyecto (usado por impresión).
 - Librería `qrcode-generator@1.4.4` vía CDN.
 
-## [1.3.0] — 09 Octubre 2026
+## [1.3.0] — Octubre 2026
 
 ### Añadido
 - Devoluciones de producto terminado (bueno / cuarentena / dañado).

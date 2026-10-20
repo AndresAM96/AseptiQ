@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.7
+**Versión:** 1.8
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -210,7 +210,8 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 
 **Acciones:**
 
-- **🏷 Etiquetas**: imprime etiquetas QR configurables (pequeña 48×25mm / mediana 63×38mm / grande 99×38mm). Elegís cantidad, tamaño y campos a incluir (código, nombre, unidad, línea para lote, línea para fecha).
+- **🏷 Etiquetas**: imprime etiquetas QR. Los insumos usan la etiqueta pequeña (50x25mm). Los paquetes (PT) usan plantillas de 150x100mm o 80x44mm.
+- **Impresión de cajas**: en el modal de impresión de un PT, se puede indicar cuántas cajas se van a imprimir. El sistema generará las etiquetas de caja con un QR único para trazabilidad y un contador que registra cuántas etiquetas se imprimieron en total.
 - **Detalles**: abre el modal con la ficha técnica del insumo, incluyendo la sección **"Lotes recibidos"** con la cantidad acumulada por lote y su proveedor.
 - **Eliminar**: solo si no está en uso.
 - **Click en el costo**: ajustar costo manual con trazabilidad en Auditoría.
@@ -238,6 +239,14 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 - Composición por subproductos + insumos directos.
 
 **Importante**: las cantidades son **por unidad individual**, no por caja. Si un paquete va en cajas de 1000 y cada unidad lleva 1 bolsa, en la receta va `1`.
+
+**Configuración de etiquetas:**
+Cada PT guarda la información necesaria para imprimir su etiqueta:
+- **Plantilla**: Proclides Estéril/No Estéril (Grande/Mediana) o Allmed (Estéril/No Estéril).
+- **Vida útil**: por defecto es de 35 meses (que equivale a 3 años - 1 mes - 1 día).
+- **Registro INVIMA**: cada producto elige cuál de los configurados en el sistema lleva.
+- **Código de barras del cliente**: si se llena, se imprimirá el código de barras. Si se deja vacío, se generará un QR interno en las cajas pero no en el paquete.
+- **Modales apilados**: al hacer click en "+ Crear subproducto" o "+ Crear insumo" dentro del PT, se abrirá el formulario completo encima del actual sin perder lo que llevabas escrito.
 
 **🏷 Etiquetas**: cada paquete tiene un botón 🏷 en su fila para imprimir etiquetas QR configurables (igual que en Insumos).
 

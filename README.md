@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v1.7.0** — Producción · Octubre 2026
+**v1.8.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -33,6 +33,9 @@ AseptiQ administra el flujo completo de manufactura:
 - **Impresión profesional**: OP con QR + firmas, kardex formato libro, conteo físico, y etiquetas QR configurables (pequeña/mediana/grande).
 - **Responsive total**: tablas se convierten en tarjetas en móvil.
 - **Trazabilidad de lotes end-to-end**: análisis bidireccional PT → insumos + lotes, e insumo → PTs afectados.
+- **Motor de impresión de etiquetas**: 5 plantillas configurables (Proclides/Allmed, Estéril/No Estéril, Grande/Mediana), código de barras del cliente, QR interno de caja y registro de impresiones.
+- **Modales apilados**: se pueden abrir modales dentro de otros modales sin perder los datos (ej. crear un subproducto mientras se edita un PT).
+- **Gestión de PT mejorada**: código de barras, plantilla, vida útil y registro INVIMA directo en el formulario.
 - **Lote del proveedor** en entradas de insumos (opcional) para trazabilidad INVIMA.
 
 ## Stack
