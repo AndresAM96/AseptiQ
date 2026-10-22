@@ -2314,6 +2314,18 @@ async function renderConfig(){
     <p class="page-sub">Parámetros globales del sistema. Los cambios se guardan en este navegador.</p>
 
     <div class="panel force-expanded no-scroll">
+      <div class="panel-header"><h3>Impresora Zebra (QZ Tray)</h3></div>
+      <div class="form-grid">
+        <div class="full-span">
+          <label>Nombre exacto de la impresora en Windows</label>
+          <input id="cfg_zebra_printer" placeholder="Ej: ZDesigner ZD220-203dpi ZPL" value="${localStorage.getItem('zebra_printer_name') || ''}">
+          <div class="field-hint">Debe ser el mismo nombre que aparece en Dispositivos e Impresoras.</div>
+        </div>
+      </div>
+      <div class="form-actions"><button id="btnGuardarImpresora" title="Guardar impresora">Guardar impresora</button></div>
+    </div>
+
+    <div class="panel force-expanded no-scroll">
       <div class="panel-header"><h3>Apariencia</h3></div>
       <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
         <div style="min-width:0;">
@@ -2363,6 +2375,14 @@ async function renderConfig(){
       </div>
     </div>
   `;
+
+  /* Guardar nombre de impresora */
+  document.getElementById('btnGuardarImpresora').addEventListener('click', function() {
+    const nombre = document.getElementById('cfg_zebra_printer').value.trim();
+    if (!nombre) { toast('Escribe el nombre de la impresora.', 'error'); return; }
+    localStorage.setItem('zebra_printer_name', nombre);
+    toast('Impresora guardada correctamente.', 'success');
+  });
 
   /* Slider de tema */
   const slider=document.getElementById('cfgThemeSlider');
@@ -3012,7 +3032,14 @@ function abrirModalEtiquetas(tipo,item,data){
           const lote = document.getElementById('etq_lote').value.trim() || 'SIN LOTE';
           const fechaFab = document.getElementById('etq_fecha_fab').value;
           
-          imprimirEtiquetasPT(item, data, plantilla, {cantidad, cantidadCajas, lote, fechaFab});
+          try {
+            imprimirEtiquetasPT(item, data, plantilla, {cantidad, cantidadCajas, lote, fechaFab});
+            toast('Ventana de impresión abierta.', 'success');
+          } catch(err) {
+            toast(err.message, 'error');
+            return; /* Detener si falla la impresión */
+          }
+          
           cerrarModalGenerico();
 
           /* Preguntar al usuario si la impresión se realizó correctamente */
@@ -3224,8 +3251,20 @@ function imprimirEtiquetasPT(prod, data, plantilla, opts){
   const h = plantilla === 'noesteril_proclides_mediana' ? 44 : 100;
   const css = `
     @page { size: ${w}mm ${h}mm; margin: 0; }
-    html, body { margin:0 !important; padding:0 !important; background:#fff; width: ${w}mm; height: ${h}mm; font-family:Arial,Helvetica,sans-serif; color:#000; -webkit-print-color-adjust:exact; }
-    .etq-wrapper { width:${w}mm; height:${h}mm; box-sizing:border-box; display:flex; flex-direction:column; page-break-after:always; overflow:hidden; border:0.5mm solid #000; position:relative; }
+    html, body { margin:0 !important; padding:0 !important; background:#fff; font-family:Arial,Helvetica,sans-serif; color:#000; -webkit-print-color-adjust:exact; }
+    .etq-wrapper { 
+      position: relative;
+      width:${w}mm; 
+      height:${h}mm; 
+      box-sizing:border-box; 
+      display:flex; 
+      flex-direction:column; 
+      page-break-after:always; 
+      page-break-inside:avoid;
+      overflow:hidden; 
+      border:0.5mm solid #000; 
+      margin: 0;
+    }
     .etq-wrapper:last-child { page-break-after:auto; }
     .barcode svg { width:100%; height:100%; }
   `;
