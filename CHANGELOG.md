@@ -1,3 +1,33 @@
+## [2.0.0] — Octubre 2026
+
+### Añadido
+- **Seguridad**: Temporizador de inactividad (30 min) y manejo automático de expiración de tokens (redirige al login).
+- **Soft Delete**: Posibilidad de desactivar y activar Insumos, Subproductos y Paquetes sin borrar su historial.
+- **UX Sidebar**: Configuración para elegir si el menú lateral se colapsa con botón o si se expande al pasar el mouse (Hover).
+- **Análisis Logístico**:
+  - Consolidado de Materias Primas (MRP) para compras.
+  - Programación Semanal (Kanban de producción y entregas).
+  - Evaluación de Proveedores (Tasa de devoluciones y volumen).
+- **Zonificación de Bodega (PT)**: Escaneo de QR vía cámara (móvil/tablet) o pistola láser (PC) para rastrear la ubicación física de las cajas en bodega.
+- **Botones compactos (Icon-only)**: Las tablas y tarjetas usan botones con íconos (con tooltips) para evitar el scroll horizontal en pantallas pequeñas.
+
+### Corregido
+- Modales de confirmación que mostraban el código SVG crudo en lugar del ícono.
+- Error de persistencia al guardar configuración en backend (ahora usa UPSERT).
+
+## [1.9.0] — Octubre 2026
+
+### Añadido
+- **Impresión directa por navegador (nativa)**: Se descartó QZ Tray/ZPL en favor de la impresión HTML/CSS con `@page`. Esto garantiza que los SVGs, logos y códigos de barras salgan con la máxima calidad y sin necesidad de drivers adicionales, siempre que la Zebra tenga configurado el tamaño de papel en Windows.
+
+### Corregido
+- Rotación y escalado incorrecto en la impresora Zebra al imprimir etiquetas.
+- Tamaño físico de la etiqueta mediana (80x44mm) forzado correctamente en el CSS de impresión.
+- Superposición de etiquetas de paquete y caja al imprimir en lote.
+
+### Limpieza
+- Eliminación de todo el código de QZ Tray (ZPL y conexiones websocket) que quedó obsoleto tras migrar a impresión nativa.
+
 ## [1.8.0] — Octubre 2026
 
 ### Añadido

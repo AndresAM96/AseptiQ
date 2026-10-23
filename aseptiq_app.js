@@ -8,6 +8,18 @@ function log(){ if(DEBUG) console.log.apply(console, arguments); }
 let SUPA_URL='', SUPA_KEY='';
 let SUPA_CLIENT=null, SUPA_SESSION=null;
 let SUPA_ROLE=null, SUPA_PROFILE=null;
+let _cerrandoPorExpiracion = false;
+
+async function manejarSesionExpirada() {
+  if (_cerrandoPorExpiracion) return;
+  _cerrandoPorExpiracion = true;
+  
+  try { if(SUPA_CLIENT) await SUPA_CLIENT.auth.signOut(); } catch(e) {}
+  /* No borramos 'aseptiq_creds' aquí, para que el checkbox de recordar contraseña siga activo */
+  
+  alert('Tu sesión ha expirado por seguridad. Por favor, inicia sesión nuevamente.');
+  location.reload();
+}
 
 function apiHeaders(extra){
   const token=SUPA_SESSION&&SUPA_SESSION.access_token?SUPA_SESSION.access_token:SUPA_KEY;
@@ -16,12 +28,24 @@ function apiHeaders(extra){
 async function api(path,options){
   const res=await fetch(SUPA_URL.replace(/\/$/,'')+'/rest/v1/'+path,Object.assign({headers:apiHeaders()},options||{}));
   const t=await res.text();let b=null;if(t){try{b=JSON.parse(t);}catch(e){}}
+  
+  if(res.status === 401){
+    manejarSesionExpirada();
+    throw new Error('Sesión expirada');
+  }
+  
   if(!res.ok)throw new Error((b&&b.message)?b.message:('Error '+res.status));
   return b;
 }
 async function rpc(fn,params){
   const res=await fetch(SUPA_URL.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers:apiHeaders(),body:JSON.stringify(params||{})});
   const t=await res.text();let b=null;if(t){try{b=JSON.parse(t);}catch(e){}}
+  
+  if(res.status === 401){
+    manejarSesionExpirada();
+    throw new Error('Sesión expirada');
+  }
+
   if(!res.ok){
     const raw=(b&&(b.message||b.hint||b.details))||('Error '+res.status);
     throw new Error(traducirError(raw));
@@ -80,6 +104,32 @@ function toast(msg,type){
   area.appendChild(e);
   setTimeout(function(){e.remove();},type==='error'?6500:4500);
 }
+async function toggleEstadoItem(tabla, id, estadoActual, nombre) {
+  const accion = estadoActual !== false ? 'desactivar' : 'activar';
+  const ok = await confirmar({
+    title: (estadoActual !== false ? 'Desactivar' : 'Activar') + ' "' + nombre + '"',
+    message: estadoActual !== false 
+      ? 'El ítem se ocultará de las listas. Sus datos e historial se conservarán.' 
+      : 'El ítem volverá a aparecer en las listas.',
+    icon: estadoActual !== false ? icono('eye-off','lg') : icono('check-circle','lg'),
+    variant: estadoActual !== false ? 'warn' : 'info',
+    okText: (estadoActual !== false ? 'Desactivar' : 'Activar')
+  });
+  if(!ok) return;
+
+  try {
+    await api(tabla + '?id=eq.' + id, {
+      method: 'PATCH',
+      body: JSON.stringify({ estado_activo: estadoActual === false })
+    });
+    toast('Estado actualizado correctamente.', 'success');
+    return true;
+  } catch(e) {
+    toast('Error al actualizar: ' + e.message, 'error');
+    return false;
+  }
+}
+
 async function confirmarEliminar(nombre){
   const r=await confirmar({
     title:'Eliminar "'+nombre+'"',
@@ -536,6 +586,12 @@ async function intentarSesionExistente(){
     SUPA_URL=s.url;
     SUPA_KEY=s.key;
     SUPA_CLIENT=supabase.createClient(s.url,s.key,{auth:{persistSession:true,autoRefreshToken:true}});
+    
+    SUPA_CLIENT.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' && !_cerrandoPorExpiracion) {
+        manejarSesionExpirada();
+      }
+    });
 
     const {data}=await SUPA_CLIENT.auth.getSession();
     const session=data && data.session;
@@ -775,7 +831,7 @@ function confirmar(opts){
     dialogResolve=resolve;
     const overlay=document.getElementById('dialogModal');
     document.getElementById('dialogIcon').className='modal-icon '+(opts.variant||'warn');
-    document.getElementById('dialogIcon').textContent=opts.icon||'?';
+    document.getElementById('dialogIcon').innerHTML=opts.icon||'?';
     document.getElementById('dialogTitle').textContent=opts.title||'Confirmación';
     document.getElementById('dialogMsg').textContent=opts.message||'';
     document.getElementById('dialogInputWrap').style.display='none';
@@ -791,7 +847,7 @@ function promptear(opts){
     dialogResolve=resolve;
     const overlay=document.getElementById('dialogModal');
     document.getElementById('dialogIcon').className='modal-icon '+(opts.variant||'info');
-    document.getElementById('dialogIcon').textContent=opts.icon||'✎';
+    document.getElementById('dialogIcon').innerHTML=opts.icon||'✎';
     document.getElementById('dialogTitle').textContent=opts.title||'Entrada';
     document.getElementById('dialogMsg').textContent=opts.message||'';
     document.getElementById('dialogInputWrap').style.display='block';
@@ -1007,6 +1063,7 @@ function imprimirHTML(contenidoHTML, tituloVentana, cssExtra){
    tabla no existe (compatibilidad con versiones viejas). */
 const CONFIG_DEFAULT={
   prefijoInsumo:'INS-',
+  sidebar_behavior: 'click',
   prefijoSubproducto:'SUB-',
   prefijoProducto:'PT-',
   prefijoOP:'OP-',
@@ -1457,6 +1514,12 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
 
   SUPA_URL=url;SUPA_KEY=key;
   SUPA_CLIENT=supabase.createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true}});
+  
+  SUPA_CLIENT.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' && !_cerrandoPorExpiracion) {
+      manejarSesionExpirada();
+    }
+  });
 
   try{
     /* Delay mínimo de 400ms para que el spinner no parpadee en logins instantáneos */
@@ -1499,6 +1562,7 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
     if(typeof activarNavItem==='function') activarNavItem('dashboard');
     dialogInit();
     renderTab('dashboard');
+    initInactivityTracker();
     setTimeout(actualizarIndicadorStock, 600);
     setTimeout(actualizarCampana, 800);
   }catch(e){
@@ -1666,10 +1730,28 @@ function aplicarSidebarColapsado(){
   /* En móvil el sidebar es drawer, no se colapsa */
   if(typeof esMobile==='function' && esMobile()){
     const sb=document.getElementById('sidebarPrincipal');
-    if(sb) sb.classList.remove('collapsed');
+    if(sb) {
+      sb.classList.remove('collapsed');
+      sb.classList.remove('sidebar-hover-mode');
+    }
     return;
   }
-  setSidebarColapsado(getSidebarColapsado());
+  
+  const cfg = getConfig();
+  const sb = document.getElementById('sidebarPrincipal');
+  const btn = document.getElementById('btnToggleSidebar');
+  
+  if (cfg.sidebar_behavior === 'hover') {
+    if(sb) {
+      sb.classList.add('sidebar-hover-mode');
+      sb.classList.add('collapsed'); /* Forzamos colapsado para que funcione el hover */
+    }
+    if(btn) btn.style.display = 'none';
+  } else {
+    if(sb) sb.classList.remove('sidebar-hover-mode');
+    if(btn) btn.style.display = '';
+    setSidebarColapsado(getSidebarColapsado());
+  }
 }
 (function(){
   const btn=document.getElementById('btnToggleSidebar');
@@ -2117,10 +2199,9 @@ document.querySelectorAll('.nav-item').forEach(function(btn){
 });
 
 document.getElementById('btnCerrarSesion').addEventListener('click',async function(){
+  _cerrandoPorExpiracion = true; // Evita que el listener de SIGNED_OUT muestre la alerta
   try{ if(SUPA_CLIENT) await SUPA_CLIENT.auth.signOut(); }catch(e){}
-  _configCache=null;
   try{ localStorage.removeItem('aseptiq_creds'); }catch(e){}
-  /* Limpieza de llaves de sesión de supabase-js por si quedaron remanentes */
   try{
     Object.keys(localStorage).forEach(function(k){
       if(k.indexOf('sb-')===0 && k.indexOf('-auth-token')>=0) localStorage.removeItem(k);
@@ -2130,6 +2211,30 @@ document.getElementById('btnCerrarSesion').addEventListener('click',async functi
 });
 
 /* ============ ARRANQUE AUTOMÁTICO ============ */
+/* ============ TEMPORIZADOR DE INACTIVIDAD ============ */
+let _inactivityTimer = null;
+let _inactivityTimeoutMs = 30 * 60 * 1000; // 30 minutos
+
+function resetInactivityTimer() {
+  if (_inactivityTimer) clearTimeout(_inactivityTimer);
+  
+  // Solo activar si hay una sesión iniciada
+  if (!SUPA_SESSION) return;
+  
+  _inactivityTimer = setTimeout(() => {
+    alert('Tu sesión se ha cerrado automáticamente por inactividad (30 minutos).');
+    manejarSesionExpirada();
+  }, _inactivityTimeoutMs);
+}
+
+function initInactivityTracker() {
+  const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+  events.forEach(evt => {
+    document.addEventListener(evt, resetInactivityTimer, { passive: true });
+  });
+  resetInactivityTimer();
+}
+
 (async function auto(){
   /* Prellenar URL y anon key */
   try{
@@ -2164,13 +2269,15 @@ document.getElementById('btnCerrarSesion').addEventListener('click',async functi
       const el=document.getElementById('supaPassword');
       if(el) el.focus();
     },80);
+  } else {
+    initInactivityTracker();
   }
 })();
 
 async function renderTab(tab){
   const main=document.getElementById('mainContent');
-  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
-  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
+  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',consolidado:'Cargando consolidado…',programacion:'Cargando programación…',evaluacion_prov:'Cargando evaluación…',bodega:'Cargando bodega…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
+  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,consolidado:renderConsolidado,programacion:renderProgramacion,evaluacion_prov:renderEvaluacionProv,bodega:renderBodega,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
   main.innerHTML='<div class="empty-state">Cargando…</div>';
   showLoader(nombres[tab]||'Cargando…');
   try{
@@ -2315,7 +2422,8 @@ async function renderConfig(){
 
     <div class="panel force-expanded no-scroll">
       <div class="panel-header"><h3>Apariencia</h3></div>
-      <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+      
+      <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border);">
         <div style="min-width:0;">
           <div style="font-size:13px;color:var(--text-primary);font-weight:500;">Tema de la aplicación</div>
           <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Oscuro o claro. Se guarda en este navegador.</div>
@@ -2325,6 +2433,17 @@ async function renderConfig(){
             <svg id="cfgThemeThumbIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"></svg>
           </div>
         </div>
+      </div>
+
+      <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+        <div style="min-width:0;">
+          <div style="font-size:13px;color:var(--text-primary);font-weight:500;">Comportamiento del menú</div>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Elegí si el menú lateral se abre con botón o al pasar el mouse.</div>
+        </div>
+        <select id="cfg_sidebar_mode" style="width:auto; min-width:180px; margin:0;">
+          <option value="click" ${cfg.sidebar_behavior === 'hover' ? '' : 'selected'}>Botón (Manual)</option>
+          <option value="hover" ${cfg.sidebar_behavior === 'hover' ? 'selected' : ''}>Hover (Automático)</option>
+        </select>
       </div>
     </div>
 
@@ -2363,6 +2482,15 @@ async function renderConfig(){
       </div>
     </div>
   `;
+
+  /* Cambiar comportamiento del sidebar */
+  document.getElementById('cfg_sidebar_mode').addEventListener('change', async function(e) {
+    const c = getConfig();
+    c.sidebar_behavior = e.target.value;
+    await saveConfig(c);
+    aplicarSidebarColapsado();
+    toast('Comportamiento del menú actualizado.', 'success');
+  });
 
   /* Slider de tema */
   const slider=document.getElementById('cfgThemeSlider');
@@ -3012,7 +3140,14 @@ function abrirModalEtiquetas(tipo,item,data){
           const lote = document.getElementById('etq_lote').value.trim() || 'SIN LOTE';
           const fechaFab = document.getElementById('etq_fecha_fab').value;
           
-          imprimirEtiquetasPT(item, data, plantilla, {cantidad, cantidadCajas, lote, fechaFab});
+          try {
+            imprimirEtiquetasPT(item, data, plantilla, {cantidad, cantidadCajas, lote, fechaFab});
+            toast('Ventana de impresión abierta.', 'success');
+          } catch(err) {
+            toast(err.message, 'error');
+            return; /* Detener si falla la impresión */
+          }
+          
           cerrarModalGenerico();
 
           /* Preguntar al usuario si la impresión se realizó correctamente */
@@ -3224,8 +3359,20 @@ function imprimirEtiquetasPT(prod, data, plantilla, opts){
   const h = plantilla === 'noesteril_proclides_mediana' ? 44 : 100;
   const css = `
     @page { size: ${w}mm ${h}mm; margin: 0; }
-    html, body { margin:0 !important; padding:0 !important; background:#fff; width: ${w}mm; height: ${h}mm; font-family:Arial,Helvetica,sans-serif; color:#000; -webkit-print-color-adjust:exact; }
-    .etq-wrapper { width:${w}mm; height:${h}mm; box-sizing:border-box; display:flex; flex-direction:column; page-break-after:always; overflow:hidden; border:0.5mm solid #000; position:relative; }
+    html, body { margin:0 !important; padding:0 !important; background:#fff; font-family:Arial,Helvetica,sans-serif; color:#000; -webkit-print-color-adjust:exact; }
+    .etq-wrapper { 
+      position: relative;
+      width:${w}mm; 
+      height:${h}mm; 
+      box-sizing:border-box; 
+      display:flex; 
+      flex-direction:column; 
+      page-break-after:always; 
+      page-break-inside:avoid;
+      overflow:hidden; 
+      border:0.5mm solid #000; 
+      margin: 0;
+    }
     .etq-wrapper:last-child { page-break-after:auto; }
     .barcode svg { width:100%; height:100%; }
   `;
@@ -3678,31 +3825,57 @@ async function renderInsumos(){
   const main=document.getElementById('mainContent');
   const insumos=await api('insumos?select=*&order=nombre');
   const cfg=getConfig();
+  
+  /* Filtro de inactivos */
+  window._mostrarInactivosIns = window._mostrarInactivosIns || false;
+  const insumosFiltrados = window._mostrarInactivosIns 
+    ? insumos 
+    : insumos.filter(i => i.estado_activo !== false);
+
   /* Filtro activo desde notificaciones */
   const filtroActivo=(_filtroModulo && _filtroModulo.tab==='insumos') ? _filtroModulo.filtro : null;
   const insumosView = filtroActivo
-    ? insumos.filter(function(i){return estadoInsumo(i)===filtroActivo;})
-    : insumos;
+    ? insumosFiltrados.filter(function(i){return estadoInsumo(i)===filtroActivo;})
+    : insumosFiltrados;
   const view=applySort(insumosView,'lista_insumos',{nombre:function(i){return i.nombre;},codigo:function(i){return i.codigo;},existencia:function(i){return i.existencia_actual;},costo:function(i){return i.costo_unitario||0;},valor:function(i){return(i.existencia_actual||0)*(i.costo_unitario||0);}});
   main.innerHTML=`
     <h2 class="page-title">Insumos</h2>
     <p class="page-sub">Cadena de conversiones: de unidad de compra a unidad de consumo.</p>
     <div class="panel">
       <div class="panel-header"><h3>Listado</h3><div class="panel-actions"><span class="badge info" style="font-size:11px;">${insumosView.length} ${insumosView.length===1?'insumo':'insumos'}</span><button class="secondary small" id="btnExportInsumos" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button>${botonRefreshHTML('insumos')}<button class="btn-add require-write" id="btnNuevoInsumo" title="Crear insumo">+</button></div></div>
-      <div class="search-box"><input id="buscar_insumos" placeholder="Buscar por nombre o código…"></div>
+      <div class="search-box">
+        <input id="buscar_insumos" placeholder="Buscar por nombre o código…">
+        <label class="check-row" style="margin:0; white-space:nowrap;">
+          <input type="checkbox" id="chk_inactivos_ins" ${window._mostrarInactivosIns?'checked':''}>
+          <span style="font-size:12px;">Mostrar inactivos</span>
+        </label>
+      </div>
       ${filtroActivo?`<div class="filter-chip-bar"><span class="filter-chip">${filtroActivo==='Urgente'?icono('alert-circle','sm')+' Urgentes':icono('alert-triangle','sm')+' En reorden'} (${insumosView.length}) <button data-clear-filtro title="Quitar filtro">×</button></span></div>`:''}
       ${insumosView.length===0?(filtroActivo?'<div class="empty-state">No hay insumos con este filtro.</div>':'<div class="empty-state">No hay insumos todavía.</div>'):`
       <table id="tablaInsumos"><tr>
         ${thSort('Código','codigo','lista_insumos')}
         ${thSort('Nombre','nombre','lista_insumos')}
-        <th>Cadena</th>
+        <th class="col-hide-md">Cadena</th>
         ${thSort('Existencia','existencia','lista_insumos',true)}
         <th class="num">Reorden</th>
         ${thSort('Costo','costo','lista_insumos',true)}
-        ${thSort('Valor','valor','lista_insumos',true)}
+        ${thSort('Valor','valor','lista_insumos',true).replace('<th', '<th class="col-hide-md"')}
         <th>Estado</th><th class="actions"></th>
       </tr>
-        ${view.map(function(i){return '<tr><td class="mono">'+i.codigo+'</td><td>'+i.nombre+'</td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num"><span class="costo-click" data-ajuste-costo="'+i.id+'" data-costo="'+(i.costo_unitario||0)+'" data-nombre="'+String(i.nombre).replace(/"/g,'&quot;')+'" title="Click para ajustar el costo">'+money(i.costo_unitario)+'</span></td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td><td class="actions"><button class="ghost small icon-only" data-print-insumo="'+i.id+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">'+icono('tag')+'</button><button class="ghost small" data-detalle-insumo="'+i.id+'" title="Ver detalles">Detalles</button><button class="danger-btn small" data-del-insumo="'+i.id+'" data-del-nombre="'+i.nombre+'" title="Eliminar insumo">Eliminar</button></td></tr>';}).join('')}
+        ${view.map(function(i){
+          const isInactivo = i.estado_activo === false;
+          const rowStyle = isInactivo ? 'opacity:0.5; background:var(--surface-2);' : '';
+          const btnAccion = isInactivo 
+            ? '<button class="success-btn small" data-toggle-insumo="'+i.id+'" data-estado="false" data-nombre="'+i.nombre+'">Activar</button>'
+            : '<button class="ghost small" data-toggle-insumo="'+i.id+'" data-estado="true" data-nombre="'+i.nombre+'">Desactivar</button>';
+            
+          return `<tr style="${rowStyle}"><td class="mono">${i.codigo}</td><td>${i.nombre}${isInactivo?' <span class="badge neutral">Inactivo</span>':''}</td><td class="col-hide-md" style="font-size:11px;">${cadenaTexto(i)}</td><td class="num">${formatearExistencia(i)}</td><td class="num">${num(i.punto_reorden)} ${unidadConsumo(i)}</td><td class="num"><span class="costo-click" data-ajuste-costo="${i.id}" data-costo="${i.costo_unitario||0}" data-nombre="${String(i.nombre).replace(/"/g,'&quot;')}" title="Click para ajustar el costo">${money(i.costo_unitario)}</span></td><td class="num col-hide-md">${money((i.existencia_actual||0)*(i.costo_unitario||0))}</td><td>${badgeFor(estadoInsumo(i))}</td><td class="actions">
+  <button class="ghost small icon-only" data-print-insumo="${i.id}" title="Imprimir etiquetas QR">${icono('tag')}</button>
+  <button class="ghost small icon-only" data-detalle-insumo="${i.id}" title="Ver detalles">${icono('eye')}</button>
+  <button class="${isInactivo?'success-btn':'ghost'} small icon-only" data-toggle-insumo="${i.id}" data-estado="${isInactivo?'false':'true'}" data-nombre="${i.nombre}" title="${isInactivo?'Activar':'Desactivar'}">${isInactivo?icono('check'):icono('eye-off')}</button>
+  <button class="danger-btn small icon-only" data-del-insumo="${i.id}" data-del-nombre="${i.nombre}" title="Eliminar insumo">${icono('trash')}</button>
+</td></tr>`;
+        }).join('')}
       </table>`}
     </div>`;
   filtrarTabla('buscar_insumos','tablaInsumos');
@@ -3735,6 +3908,20 @@ async function renderInsumos(){
     });
     window._preservarScroll=false;
   }
+  document.getElementById('chk_inactivos_ins').addEventListener('change', function(e) {
+    window._mostrarInactivosIns = e.target.checked;
+    renderInsumos();
+  });
+
+  document.querySelectorAll('[data-toggle-insumo]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const isActivo = btn.dataset.estado === 'true';
+      if (await toggleEstadoItem('insumos', btn.dataset.toggleInsumo, isActivo, btn.dataset.nombre)) {
+        renderInsumos();
+      }
+    });
+  });
+
   document.getElementById('btnExportInsumos').addEventListener('click',function(){
     const headers=['Código','Nombre','Cadena','Unidad consumo','Existencia','Stock objetivo','Costo unitario','Valor stock','Estado'];
     const filas=view.map(function(i){
@@ -4191,8 +4378,12 @@ async function renderProductos(){
   const data=await loadAllProductosData();
   const subproductos=data.subproductos,productos=data.productos,insumos=data.insumos;
 
-  const subsView=applySort(subproductos,'lista_subs',{nombre:function(s){return s.nombre;},codigo:function(s){return s.codigo;},tipo:function(s){return s.tipo||'';},existencia:function(s){return s.existencia_actual;},costo:function(s){return data.costos.subCosto[s.id]||0;}});
-  const prodsView=applySort(productos,'lista_prods',{nombre:function(p){return p.nombre;},codigo:function(p){return p.codigo_pt;},costo:function(p){return data.costos.paqCosto[p.codigo_pt]||0;}});
+  window._mostrarInactivosProd = window._mostrarInactivosProd || false;
+  const subsFiltrados = window._mostrarInactivosProd ? subproductos : subproductos.filter(s => s.estado_activo !== false);
+  const prodsFiltrados = window._mostrarInactivosProd ? productos : productos.filter(p => p.estado_activo !== false);
+
+  const subsView=applySort(subsFiltrados,'lista_subs',{nombre:function(s){return s.nombre;},codigo:function(s){return s.codigo;},tipo:function(s){return s.tipo||'';},existencia:function(s){return s.existencia_actual;},costo:function(s){return data.costos.subCosto[s.id]||0;}});
+  const prodsView=applySort(prodsFiltrados,'lista_prods',{nombre:function(p){return p.nombre;},codigo:function(p){return p.codigo_pt;},costo:function(p){return data.costos.paqCosto[p.codigo_pt]||0;}});
 
   main.innerHTML=`
     <h2 class="page-title">Productos &amp; BOM</h2>
@@ -4207,19 +4398,31 @@ async function renderProductos(){
     </div>
 
     <div class="panel force-collapsed">
-      <div class="panel-header"><h3>Subproductos existentes</h3><div class="panel-actions"><span class="badge info" style="font-size:11px;">${subproductos.length} ${subproductos.length===1?'subproducto':'subproductos'}</span><button class="secondary small" id="btnExportSubs" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button></div></div>
-      <div class="search-box"><input id="buscar_subproductos" placeholder="Buscar subproducto…"></div>
-      ${subproductos.length===0?'<div class="empty-state">No hay subproductos todavía.</div>':subsView.map(function(s){
+      <div class="panel-header"><h3>Subproductos existentes</h3><div class="panel-actions"><span class="badge info" style="font-size:11px;">${subsFiltrados.length} ${subsFiltrados.length===1?'subproducto':'subproductos'}</span><button class="secondary small" id="btnExportSubs" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button></div></div>
+      <div class="search-box">
+        <input id="buscar_subproductos" placeholder="Buscar subproducto…">
+        <label class="check-row" style="margin:0; white-space:nowrap;">
+          <input type="checkbox" id="chk_inactivos_prod" ${window._mostrarInactivosProd?'checked':''}>
+          <span style="font-size:12px;">Mostrar inactivos</span>
+        </label>
+      </div>
+      ${subsFiltrados.length===0?'<div class="empty-state">No hay subproductos activos.</div>':subsView.map(function(s){
         const costo=data.costos.subCosto[s.id]||0;
         const valor=(s.existencia_actual||0)*costo;
-        return '<div class="list-item" id="subRow_'+s.id+'"><div class="list-item-head"><div><strong>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></strong> '+badgeStockSub(s)+' '+badgeTipoSub(s.tipo||'ambos')+'</div><div class="item-actions"><button class="ghost small" data-detalle-sub="'+s.id+'" title="Ver detalles">Detalles</button><button class="danger-btn small" data-del-sub="'+s.id+'" data-del-nombre="'+s.nombre+'" title="Eliminar subproducto">Eliminar</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(s.existencia_actual)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Valor: '+money(valor)+'</span></div><div class="composicion-list"></div></div>';
+        const isInactivo = s.estado_activo === false;
+        const rowStyle = isInactivo ? 'opacity:0.5;' : '';
+        const btnAccion = isInactivo 
+            ? '<button class="success-btn small" data-toggle-sub="'+s.id+'" data-estado="false" data-nombre="'+s.nombre+'">Activar</button>'
+            : '<button class="ghost small" data-toggle-sub="'+s.id+'" data-estado="true" data-nombre="'+s.nombre+'">Desactivar</button>';
+            
+        return '<div class="list-item" style="'+rowStyle+'" id="subRow_'+s.id+'"><div class="list-item-head"><div><strong>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></strong> '+(isInactivo?'<span class="badge neutral">Inactivo</span>':'')+' '+badgeStockSub(s)+' '+badgeTipoSub(s.tipo||'ambos')+'</div><div class="item-actions"><button class="ghost small icon-only" data-detalle-sub="'+s.id+'" title="Ver detalles">'+icono('eye')+'</button><button class="'+(isInactivo?'success-btn':'ghost')+' small icon-only" data-toggle-sub="'+s.id+'" data-estado="'+(isInactivo?'false':'true')+'" data-nombre="'+s.nombre+'" title="'+(isInactivo?'Activar':'Desactivar')+'">'+(isInactivo?icono('check'):icono('eye-off'))+'</button><button class="danger-btn small icon-only" data-del-sub="'+s.id+'" data-del-nombre="'+s.nombre+'" title="Eliminar subproducto">'+icono('trash')+'</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(s.existencia_actual)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Valor: '+money(valor)+'</span></div><div class="composicion-list"></div></div>';
       }).join('')}
     </div>
 
     <div class="panel force-collapsed">
       <div class="panel-header"><h3>Paquetes existentes</h3><div class="panel-actions"><span class="badge info" style="font-size:11px;">${productos.length} ${productos.length===1?'paquete':'paquetes'}</span><button class="secondary small" id="btnExportPaq" title="Descargar CSV">${icono('download','sm')} Exportar CSV</button></div></div>
       <div class="search-box"><input id="buscar_paquetes" placeholder="Buscar paquete…"></div>
-      ${productos.length===0?'<div class="empty-state">No hay paquetes todavía.</div>':prodsView.map(function(p){
+      ${prodsFiltrados.length===0?'<div class="empty-state">No hay paquetes activos.</div>':prodsView.map(function(p){
         const costo=data.costos.paqCosto[p.codigo_pt]||0;
         const pc=p.unidades_por_caja||1;
         const ex=Number(p.existencia_actual)||0;
@@ -4228,7 +4431,18 @@ async function renderProductos(){
         const margenPct=margen!=null&&precio>0?(margen/precio*100):null;
         const precioTxt=precio!=null?'<span style="color:var(--info);font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;">Precio: '+money(precio)+'</span>':'<span style="color:var(--text-muted);font-size:12px;">Sin precio</span>';
         const margenTxt=margen!=null?'<span style="color:'+(margen>=0?'var(--success)':'var(--danger)')+';font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;">Margen: '+money(margen)+' ('+num(margenPct,1)+'%)</span>':'';
-        return '<div class="list-item" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+badgeStockPT(p)+'</div><div class="item-actions"><button class="ghost small icon-only" data-print-prod="'+p.codigo_pt+'" title="Imprimir etiquetas QR" style="padding:6px 8px;">'+icono('tag')+'</button><button class="ghost small" data-detalle-prod="'+p.codigo_pt+'" title="Ver detalles">Detalles</button><button class="danger-btn small" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">Eliminar</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
+        const isInactivo = p.estado_activo === false;
+        const rowStyle = isInactivo ? 'opacity:0.5;' : '';
+        const btnAccion = isInactivo 
+            ? '<button class="success-btn small" data-toggle-prod="'+p.codigo_pt+'" data-estado="false" data-nombre="'+p.nombre+'">Activar</button>'
+            : '<button class="ghost small" data-toggle-prod="'+p.codigo_pt+'" data-estado="true" data-nombre="'+p.nombre+'">Desactivar</button>';
+            
+        return '<div class="list-item" style="'+rowStyle+'" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+(isInactivo?'<span class="badge neutral">Inactivo</span>':'')+' '+badgeStockPT(p)+'</div><div class="item-actions">'+
+  '<button class="ghost small icon-only" data-print-prod="'+p.codigo_pt+'" title="Imprimir etiquetas QR">'+icono('tag')+'</button>'+
+  '<button class="ghost small icon-only" data-detalle-prod="'+p.codigo_pt+'" title="Ver detalles">'+icono('eye')+'</button>'+
+  '<button class="'+(isInactivo?'success-btn':'ghost')+' small icon-only" data-toggle-prod="'+p.codigo_pt+'" data-estado="'+(isInactivo?'false':'true')+'" data-nombre="'+p.nombre+'" title="'+(isInactivo?'Activar':'Desactivar')+'">'+(isInactivo?icono('check'):icono('eye-off'))+'</button>'+
+  '<button class="danger-btn small icon-only" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">'+icono('trash')+'</button>'+
+'</div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
       }).join('')}
     </div>`;
 
@@ -4245,6 +4459,29 @@ async function renderProductos(){
   });
 
   /* Exportaciones CSV */
+  document.getElementById('chk_inactivos_prod').addEventListener('change', function(e) {
+    window._mostrarInactivosProd = e.target.checked;
+    renderProductos();
+  });
+
+  document.querySelectorAll('[data-toggle-sub]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const isActivo = btn.dataset.estado === 'true';
+      if (await toggleEstadoItem('subproductos', btn.dataset.toggleSub, isActivo, btn.dataset.nombre)) {
+        renderProductos();
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-toggle-prod]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const isActivo = btn.dataset.estado === 'true';
+      if (await toggleEstadoItem('productos_terminados', btn.dataset.toggleProd, isActivo, btn.dataset.nombre)) {
+        renderProductos();
+      }
+    });
+  });
+
   document.getElementById('btnExportSubs').addEventListener('click',function(){
     const headers=['Código','Nombre','Tipo','Existencia','Costo unitario','Valor stock','Insumos (receta)','Subproductos hijos'];
     const filasCSV=subsView.map(function(s){
@@ -6782,6 +7019,707 @@ function _trazaSubproductoHTML(sub, cant, data, depth, lotesPorInsumo){
     +'</summary>'
     +'<div class="traza-children">'+inner+'</div>'
     +'</details>';
+}
+
+function imprimirProgramacionSemanal(desde, hasta, dias, fechas, ordenes, entregas){
+  let tabla = '<table class="print-table" style="width:100%; border-collapse:collapse; font-size:9pt;">';
+  tabla += '<thead><tr>';
+  dias.forEach((d, i) => {
+    tabla += `<th style="border:1px solid #000; padding:4px; text-align:center; background:#eee;">${d}<br><span style="font-weight:normal; font-size:7.5pt;">${fechas[i].toLocaleDateString('es-CO', {day:'2-digit', month:'short'})}</span></th>`;
+  });
+  tabla += '</tr></thead><tbody><tr>';
+
+  fechas.forEach((fecha, idx) => {
+    const fechaStr = fecha.toISOString().slice(0,10);
+    const opsDia = ordenes.filter(o => o.fecha_programada === fechaStr);
+    tabla += '<td style="border:1px solid #000; padding:4px; vertical-align:top; width:14.2%;">';
+    if(opsDia.length === 0) {
+      tabla += '<div style="text-align:center; color:#999; font-style:italic; margin-top:10px;">—</div>';
+    } else {
+      opsDia.forEach(o => {
+        tabla += `<div style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #ccc;">
+          <div style="font-weight:bold; font-family:monospace;">${o.numero_op || 'OP'}</div>
+          <div style="line-height:1.1; margin:2px 0;">${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</div>
+          <div style="font-size:8pt; color:#444;">${num(o.cantidad_proyectada)} u</div>
+        </div>`;
+      });
+    }
+    tabla += '</td>';
+  });
+  tabla += '</tr></tbody></table>';
+
+  let entregasHTML = '<div class="print-section-title" style="margin-top:20px;">Resumen de Entregas</div>';
+  entregasHTML += '<table class="print-table"><thead><tr><th>Fecha/Hora</th><th>OP</th><th>Producto</th><th class="num">Cantidad</th><th>Lote</th></tr></thead><tbody>';
+  if(entregas.length === 0) {
+    entregasHTML += '<tr><td colspan="5" style="text-align:center; color:#666;">No hay entregas registradas.</td></tr>';
+  } else {
+    entregas.forEach(e => {
+      entregasHTML += `<tr>
+        <td>${new Date(e.fecha).toLocaleString('es-CO')}</td>
+        <td>${e.ordenes_semanales ? e.ordenes_semanales.numero_op : '—'}</td>
+        <td>${e.ordenes_semanales && e.ordenes_semanales.productos_terminados ? e.ordenes_semanales.productos_terminados.nombre : '—'}</td>
+        <td class="num">+${num(e.cantidad)} u</td>
+        <td>${e.lote_entrega || '—'}</td>
+      </tr>`;
+    });
+  }
+  entregasHTML += '</tbody></table>';
+
+  const html = printHeaderHTML('Programación Semanal', `${desde} al ${hasta}`)
+    + tabla
+    + entregasHTML
+    + printFooterHTML();
+
+  imprimirHTML(html, 'Programacion Semanal');
+}
+
+let html5QrCode = null; // Variable global para el escáner
+
+async function renderBodega(){
+  const main=document.getElementById('mainContent');
+  
+  // Detener la cámara si estaba encendida de una visita anterior
+  if(html5QrCode && html5QrCode.isScanning) {
+    try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e){}
+  }
+
+  // Detectar si es un dispositivo táctil (tablet/móvil)
+  const isTouchDevice = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
+  main.innerHTML=`
+    <div class="page-header-flex">
+      <div>
+        <h2 class="page-title">Zonificación de Bodega</h2>
+        <p class="page-sub">Escaneá el QR de una caja para asignarle una ubicación física.</p>
+      </div>
+      ${botonRefreshHTML('bodega')}
+    </div>
+
+    <div class="grid-cards g2" style="align-items:start;">
+      <div class="panel force-expanded">
+        <div class="panel-header"><h3>Escanear Caja</h3></div>
+        <div style="padding:16px; text-align:center;">
+          
+          <!-- Vista para PC (Escáner USB) -->
+          <div id="scanPCContainer" style="display:${isTouchDevice ? 'none' : 'block'};">
+            <div style="font-size:48px; margin-bottom:12px; color:var(--text-muted);">⌨️</div>
+            <label style="font-size:13px; margin-bottom:8px; display:block;">Usa tu pistola láser o escribe el código</label>
+            <input id="scanInputPC" placeholder="Clic aquí y escanea el código..." style="text-align:center; font-size:18px; font-family:monospace; letter-spacing:1px; padding:12px;">
+            <div class="field-hint" style="margin-top:6px;">El campo se limpia automáticamente al leer.</div>
+          </div>
+
+          <!-- Vista para Tablet/Móvil (Cámara) -->
+          <div id="scanMobileContainer" style="display:${isTouchDevice ? 'block' : 'none'};">
+            <div id="reader" style="width:100%; max-width:400px; margin:0 auto; border-radius:12px; overflow:hidden; border:1px solid var(--border); display:none;"></div>
+            <button id="btnStartScan" class="full" style="max-width:300px; margin:0 auto; margin-bottom:8px;">Encender Cámara</button>
+            <button id="btnCancelScan" class="danger-btn full" style="max-width:300px; margin:0 auto; display:none;">Cancelar escaneo</button>
+          </div>
+
+          <!-- Panel de resultado (común para ambos) -->
+          <div id="scanResult" style="margin-top:20px; display:none;">
+            <div class="alert-banner success" style="margin-bottom:10px;"><div class="alert-icon">✓</div><div class="alert-body"><strong>Caja escaneada:</strong> <span id="scanCode" style="font-family:monospace; font-size:16px;"></span></div></div>
+            <div class="form-grid" style="padding:0; text-align:left;">
+              <div class="full-span"><label>Ubicación Física (Estante, Nivel, etc.)</label><input id="scanLocation" placeholder="Ej: Estante A - Nivel 2"></div>
+              <div class="full-span"><label>Estado de la caja</label><select id="scanStatus"><option value="En bodega">En bodega</option><option value="Despachada">Despachada</option><option value="Cuarentena">En cuarentena</option></select></div>
+            </div>
+            <button id="btnSaveLocation" class="success-btn full" style="margin-top:10px;">Guardar Ubicación</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Últimos Movimientos</h3></div>
+        <div class="search-box"><input id="buscar_bodega" placeholder="Buscar por código o ubicación…"></div>
+        <div id="bodegaListado"><div class="empty-state">Cargando movimientos…</div></div>
+      </div>
+    </div>`;
+
+  // Cargar el listado de cajas
+  async function cargarCajas() {
+    const box = document.getElementById('bodegaListado');
+    try {
+      const cajas = await api('cajas_ubicacion?select=*&order=actualizado_en.desc&limit=50');
+      if(!cajas.length) {
+        box.innerHTML = '<div class="empty-state">Aún no hay cajas ubicadas.</div>';
+        return;
+      }
+      box.innerHTML = '<table id="tablaBodega" style="font-size:12px;"><tr><th>Caja</th><th>Ubicación</th><th>Estado</th><th>Últ. Mov.</th></tr>' +
+        cajas.map(c => `<tr>
+          <td class="mono" style="font-size:11px;">${c.codigo_caja}</td>
+          <td style="font-weight:500;">${c.ubicacion}</td>
+          <td>${c.estado === 'En bodega' ? '<span class="badge success">En bodega</span>' : (c.estado === 'Despachada' ? '<span class="badge neutral">Despachada</span>' : '<span class="badge warning">Cuarentena</span>')}</td>
+          <td class="mono" style="font-size:10.5px; color:var(--text-muted);">${new Date(c.actualizado_en).toLocaleString('es-CO', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</td>
+        </tr>`).join('') + '</table>';
+      filtrarTabla('buscar_bodega', 'tablaBodega');
+    } catch(e) { box.innerHTML = '<div class="empty-state">Error al cargar.</div>'; }
+  }
+  cargarCajas();
+
+  const resultDiv = document.getElementById('scanResult');
+
+  // Función compartida para procesar el código (viene de la cámara o de la pistola)
+  function procesarCodigoEscaneado(codigo) {
+    if (!codigo) return;
+    document.getElementById('scanCode').textContent = codigo;
+    resultDiv.style.display = 'block';
+    document.getElementById('scanLocation').value = '';
+    document.getElementById('scanLocation').focus();
+    window._codigoCajaEscaneada = codigo;
+  }
+
+  // --- LÓGICA PARA PC (Pistola láser / Teclado) ---
+  if (!isTouchDevice) {
+    const inputPC = document.getElementById('scanInputPC');
+    // Mantener el foco en el input para que la pistola escriba directo
+    inputPC.focus();
+    
+    inputPC.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const codigo = this.value.trim();
+        if (codigo) {
+          procesarCodigoEscaneado(codigo);
+          this.value = ''; // Limpiar para el siguiente escaneo
+        }
+      }
+    });
+    // Si el usuario hace clic en otro lado, devolver el foco al input
+    document.getElementById('scanPCContainer').addEventListener('click', () => inputPC.focus());
+  }
+
+  // --- LÓGICA PARA TABLET/MÓVIL (Cámara) ---
+  if (isTouchDevice) {
+    const btnStart = document.getElementById('btnStartScan');
+    const btnCancel = document.getElementById('btnCancelScan');
+    const readerDiv = document.getElementById('reader');
+
+    btnStart.onclick = async function() {
+      btnStart.style.display = 'none';
+      btnCancel.style.display = 'block';
+      readerDiv.style.display = 'block';
+      
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("reader");
+      }
+
+      try {
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText, decodedResult) => {
+            // Al escanear con éxito
+            html5QrCode.stop().then(() => {
+              readerDiv.style.display = 'none';
+              btnStart.style.display = 'block';
+              btnStart.textContent = 'Escanear otra caja';
+              btnCancel.style.display = 'none';
+              procesarCodigoEscaneado(decodedText);
+            }).catch(err => console.error(err));
+          },
+          (errorMessage) => { /* Ignorar errores de frames */ }
+        );
+      } catch (err) {
+        toast("Error al encender la cámara: " + err, "error");
+        readerDiv.style.display = 'none';
+        btnStart.style.display = 'block';
+        btnCancel.style.display = 'none';
+      }
+    };
+
+    btnCancel.onclick = async function() {
+      if (html5QrCode && html5QrCode.isScanning) {
+        try {
+          await html5QrCode.stop();
+          html5QrCode.clear();
+        } catch(e) { console.error(e); }
+      }
+      readerDiv.style.display = 'none';
+      btnStart.style.display = 'block';
+      btnCancel.style.display = 'none';
+      toast('Escaneo cancelado', 'info');
+    };
+  }
+
+  // --- GUARDAR UBICACIÓN ---
+  document.getElementById('btnSaveLocation').onclick = async function() {
+    const codigo = window._codigoCajaEscaneada;
+    const ubicacion = document.getElementById('scanLocation').value.trim();
+    const estado = document.getElementById('scanStatus').value;
+    
+    if(!ubicacion) { toast('Escribí una ubicación física.', 'error'); return; }
+    
+    // Extraer el código PT del código de caja (ej: PT0101046-C001 -> PT0101046)
+    const codigoPT = codigo.split('-')[0];
+
+    try {
+      await withLoading(this, async function() {
+        // UPSERT en base al codigo_caja
+        await api('cajas_ubicacion?on_conflict=codigo_caja', {
+          method: 'POST',
+          headers: apiHeaders({'Prefer': 'resolution=merge-duplicates'}),
+          body: JSON.stringify({
+            codigo_caja: codigo,
+            codigo_pt: codigoPT,
+            ubicacion: ubicacion,
+            estado: estado,
+            usuario_email: SUPA_PROFILE ? SUPA_PROFILE.email : 'desconocido',
+            actualizado_en: new Date().toISOString()
+          })
+        });
+        toast('Ubicación guardada correctamente.', 'success');
+        resultDiv.style.display = 'none';
+        
+        // Devolver foco al input si es PC
+        if (!isTouchDevice) {
+            const inputPC = document.getElementById('scanInputPC');
+            if (inputPC) inputPC.focus();
+        }
+        
+        cargarCajas();
+      });
+    } catch(e) {
+      toast('Error al guardar: ' + e.message, 'error');
+    }
+  };
+}
+
+async function renderEvaluacionProv(){
+  const main=document.getElementById('mainContent');
+  main.innerHTML='<div class="empty-state">Cargando datos de proveedores…</div>';
+
+  try{
+    // Cargar todas las entradas (compras) y salidas con proveedor (devoluciones)
+    const [compras, devoluciones, proveedores] = await Promise.all([
+      api('movimientos_inventario?select=proveedor_id,cantidad,costo_unitario_momento&tipo=eq.Entrada&proveedor_id=not.is.null'),
+      api('movimientos_inventario?select=proveedor_id,cantidad,costo_unitario_momento&tipo=eq.Salida&proveedor_id=not.is.null'),
+      api('sys_proveedores?select=id,razon_social&order=razon_social')
+    ]);
+
+    // Agrupar por proveedor
+    const stats = {};
+    proveedores.forEach(p => {
+      stats[p.id] = { id: p.id, nombre: p.razon_social, total_comprado: 0, valor_comprado: 0, total_devuelto: 0, valor_devuelto: 0, pedidos: 0 };
+    });
+
+    compras.forEach(c => {
+      if(!stats[c.proveedor_id]) return;
+      const cant = Number(c.cantidad) || 0;
+      const costo = Number(c.costo_unitario_momento) || 0;
+      stats[c.proveedor_id].total_comprado += cant;
+      stats[c.proveedor_id].valor_comprado += (cant * costo);
+      stats[c.proveedor_id].pedidos++;
+    });
+
+    devoluciones.forEach(d => {
+      if(!stats[d.proveedor_id]) return;
+      const cant = Number(d.cantidad) || 0;
+      const costo = Number(d.costo_unitario_momento) || 0;
+      stats[d.proveedor_id].total_devuelto += cant;
+      stats[d.proveedor_id].valor_devuelto += (cant * costo);
+    });
+
+    // Calcular tasa de devolución y ordenar por valor comprado (los más críticos primero)
+    const arrStats = Object.values(stats).map(s => {
+      s.tasa_dev = s.valor_comprado > 0 ? (s.valor_devuelto / s.valor_comprado) * 100 : 0;
+      return s;
+    }).filter(s => s.pedidos > 0).sort((a,b) => b.valor_comprado - a.valor_comprado);
+
+    const totalCompradoGlobal = arrStats.reduce((acc, s) => acc + s.valor_comprado, 0);
+
+    main.innerHTML=`
+      <div class="page-header-flex">
+        <div>
+          <h2 class="page-title">Evaluación de Proveedores</h2>
+          <p class="page-sub">Análisis de volumen de compra y tasa de devoluciones por calidad.</p>
+        </div>
+        ${botonRefreshHTML('evaluacion_prov')}
+      </div>
+
+      <div class="grid-cards">
+        <div class="stat-card info"><p class="stat-label">Proveedores Activos</p><p class="stat-value">${arrStats.length}</p></div>
+        <div class="stat-card neutral"><p class="stat-label">Volumen Total Comprado</p><p class="stat-value" style="font-size:18px;">${money(totalCompradoGlobal)}</p></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Desempeño por Proveedor</h3></div>
+        <div class="search-box"><input id="buscar_prov_eval" placeholder="Buscar proveedor…"></div>
+        ${arrStats.length === 0 ? '<div class="empty-state">No hay compras registradas con proveedores.</div>' : `
+        <table id="tablaEvaluacion">
+          <thead><tr>
+            <th>Proveedor</th>
+            <th class="num">Compras ($)</th>
+            <th class="num">% del Total</th>
+            <th class="num">Pedidos</th>
+            <th class="num">Devoluciones ($)</th>
+            <th class="num">Tasa Devolución</th>
+            <th>Evaluación</th>
+          </tr></thead>
+          <tbody>
+            ${arrStats.map(s => {
+              const pctTotal = totalCompradoGlobal > 0 ? (s.valor_comprado / totalCompradoGlobal) * 100 : 0;
+              let evalBadge = '<span class="badge success">Excelente</span>';
+              let evalColor = 'var(--success)';
+              if(s.tasa_dev > 5) { evalBadge = '<span class="badge danger">Crítico</span>'; evalColor = 'var(--danger)'; }
+              else if(s.tasa_dev > 2) { evalBadge = '<span class="badge warning">Alerta</span>'; evalColor = 'var(--warning)'; }
+              
+              return `<tr>
+                <td>${s.nombre}</td>
+                <td class="num">${money(s.valor_comprado)}</td>
+                <td class="num">
+                  <div style="display:flex; align-items:center; justify-content:flex-end; gap:8px;">
+                    <span style="font-size:11.5px;">${num(pctTotal,1)}%</span>
+                    <div style="width:50px; background:var(--surface-3); border-radius:4px; height:6px; overflow:hidden;">
+                      <div style="width:${pctTotal}%; background:var(--info); height:100%;"></div>
+                    </div>
+                  </div>
+                </td>
+                <td class="num">${s.pedidos}</td>
+                <td class="num" style="color:${s.valor_devuelto > 0 ? 'var(--danger)' : 'var(--text-muted)'};">${s.valor_devuelto > 0 ? money(s.valor_devuelto) : '—'}</td>
+                <td class="num" style="color:${evalColor}; font-weight:600;">${num(s.tasa_dev, 2)}%</td>
+                <td>${evalBadge}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`}
+      </div>
+      
+      <div class="panel">
+        <div class="panel-header"><h3>Criterios de Evaluación</h3></div>
+        <div style="padding:16px 18px; font-size:13px; color:var(--text-secondary); line-height:1.6;">
+          <p style="margin-top:0;">La <b>Tasa de Devolución</b> mide el porcentaje del dinero comprado que tuvo que ser devuelto al proveedor (por mala calidad, vencimiento, etc.).</p>
+          <ul style="padding-left:20px; margin-bottom:0;">
+            <li><b>Excelente:</b> Menos del 2% de devoluciones. Proveedor confiable.</li>
+            <li><b>Alerta:</b> Entre 2% y 5% de devoluciones. Requiere seguimiento de calidad.</li>
+            <li><b>Crítico:</b> Más del 5% de devoluciones. Se recomienda evaluar cambio de proveedor o tomar acciones correctivas.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+
+    filtrarTabla('buscar_prov_eval', 'tablaEvaluacion');
+
+  }catch(e){
+    main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+  }
+}
+
+async function renderProgramacion(){
+  const main=document.getElementById('mainContent');
+  main.innerHTML='<div class="empty-state">Cargando programación…</div>';
+
+  try{
+    const hoy = new Date();
+    // Calcular lunes y domingo de esta semana
+    const diaSemana = hoy.getDay() || 7; 
+    const lunes = new Date(hoy);
+    lunes.setDate(hoy.getDate() - diaSemana + 1);
+    const domingo = new Date(lunes);
+    domingo.setDate(lunes.getDate() + 6);
+    
+    const defaultDesde = lunes.toISOString().slice(0,10);
+    const defaultHasta = domingo.toISOString().slice(0,10);
+
+    main.innerHTML=`
+      <div class="page-header-flex">
+        <div>
+          <h2 class="page-title">Programación Semanal</h2>
+          <p class="page-sub">Planificación de tareas por día y resumen de entregas.</p>
+        </div>
+        ${botonRefreshHTML('programacion')}
+      </div>
+
+      <div class="panel force-expanded no-scroll">
+        <div class="panel-header"><h3>Semana a programar</h3></div>
+        <div class="form-grid">
+          <div><label>Desde (Lunes)</label><input id="prog_desde" type="date" value="${defaultDesde}"></div>
+          <div><label>Hasta (Domingo)</label><input id="prog_hasta" type="date" value="${defaultHasta}"></div>
+        </div>
+        <div class="form-actions">
+          <button id="btnProgGenerar">Generar programación</button>
+          <button class="secondary" id="btnProgPrint" style="display:none;">${icono('printer','sm')} Imprimir PDF</button>
+        </div>
+      </div>
+
+      <div id="progResultado"><div class="empty-state">Elegí la semana y presioná "Generar programación".</div></div>`;
+
+    document.getElementById('btnProgGenerar').addEventListener('click', async function(ev){
+      const desdeStr = document.getElementById('prog_desde').value;
+      const hastaStr = document.getElementById('prog_hasta').value;
+      if(!desdeStr || !hastaStr) { toast('Selecciona ambas fechas.', 'error'); return; }
+
+      const box = document.getElementById('progResultado');
+      box.innerHTML = '<div class="empty-state">Calculando programación…</div>';
+
+      await withLoading(ev.currentTarget, async function(){
+        try {
+          // 1. Obtener OPs programadas
+          const ordenes = await api(`ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=gte.${desdeStr}&fecha_programada=lte.${hastaStr}&order=fecha_programada.asc`);
+          
+          // 2. Obtener entregas realizadas en esa semana (por fecha de entrega)
+          const entregas = await api(`entregas_op?select=*,ordenes_semanales(numero_op,productos_terminados(nombre))&fecha=gte.${desdeStr}T00:00:00&fecha=lte.${hastaStr}T23:59:59&order=fecha.asc`);
+
+          // 3. Agrupar por día (Lunes a Domingo)
+          const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+          const fechas = [];
+          const base = new Date(desdeStr + 'T12:00:00');
+          for(let i=0; i<7; i++){
+            const d = new Date(base);
+            d.setDate(base.getDate() + i);
+            fechas.push(d);
+          }
+
+          let gridHTML = '<div class="prog-grid">';
+          
+          fechas.forEach((fecha, idx) => {
+            const fechaStr = fecha.toISOString().slice(0,10);
+            const opsDia = ordenes.filter(o => o.fecha_programada === fechaStr);
+            
+            gridHTML += `<div class="prog-col">
+              <div class="prog-col-header">
+                <div class="prog-day-name">${dias[idx]}</div>
+                <div class="prog-day-date">${fecha.toLocaleDateString('es-CO', {day:'2-digit', month:'short'})}</div>
+              </div>
+              <div class="prog-col-body">
+                ${opsDia.length === 0 ? '<div class="prog-empty">Libre</div>' : ''}
+                ${opsDia.map(o => `
+                  <div class="prog-card">
+                    <div class="prog-op">${o.numero_op || 'OP'}</div>
+                    <div class="prog-prod">${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</div>
+                    <div class="prog-cant">${num(o.cantidad_proyectada)} u</div>
+                    ${badgeOP(o.estado_op)}
+                  </div>
+                `).join('')}
+              </div>
+            </div>`;
+          });
+          gridHTML += '</div>';
+
+          // 4. Entregas por día (Resumen)
+          let entregasHTML = '<div class="panel force-expanded no-scroll" style="margin-top:20px;">';
+          entregasHTML += '<div class="panel-header"><h3>Resumen de Entregas de la Semana</h3></div>';
+          entregasHTML += '<table><thead><tr><th>Fecha</th><th>OP</th><th>Producto</th><th class="num">Cantidad</th><th>Lote</th></tr></thead><tbody>';
+          
+          if(entregas.length === 0) {
+            entregasHTML += '<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--text-muted);">No hay entregas registradas en esta semana.</td></tr>';
+          } else {
+            entregas.forEach(e => {
+              const op = e.ordenes_semanales ? e.ordenes_semanales.numero_op : '—';
+              const prod = e.ordenes_semanales && e.ordenes_semanales.productos_terminados ? e.ordenes_semanales.productos_terminados.nombre : '—';
+              entregasHTML += `<tr>
+                <td class="mono">${new Date(e.fecha).toLocaleString('es-CO', {weekday:'short', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</td>
+                <td class="mono">${op}</td>
+                <td>${prod}</td>
+                <td class="num" style="color:var(--success); font-weight:bold;">+${num(e.cantidad)} u</td>
+                <td class="mono">${e.lote_entrega || '—'}</td>
+              </tr>`;
+            });
+          }
+          entregasHTML += '</tbody></table></div>';
+
+          box.innerHTML = gridHTML + entregasHTML;
+          document.getElementById('btnProgPrint').style.display = 'inline-block';
+
+          // 5. Bind de impresión
+          document.getElementById('btnProgPrint').onclick = function() {
+            imprimirProgramacionSemanal(desdeStr, hastaStr, dias, fechas, ordenes, entregas);
+          };
+
+        } catch(e) { box.innerHTML = '<div class="empty-state">Error: '+e.message+'</div>'; }
+      });
+    });
+
+  } catch(e) {
+    main.innerHTML = '<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+  }
+}
+
+async function renderConsolidado(){
+  const main=document.getElementById('mainContent');
+  main.innerHTML='<div class="empty-state">Cargando datos de consolidado…</div>';
+
+  try{
+    const data=await loadAllProductosData();
+    const hoy = new Date();
+    
+    // Calcular lunes y domingo de esta semana
+    const diaSemana = hoy.getDay() || 7; 
+    const lunes = new Date(hoy);
+    lunes.setDate(hoy.getDate() - diaSemana + 1);
+    const domingo = new Date(lunes);
+    domingo.setDate(lunes.getDate() + 6);
+    
+    const defaultDesde = lunes.toISOString().slice(0,10);
+    const defaultHasta = domingo.toISOString().slice(0,10);
+
+    main.innerHTML=`
+      <div class="page-header-flex">
+        <div>
+          <h2 class="page-title">Consolidado de Materias Primas</h2>
+          <p class="page-sub">Requerimiento total de insumos según las OPs programadas para una semana.</p>
+        </div>
+        ${botonRefreshHTML('consolidado')}
+      </div>
+
+      <div class="panel force-expanded no-scroll">
+        <div class="panel-header"><h3>Filtros</h3></div>
+        <div class="form-grid">
+          <div><label>Desde</label><input id="cons_desde" type="date" value="${defaultDesde}"></div>
+          <div><label>Hasta</label><input id="cons_hasta" type="date" value="${defaultHasta}"></div>
+        </div>
+        <div style="padding:0 18px 12px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="ghost small" data-cons-rango="semana_actual">Semana actual</button>
+          <button type="button" class="ghost small" data-cons-rango="semana_siguiente">Próxima semana</button>
+        </div>
+        <div class="form-actions">
+          <button id="btnConsGenerar">Generar consolidado</button>
+          <button class="secondary" id="btnConsExport" style="display:none;">${icono('download','sm')} Exportar CSV</button>
+          <button class="secondary" id="btnConsPrint" style="display:none;">${icono('printer','sm')} Imprimir PDF</button>
+        </div>
+      </div>
+
+      <div id="consResultado"><div class="empty-state">Elegí un rango y presioná "Generar consolidado".</div></div>`;
+
+    // Lógica de rangos rápidos
+    document.querySelectorAll('[data-cons-rango]').forEach(function(b){
+      b.addEventListener('click',function(){
+        const r=b.dataset.consRango;
+        const hoy = new Date();
+        const diaSemana = hoy.getDay() || 7; 
+        const lunes = new Date(hoy);
+        lunes.setDate(hoy.getDate() - diaSemana + 1);
+        
+        if(r==='semana_actual'){
+          const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6);
+          document.getElementById('cons_desde').value = lunes.toISOString().slice(0,10);
+          document.getElementById('cons_hasta').value = domingo.toISOString().slice(0,10);
+        } else if (r==='semana_siguiente'){
+          const lunesSig = new Date(lunes); lunesSig.setDate(lunes.getDate() + 7);
+          const domingoSig = new Date(lunesSig); domingoSig.setDate(lunesSig.getDate() + 6);
+          document.getElementById('cons_desde').value = lunesSig.toISOString().slice(0,10);
+          document.getElementById('cons_hasta').value = domingoSig.toISOString().slice(0,10);
+        }
+      });
+    });
+
+    document.getElementById('btnConsGenerar').addEventListener('click', async function(ev){
+      const desde = document.getElementById('cons_desde').value;
+      const hasta = document.getElementById('cons_hasta').value;
+      if(!desde || !hasta) { toast('Selecciona ambas fechas.', 'error'); return; }
+
+      const box = document.getElementById('consResultado');
+      box.innerHTML = '<div class="empty-state">Calculando requerimientos…</div>';
+
+      await withLoading(ev.currentTarget, async function(){
+        try {
+          // 1. Obtener OPs del rango
+          let q = 'ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)';
+          q += '&or=(fecha_programada.gte.'+desde+',fecha_creacion.gte.'+desde+'T00:00:00)';
+          q += '&or=(fecha_programada.lte.'+hasta+',fecha_creacion.lte.'+hasta+'T23:59:59)';
+          
+          const ordenes = await api(q);
+
+          if(!ordenes.length){
+            box.innerHTML = '<div class="empty-state">No hay órdenes en este rango.</div>';
+            document.getElementById('btnConsExport').style.display='none';
+            document.getElementById('btnConsPrint').style.display='none';
+            return;
+          }
+
+          // 2. Explotar BOMs
+          const requerimientos = {}; // { insumo_id: cantidad_total }
+          
+          function explotarSub(subId, cant, d) {
+            d.recetas.filter(r => r.subproducto_id === subId).forEach(r => {
+              requerimientos[r.insumo_id] = (requerimientos[r.insumo_id] || 0) + (r.cantidad_por_unidad * cant);
+            });
+            d.hijos.filter(h => h.subproducto_padre_id === subId).forEach(h => {
+              explotarSub(h.subproducto_hijo_id, h.cantidad_por_unidad * cant, d);
+            });
+          }
+
+          ordenes.forEach(o => {
+            const cantOP = Number(o.cantidad_proyectada) || 0;
+            // Insumos directos
+            data.bom.filter(b => b.codigo_pt === o.codigo_pt).forEach(b => {
+              requerimientos[b.insumo_id] = (requerimientos[b.insumo_id] || 0) + (b.cantidad_por_unidad * cantOP);
+            });
+            // Subproductos
+            data.paqueteSubs.filter(p => p.codigo_pt === o.codigo_pt).forEach(p => {
+              explotarSub(p.subproducto_id, p.cantidad * cantOP, data);
+            });
+          });
+
+          // 3. Armar tabla
+          const resultado = Object.keys(requerimientos).map(id => {
+            const ins = data.insumos.find(x => x.id === id);
+            if (!ins) return null;
+            const requerido = requerimientos[id];
+            const stock = Number(ins.existencia_actual) || 0;
+            const faltante = Math.max(0, requerido - stock);
+            return { ins, requerido, stock, faltante };
+          }).filter(Boolean).sort((a,b) => b.faltante - a.faltante || b.requerido - a.requerido);
+
+          // 4. Render
+          const totalFaltantes = resultado.filter(r => r.faltante > 0).length;
+          
+          box.innerHTML = `
+            <div class="grid-cards">
+              <div class="stat-card info"><p class="stat-label">OPs en el rango</p><p class="stat-value">${ordenes.length}</p></div>
+              <div class="stat-card neutral"><p class="stat-label">Insumos requeridos</p><p class="stat-value">${resultado.length}</p></div>
+              <div class="stat-card ${totalFaltantes>0?'danger':'success'}"><p class="stat-label">Insumos con faltante</p><p class="stat-value">${totalFaltantes}</p></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header"><h3>Requerimiento de Materias Primas (${desde} al ${hasta})</h3></div>
+              <table id="tablaConsolidado">
+                <thead><tr>
+                  <th>Código</th>
+                  <th>Insumo</th>
+                  <th class="num">Requerido</th>
+                  <th class="num">En Stock</th>
+                  <th class="num">A Comprar</th>
+                  <th>Estado</th>
+                </tr></thead>
+                <tbody>
+                  ${resultado.map(r => {
+                    const u = unidadConsumo(r.ins);
+                    return `<tr>
+                      <td class="mono" style="font-size:11.5px;">${r.ins.codigo}</td>
+                      <td>${r.ins.nombre}</td>
+                      <td class="num">${num(r.requerido,4)} ${u}</td>
+                      <td class="num">${num(r.stock,4)} ${u}</td>
+                      <td class="num" style="font-weight:bold; color:${r.faltante>0?'var(--danger)':'var(--success)'};">${r.faltante>0?num(r.faltante,4)+' '+u:'—'}</td>
+                      <td>${r.faltante>0?'<span class="badge danger">Comprar</span>':'<span class="badge success">Cubierto</span>'}</td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>`;
+
+          document.getElementById('btnConsExport').style.display='inline-block';
+          document.getElementById('btnConsPrint').style.display='inline-block';
+
+          document.getElementById('btnConsExport').onclick = function() {
+            const headers = ['Código', 'Insumo', 'Requerido', 'En Stock', 'A Comprar', 'Estado'];
+            const filasCSV = resultado.map(r => [
+              r.ins.codigo, r.ins.nombre, fmtCSV(r.requerido,4), fmtCSV(r.stock,4), fmtCSV(r.faltante,4), r.faltante>0?'Comprar':'Cubierto'
+            ]);
+            exportarCSV(`consolidado_${desde}_al_${hasta}`, headers, filasCSV);
+          };
+
+          document.getElementById('btnConsPrint').onclick = function() {
+            // Aquí iría la lógica de impresión usando imprimirHTML()
+            // Lo dejamos para el siguiente paso si lo necesitas.
+            toast('Usa el navegador para imprimir (Ctrl+P)', 'info');
+          };
+
+        } catch(e) { box.innerHTML = '<div class="empty-state">Error: '+e.message+'</div>'; }
+      });
+    });
+
+  } catch(e) {
+    main.innerHTML = '<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+  }
 }
 
 async function renderTrazabilidad(){

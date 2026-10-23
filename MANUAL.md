@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 1.8
+**Versión:** 2.0
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -212,6 +212,7 @@ El botón **Ver detalle** abre el mismo modal que en Cargar orden: KPIs de progr
 
 - **🏷 Etiquetas**: imprime etiquetas QR. Los insumos usan la etiqueta pequeña (50x25mm). Los paquetes (PT) usan plantillas de 150x100mm o 80x44mm.
 - **Impresión de cajas**: en el modal de impresión de un PT, se puede indicar cuántas cajas se van a imprimir. El sistema generará las etiquetas de caja con un QR único para trazabilidad y un contador que registra cuántas etiquetas se imprimieron en total.
+- **Impresión en Zebra**: el sistema genera un PDF/Previsualización. Para que la Zebra imprima al tamaño correcto (ej. 150x100mm), se debe configurar el tamaño del papel en el driver de Windows (Preferencias de Impresión) y asegurarse de elegir ese tamaño en el diálogo de impresión del navegador (con Márgenes en 'Ninguno').
 - **Detalles**: abre el modal con la ficha técnica del insumo, incluyendo la sección **"Lotes recibidos"** con la cantidad acumulada por lote y su proveedor.
 - **Eliminar**: solo si no está en uso.
 - **Click en el costo**: ajustar costo manual con trazabilidad en Auditoría.
@@ -426,6 +427,7 @@ No podés cambiar tu propio rol ni desactivar tu propia cuenta.
 - **Prefijos de códigos** — panel colapsado por defecto.
 - **Unidades de medida** — botón `+` abre un modal con la lista y opciones de agregar / renombrar / eliminar.
 - **Umbrales de stock** (urgente %, reorden %) — botón `+` abre un modal con los inputs.
+- **Comportamiento del menú**: elegir si el menú lateral se colapsa con botón o si se expande al pasar el mouse (Hover).
 
 **Importante:** toda la configuración (prefijos, unidades, umbrales y el estado de notificaciones) se guarda en el **backend** (`sys_config`). Si cambiás la config en un dispositivo, los demás la ven al refrescar.
 
@@ -435,6 +437,28 @@ No podés cambiar tu propio rol ni desactivar tu propia cuenta.
 - Selector de rango de movimientos (30d / 6m / 1a / todo / sin movimientos).
 - Historial de backups.
 - Los archivos se abren en Excel, Google Sheets o Power BI.
+
+### 6.20 Bodega PT (Zonificación)
+
+Permite saber en qué parte física del almacén está cada caja.
+- **En PC**: Se usa una pistola láser USB. El sistema mantiene el foco en un campo de texto; al disparar la pistola, el código se ingresa automáticamente.
+- **En Tablet/Móvil**: Se usa la cámara del dispositivo con el botón "Encender Cámara".
+- Al escanear el QR de la caja, se abre un panel para asignarle una ubicación (ej: "Estante A - Nivel 2") y su estado (En bodega, Despachada, etc.).
+
+### 6.21 Consolidado MP (Materias Primas)
+
+Calcula cuánta materia prima se necesita para cumplir con todas las OPs programadas en un rango de fechas.
+- Muestra el requerimiento total vs. el stock actual y resalta en rojo lo que hace falta comprar.
+- Es ideal para el área de compras.
+
+### 6.22 Programación Semanal
+
+Muestra un tablero (tipo Kanban) con los 7 días de la semana y las OPs asignadas a cada día, además de un resumen de las entregas realizadas. Cuenta con un botón para imprimir el formato oficial.
+
+### 6.23 Evaluación de Proveedores
+
+Analiza el historial de compras y devoluciones de cada proveedor.
+- **Tasa de Devolución**: Mide el porcentaje del valor comprado que tuvo que ser devuelto. Si supera el 5%, el proveedor se marca como "Crítico".
 
 ---
 
