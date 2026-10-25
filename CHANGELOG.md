@@ -1,3 +1,14 @@
+## [2.2.0] — Octubre 2026
+
+### Añadido
+- **Documentos en Entrada Mercancía**: Campos para `numero_factura`, `numero_oc`, `numero_entrada_almacen` y `cantidad_pendiente_oc`.
+- **Asignación de OP en Entrada Manual**: Al producir un subproducto manualmente, se puede indicar a qué OP pertenece para trazabilidad.
+
+### Cambiado (Breaking Change)
+- **Lógica de Descuento de Inventario**: Se modificó el RPC `confirmar_orden` para que NO descuente inventario al crear la OP.
+- **Consumo en Entregas**: Se modificó el RPC `registrar_entrega_op` para que descuente insumos y subproductos proporcionalmente al momento de la entrega real.
+- **Producción al Vuelo**: Si al entregar una OP falta subproducto, el sistema consume los insumos directos para autogenerar ese subproducto y cumple con la entrega sin bloqueos.
+
 ## [2.1.0] — Octubre 2026
 
 ### Añadido

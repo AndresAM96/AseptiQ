@@ -5914,28 +5914,62 @@ async function renderNovedades(){
 /* ============ ENTRADAS ============ */
 async function renderEntradas(){
   const main=document.getElementById('mainContent');
-  const [insumos,subproductos,proveedores,movimientos]=await Promise.all([
+  const [insumos,subproductos,proveedores,movimientos,opsActivas]=await Promise.all([
     api('insumos?select=id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,tipo_conversion,costo_unitario&estado_activo=eq.true&order=nombre'),
     api('subproductos?select=id,codigo,nombre,existencia_actual&order=nombre'),
     api('sys_proveedores?select=id,razon_social&order=razon_social'),
-    api('movimientos_inventario?select=*,insumos(nombre,unidad_medida,unidad_consumo),subproductos(nombre,codigo),sys_proveedores(razon_social)&tipo=eq.Entrada&order=fecha.desc&limit=30')
+    api('movimientos_inventario?select=*,insumos(nombre,unidad_medida,unidad_consumo),subproductos(nombre,codigo),sys_proveedores(razon_social)&tipo=eq.Entrada&order=fecha.desc&limit=30'),
+    api('ordenes_semanales?select=id,numero_op,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&order=numero_op.asc')
   ]);
   main.innerHTML=`
     <h2 class="page-title">Entrada de mercancía</h2>
     <p class="page-sub">Insumos: compra a proveedor. Subproductos: producción interna (descuenta los insumos de su receta).</p>
     <div class="panel require-write">
-      <div class="form-grid labels-bottom">
+      <div class="form-grid">
         <div><label>Tipo de entrada</label><select id="ent_tipo">
           <option value="insumo">Insumo (compra a proveedor)</option>
           <option value="subproducto">Subproducto (producción interna)</option>
         </select></div>
         <div><label>Item</label><select id="ent_item"></select></div>
         <div><label>Cantidad (<span id="ent_unidad_label">—</span>)</label><input id="ent_cantidad" type="number" step="0.0001" placeholder="1"></div>
+        
         <div id="ent_costo_wrap"><label>Costo por unidad de compra</label><input id="ent_costo" type="number" step="0.01" min="0" placeholder="Opcional"></div>
         <div id="ent_prov_wrap"><label>Proveedor</label><select id="ent_proveedor"><option value="">— Sin especificar —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
-        <div id="ent_lote_wrap"><label id="ent_lote_label">Lote</label><input id="ent_lote" placeholder="Ej: L-2026-014"><div class="field-hint" id="ent_lote_hint" style="display:none;"><button type="button" class="subtle-toggle" id="btnToggleMultiLote">Recibir varios lotes (uno por línea)</button></div></div>
-        <div id="ent_multi_lote_wrap" class="full-span" style="display:none;"><label>Lotes recibidos (uno por línea)</label><textarea id="ent_lotes_multi" rows="6" placeholder="LOTE-001&#10;LOTE-002&#10;LOTE-003" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;"></textarea><div class="field-hint">La cantidad total se distribuirá por igual entre los N lotes. <button type="button" class="subtle-toggle" id="btnVolverLoteUnico">Volver a un solo lote</button></div></div>
+        
+        <div id="ent_lote_wrap">
+          <label id="ent_lote_label">Lote</label>
+          <input id="ent_lote" placeholder="Ej: L-2026-014">
+          <div class="field-hint" id="ent_lote_hint" style="display:none; margin-top:6px;">
+            <button type="button" class="subtle-toggle" id="btnToggleMultiLote" style="font-size:11.5px; color:var(--accent);">+ Recibir varios lotes</button>
+          </div>
+        </div>
+        
         <div id="ent_motivo_wrap" style="display:none;"><label>Motivo</label><input id="ent_motivo" placeholder="Ej: producción interna, ajuste"></div>
+
+        <!-- Documentos e Información de OC (solo para insumos) -->
+        <div id="ent_docs_wrap" class="full-span" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; background:var(--surface-2); padding:14px; border-radius:8px; border:1px solid var(--border); margin-top:8px;">
+          <div><label>N° Factura</label><input id="ent_factura" placeholder="Ej: FV-8520"></div>
+          <div><label>N° Orden de Compra (OC)</label><input id="ent_oc" placeholder="Ej: OC-2026-014"></div>
+          <div><label>N° Entrada Almacén</label><input id="ent_entrada_almacen" placeholder="Ej: EA-1024" title="Puede ser el número de remisión o entrada interna"></div>
+          <div><label>Saldo Pendiente de OC</label><input id="ent_pendiente_oc" type="number" step="0.0001" placeholder="Cant. que falta por entregar"></div>
+        </div>
+        
+        <div id="ent_motivo_wrap" style="display:none;"><label>Motivo</label><input id="ent_motivo" placeholder="Ej: producción interna, ajuste"></div>
+        <div id="ent_op_wrap" style="display:none;"><label>Pertenece a la OP</label><select id="ent_op_id"><option value="">— Sin OP asignada —</option>${opsActivas.map(o => `<option value="${o.id}">${o.numero_op || 'S/N'} - ${o.productos_terminados ? o.productos_terminados.nombre : ''}</option>`).join('')}</select></div>
+
+        <!-- Bloque multi-lote separado para que no rompa el grid principal -->
+        <div id="ent_multi_lote_wrap" class="full-span" style="display:none; background:var(--surface-2); padding:14px; border-radius:8px; border:1px solid var(--border); margin-top:8px;">
+          <label style="margin-bottom:10px; display:block;">Desglose de Lotes y Cantidades</label>
+          <div id="ent_lotes_rows_container" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+          
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="secondary small" id="btnAddLoteRow">+ Agregar otro lote</button>
+            <div style="font-weight:600; font-size:14px; color:var(--accent);">Total a ingresar: <span id="ent_total_multi">0</span></div>
+          </div>
+          <div class="field-hint" style="margin-top:10px; text-align:right;">
+            <button type="button" class="subtle-toggle" id="btnVolverLoteUnico" style="color:var(--danger);">Cancelar y volver a un solo lote</button>
+          </div>
+        </div>
       </div>
       <div class="form-grid" id="ent_rend_box" style="padding-top:0;display:none;"><div class="full-span"><label>Rendimiento real del lote (unidades de consumo por unidad de compra)</label><input id="ent_rendimiento" type="number" step="0.0001" placeholder="Ej: unidades por kg"></div></div>
       <div class="form-grid" id="ent_prov_link_wrap" style="padding-top:0;"><div class="full-span"><button type="button" class="subtle-toggle" id="btnAbrirNuevoProveedor" title="Crear proveedor">+ El proveedor no está en la lista, crear uno nuevo</button></div></div>
@@ -5945,14 +5979,15 @@ async function renderEntradas(){
     <div class="panel">
       <div class="panel-header"><h3>Movimientos de entrada recientes</h3></div>
       ${movimientos.length===0?'<div class="empty-state">Sin movimientos.</div>':`
-      <table><tr><th>Tipo</th><th>Item</th><th class="num">Cantidad</th><th>Proveedor / Motivo</th><th>Fecha</th></tr>
+      <table><tr><th>Tipo</th><th>Item</th><th class="num">Cantidad</th><th>Proveedor / Motivo</th><th>OC / Factura</th><th>Fecha</th></tr>
         ${movimientos.map(function(m){
           const esSub=!!m.subproducto_id;
           const tipoBadge=esSub?'<span class="badge warning">Subproducto</span>':'<span class="badge info">Insumo</span>';
           const item=esSub?(m.subproductos?m.subproductos.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+m.subproductos.codigo+'</span>':'(subproducto)'):(m.insumos?m.insumos.nombre:'(insumo)');
           const cant=esSub?('+'+num(m.cantidad)+' u'):('+'+num(m.cantidad)+' '+(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):''));
           const ref=esSub?(m.motivo||'—'):(m.sys_proveedores?m.sys_proveedores.razon_social:(m.motivo||'—'));
-          return '<tr><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
+          const docs = esSub ? '—' : `<span style="font-size:11px;">${m.numero_oc ? 'OC: '+m.numero_oc : ''} ${m.numero_factura ? ' / Fact: '+m.numero_factura : ''}</span>`;
+          return '<tr><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td>'+docs+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
         }).join('')}
       </table>`}
     </div>`;
@@ -5972,9 +6007,43 @@ async function renderEntradas(){
   const loteWrap=document.getElementById('ent_lote_wrap');
   const loteHint=document.getElementById('ent_lote_hint');
   const multiWrap=document.getElementById('ent_multi_lote_wrap');
-  const textareaMulti=document.getElementById('ent_lotes_multi');
+  const rowsContainer = document.getElementById('ent_lotes_rows_container');
   const preview=document.getElementById('ent_preview');
   let modoMultiLote=false;
+
+  /* Función para agregar una fila de lote */
+  function addLoteRow() {
+    const row = document.createElement('div');
+    row.className = 'dyn-row conv-recipe';
+    row.style.gridTemplateColumns = '1fr 100px auto';
+    row.style.padding = '0';
+    row.innerHTML = `
+      <input type="text" class="multi-lote-name" placeholder="Número de lote" style="margin:0; font-family:'IBM Plex Mono',monospace;">
+      <input type="number" class="multi-lote-cant" placeholder="Cant." step="0.0001" min="0.0001" style="margin:0;">
+      <button type="button" class="ghost small" title="Quitar" style="margin:0;">×</button>
+    `;
+    // Bind para actualizar el total
+    row.querySelector('.multi-lote-cant').addEventListener('input', actualizarTotalMulti);
+    // Bind para eliminar la fila
+    row.querySelector('button').addEventListener('click', function(){
+      row.remove();
+      actualizarTotalMulti();
+    });
+    rowsContainer.appendChild(row);
+    row.querySelector('.multi-lote-name').focus();
+  }
+
+  /* Función para calcular el total */
+  function actualizarTotalMulti() {
+    let total = 0;
+    rowsContainer.querySelectorAll('.multi-lote-cant').forEach(inp => {
+      total += parseFloat(inp.value) || 0;
+    });
+    document.getElementById('ent_total_multi').textContent = num(total);
+    
+    // Reflejar el total en el campo de cantidad principal para que sea visible
+    inputCant.value = total > 0 ? total : '';
+  }
 
   function popularItems(){
     if(selTipo.value==='insumo'){
@@ -5992,31 +6061,49 @@ async function renderEntradas(){
     provWrap.style.display=esInsumo?'block':'none';
     provLinkWrap.style.display=esInsumo?'grid':'none';
     motivoWrap.style.display=esInsumo?'none':'block';
+    
+    /* Mostrar/Ocultar el selector de OP según el tipo */
+    const opWrap = document.getElementById('ent_op_wrap');
+    if(opWrap) opWrap.style.display = esInsumo ? 'none' : 'block';
+    
+    const docsWrap = document.getElementById('ent_docs_wrap');
+    if(docsWrap) docsWrap.style.display = esInsumo ? 'grid' : 'none';
     /* Modo multi-lote solo aplica a insumos */
     if(!esInsumo) modoMultiLote=false;
 
-    if(modoMultiLote && esInsumo){
+        if(modoMultiLote && esInsumo){
       loteWrap.style.display='none';
       multiWrap.style.display='block';
+      inputCant.readOnly = true; // No se oculta, solo se bloquea
+      inputCant.style.opacity = '0.6';
+      inputCant.style.cursor = 'not-allowed';
     } else {
       loteWrap.style.display='block';
       multiWrap.style.display='none';
+      inputCant.readOnly = false;
+      inputCant.style.opacity = '1';
+      inputCant.style.cursor = 'text';
+      
       const loteLabel=document.getElementById('ent_lote_label');
       if(esInsumo){
         if(loteLabel) loteLabel.textContent='Lote del proveedor (opcional)';
         if(loteHint) loteHint.style.display='block';
-        inputLote.placeholder='Ej: L-2026-014 · lote de factura o remisión';
+        inputLote.placeholder='Ej: L-2026-014';
       } else {
         if(loteLabel) loteLabel.textContent='Lote de producción (opcional)';
         if(loteHint) loteHint.style.display='none';
         inputLote.placeholder='Ej: L-2026-014';
+        // Si cambiamos a subproducto, forzamos la salida del modo multi-lote
+        if (modoMultiLote) {
+          document.getElementById('btnVolverLoteUnico').click();
+        }
       }
     }
     if(esInsumo){
       const ins=insumos.find(function(i){return i.id===selItem.value;});
       if(!ins){preview.innerHTML='';return;}
       const uC=unidadCompra(ins),uCons=unidadConsumo(ins),f=factorTotal(ins);
-      labelU.textContent=uC+' → '+uCons;
+      labelU.textContent=uCons;
       inputCosto.placeholder=(ins.costo_unitario&&ins.costo_unitario>0)?'Actual: '+money(ins.costo_unitario*f)+' por '+uC:'Opcional';
       const esVar=ins.tipo_conversion==='variable';
       rendBox.style.display=esVar?'grid':'none';
@@ -6025,7 +6112,7 @@ async function renderEntradas(){
       const rend=parseFloat(inputRend.value)||f;
       preview.innerHTML=cant>0?'Recibirás <strong>'+num(cant)+' '+uC+'</strong> ≈ <strong>'+num(cant*rend)+' '+uCons+'</strong>'+(esVar?' <span style="color:var(--accent);">(rendimiento por lote)</span>':''):'';
     } else {
-      labelU.textContent='unidades del subproducto';
+      labelU.textContent='unidades';
       rendBox.style.display='none';
       const s=subproductos.find(function(x){return x.id===selItem.value;});
       if(s){
@@ -6041,18 +6128,31 @@ async function renderEntradas(){
   /* Toggle multi-lote */
   const btnToggleMulti=document.getElementById('btnToggleMultiLote');
   const btnVolverUnico=document.getElementById('btnVolverLoteUnico');
+  const btnAddRow = document.getElementById('btnAddLoteRow');
+  
   if(btnToggleMulti){
     btnToggleMulti.addEventListener('click',function(){
       modoMultiLote=true;
       inputLote.value='';
+      rowsContainer.innerHTML = '';
+      addLoteRow(); // Agregar la primera fila vacía
       actualizarContexto();
-      setTimeout(function(){textareaMulti.focus();},50);
+      actualizarTotalMulti();
     });
+  }
+  if(btnAddRow){
+    btnAddRow.addEventListener('click', addLoteRow);
   }
   if(btnVolverUnico){
     btnVolverUnico.addEventListener('click',function(){
       modoMultiLote=false;
-      textareaMulti.value='';
+      rowsContainer.innerHTML = '';
+      inputCant.value = ''; // Limpiar el total
+      document.getElementById('ent_multi_lote_wrap').style.display = 'none';
+      document.getElementById('ent_lote_wrap').style.display = 'block';
+      inputCant.readOnly = false;
+      inputCant.style.opacity = '1';
+      inputCant.style.cursor = 'text';
       actualizarContexto();
     });
   }
@@ -6073,32 +6173,42 @@ async function renderEntradas(){
         const costo=inputCosto.value?parseFloat(inputCosto.value):null;
         const rend=inputRend.value?parseFloat(inputRend.value):null;
 
+        // Recopilar datos de documentos
+        const factura = document.getElementById('ent_factura') ? document.getElementById('ent_factura').value.trim() : null;
+        const oc = document.getElementById('ent_oc') ? document.getElementById('ent_oc').value.trim() : null;
+        const entrada_almacen = document.getElementById('ent_entrada_almacen') ? document.getElementById('ent_entrada_almacen').value.trim() : null;
+        const pendiente_oc = document.getElementById('ent_pendiente_oc') ? parseFloat(document.getElementById('ent_pendiente_oc').value) : null;
+
         if(modoMultiLote){
-          /* Modo multi-lote: parsear textarea, dividir la cantidad total */
-          const lineas=(textareaMulti.value||'').split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
-          if(lineas.length===0){
-            toast('Ingresá al menos un lote.','error');
-            return;
-          }
-          /* Dedup por si pegan repetidos */
-          const setLotes=new Set();
-          const lotesUnicos=[];
-          lineas.forEach(function(l){
-            if(!setLotes.has(l)){
-              setLotes.add(l);
-              lotesUnicos.push(l);
+          /* Modo multi-lote: leer las filas dinámicas */
+          const filas = [];
+          const loteSet = new Set();
+          let errorValidacion = false;
+          let cantidadTotalMulti = 0;
+
+          rowsContainer.querySelectorAll('.dyn-row').forEach(row => {
+            const lote = row.querySelector('.multi-lote-name').value.trim();
+            const cant = parseFloat(row.querySelector('.multi-lote-cant').value);
+            
+            if(lote || cant) { // Si la fila no está completamente vacía
+              if(!lote) { toast('Falta el número de lote en una fila.', 'error'); errorValidacion = true; return; }
+              if(!cant || cant <= 0) { toast('Cantidad inválida en el lote ' + lote, 'error'); errorValidacion = true; return; }
+              if(loteSet.has(lote)) { toast('El lote ' + lote + ' está duplicado.', 'error'); errorValidacion = true; return; }
+              
+              loteSet.add(lote);
+              filas.push({ lote: lote, cantidad: cant });
+              cantidadTotalMulti += cant;
             }
           });
-          const cantidadPorLote=cantidad/lotesUnicos.length;
-          const arrayLotes=lotesUnicos.map(function(l){
-            return {lote:l, cantidad:cantidadPorLote};
-          });
+
+          if(errorValidacion) return;
+          if(filas.length === 0) { toast('Agregá al menos un lote con su cantidad.', 'error'); return; }
 
           const r=await withLoading(ev.currentTarget,async function(){
             /* 1. Registrar la entrada total (sin lote específico) */
             const rEntrada=await rpc('registrar_entrada',{
               p_insumo_id:itemId,
-              p_cantidad:cantidad,
+              p_cantidad:cantidadTotalMulti,
               p_proveedor_id:proveedor_id,
               p_costo_unitario:costo,
               p_motivo:null,
@@ -6108,24 +6218,75 @@ async function renderEntradas(){
             /* 2. Insertar cada lote por separado */
             const rLotes=await rpc('registrar_lotes_entrada',{
               p_insumo_id:itemId,
-              p_lotes:arrayLotes,
+              p_lotes:filas,
               p_proveedor_id:proveedor_id,
               p_costo_unitario:costo,
               p_fecha:new Date().toISOString()
             });
-            return {entrada:rEntrada,lotes:rLotes,n:lotesUnicos.length};
+            return {entrada:rEntrada,lotes:rLotes,n:filas.length};
           });
-          toast('Entrada OK · '+num(cantidad)+' en consumo · '+r.n+' lote'+(r.n===1?'':'s')+' registrado'+(r.n===1?'':'s'),'success');
+          
+          /* Actualizar documentos en el último movimiento */
+          try {
+            const lastMov = await api(`movimientos_inventario?insumo_id=eq.${itemId}&order=fecha.desc&limit=1`);
+            if(lastMov.length > 0) {
+              await api(`movimientos_inventario?id=eq.${lastMov[0].id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  numero_factura: factura,
+                  numero_oc: oc,
+                  numero_entrada_almacen: entrada_almacen,
+                  cantidad_pendiente_oc: pendiente_oc
+                })
+              });
+            }
+          } catch(err) { console.warn('No se pudieron guardar los docs', err); }
+
+          toast('Entrada OK · '+num(cantidadTotalMulti)+' en consumo · '+r.n+' lote'+(r.n===1?'':'s')+' registrado'+(r.n===1?'':'s'),'success');
         } else {
           /* Modo normal: 1 solo lote */
           const lote=inputLote.value.trim()||null;
           const r=await withLoading(ev.currentTarget,async function(){return await rpc('registrar_entrada',{p_insumo_id:itemId,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_costo_unitario:costo,p_motivo:null,p_rendimiento_real:rend,p_lote_insumo:lote});});
+          
+          /* Actualizar documentos en el último movimiento */
+          try {
+            const lastMov = await api(`movimientos_inventario?insumo_id=eq.${itemId}&order=fecha.desc&limit=1`);
+            if(lastMov.length > 0) {
+              await api(`movimientos_inventario?id=eq.${lastMov[0].id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  numero_factura: factura,
+                  numero_oc: oc,
+                  numero_entrada_almacen: entrada_almacen,
+                  cantidad_pendiente_oc: pendiente_oc
+                })
+              });
+            }
+          } catch(err) { console.warn('No se pudieron guardar los docs', err); }
+
           toast('Entrada OK · '+num(r.cantidad_consumo)+' en consumo · Existencia: '+num(r.existencia_nueva),'success');
         }
       } else {
         const lote=inputLote.value.trim()||null;
         const motivo=inputMotivo.value.trim()||null;
-        const r=await withLoading(ev.currentTarget,async function(){return await rpc('producir_subproducto',{p_id:itemId,p_cantidad:cantidad,p_lote:lote,p_motivo:motivo});});
+        const opId = document.getElementById('ent_op_id') ? document.getElementById('ent_op_id').value : null;
+        
+        const r=await withLoading(ev.currentTarget,async function(){
+          /* Llamamos al RPC original de producción */
+          const res = await rpc('producir_subproducto',{p_id:itemId,p_cantidad:cantidad,p_lote:lote,p_motivo:motivo});
+          
+          /* Si se asignó una OP, vinculamos el último movimiento a esa OP */
+          if(opId) {
+            const lastMov = await api(`movimientos_inventario?subproducto_id=eq.${itemId}&order=fecha.desc&limit=1`);
+            if(lastMov.length > 0) {
+              await api(`movimientos_inventario?id=eq.${lastMov[0].id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ orden_id: opId })
+              });
+            }
+          }
+          return res;
+        });
         toast('Subproducto producido · '+r.items_afectados+' items descontados · Existencia: '+num(r.existencia_nueva),'success');
       }
       renderEntradas();
