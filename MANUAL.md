@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 2.0
+**Versión:** 2.1
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -138,6 +138,7 @@ Cada item es clickeable y **lleva al módulo ya filtrado** (solo urgentes, solo 
 ### 6.2 Cargar orden
 
 **Nueva OP:**
+- **Rango de fechas**: ahora se puede definir una Fecha de inicio y una Fecha de fin. El sistema calculará automáticamente si la OP se debe "Iniciar", "Continuar" o "Terminar" en el calendario de producción.
 
 - **Número de OP**: obligatorio. Sugerido automáticamente, editable.
 - **Lote**: opcional. Único si se llena.
@@ -453,7 +454,7 @@ Calcula cuánta materia prima se necesita para cumplir con todas las OPs program
 
 ### 6.22 Programación Semanal
 
-Muestra un tablero (tipo Kanban) con los 7 días de la semana y las OPs asignadas a cada día, además de un resumen de las entregas realizadas. Cuenta con un botón para imprimir el formato oficial.
+Muestra un tablero (tipo Kanban) con los 5 días hábiles (Lunes a Viernes) y las OPs asignadas a cada uno (indicando si es inicio, continuación o fin). Incluye botones para saltar entre semanas y un botón para imprimir el formato oficial con las firmas de Producción, Logística y Gerencia.
 
 ### 6.23 Evaluación de Proveedores
 

@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v2.0.0** — Producción · Octubre 2026
+**v2.1.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -37,6 +37,7 @@ AseptiQ administra el flujo completo de manufactura:
 - **Zonificación de Bodega (PT)**: Escaneo de QRs con cámara (móvil/tablet) o pistola láser (PC) para asignar ubicaciones físicas.
 - **Módulo de Analítica Logística**: Consolidado de Materias Primas (MRP), Programación Semanal (Kanban) y Evaluación de Proveedores.
 - **Seguridad y UX**: Temporizador de inactividad (cierre de sesión a los 30 min), desactivación de ítems en lugar de borrado (Soft Delete) y menú lateral configurable (Hover o Clic).
+- **Planificación y Calidad**: Órdenes de producción multi-día (Iniciar/Continuar/Terminar), Formato oficial SGC para Evaluación de Proveedores y PDF del Consolidado de Materias Primas.
 - **Modales apilados**: se pueden abrir modales dentro de otros modales sin perder los datos (ej. crear un subproducto mientras se edita un PT).
 - **Gestión de PT mejorada**: código de barras, plantilla, vida útil y registro INVIMA directo en el formulario.
 - **Lote del proveedor** en entradas de insumos (opcional) para trazabilidad INVIMA.

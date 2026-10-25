@@ -5181,7 +5181,8 @@ async function abrirModalNuevaOP(productos,cfg){
           <div class="field-hint" id="orden_cantidad_preview"></div>
         </div>
         <div><label>Prioridad</label><select id="orden_prioridad">${prioridadOptionsHTML(3)}</select></div>
-        <div><label>Fecha programada</label><input id="orden_fecha_programada" type="date"></div>
+        <div><label>Fecha inicio <span style="color:var(--danger);">*</span></label><input id="orden_fecha_programada" type="date" required></div>
+        <div><label>Fecha fin <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="orden_fecha_fin" type="date"></div>
       </div>`,
     footer:'<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;"><button class="ghost" id="nuevaop_cancelar">Cancelar</button><button id="nuevaop_calcular">Calcular cobertura</button></div>',
     onOpen:function(){
@@ -5261,6 +5262,19 @@ async function abrirModalNuevaOP(productos,cfg){
 
         /* Guardar contexto para el modal de cobertura y para cobConfirmar */
         const optPT=selPT.options[selPT.selectedIndex];
+        const fechaIni = document.getElementById('orden_fecha_programada').value||null;
+        const fechaFin = document.getElementById('orden_fecha_fin').value||null;
+
+        if(!fechaIni) {
+          toast('Debes asignar una fecha de inicio para programar la OP.', 'error');
+          return;
+        }
+
+        if(fechaIni && fechaFin && fechaFin < fechaIni) {
+          toast('La fecha de fin no puede ser anterior a la de inicio.', 'error');
+          return;
+        }
+
         _nuevaOPCtx={
           codigo_pt:codigo_pt,
           cantidad:cantidad,
@@ -5268,7 +5282,8 @@ async function abrirModalNuevaOP(productos,cfg){
           lote:lote||null,
           nombrePT:optPT?optPT.textContent:'',
           prioridad:document.getElementById('orden_prioridad').value,
-          fecha_programada:document.getElementById('orden_fecha_programada').value||null
+          fecha_programada:fechaIni,
+          fecha_fin_programada:fechaFin
         };
 
         await withLoading(ev.currentTarget,async function(){
@@ -5376,9 +5391,13 @@ function abrirModalCobertura(res,ctx){
 
   /* Footer */
   const btnConfirmar=document.getElementById('cobConfirmar');
-  btnConfirmar.disabled = (eg==='Urgente');
-  btnConfirmar.textContent = (eg==='Urgente')?'Faltantes críticos':'Confirmar orden';
-  btnConfirmar.title = (eg==='Urgente')?'Hay insumos sin existencia. Producir o comprar antes de confirmar.':'Guardar la OP';
+  btnConfirmar.disabled = false; /* Siempre permitimos confirmar */
+  btnConfirmar.textContent = (eg==='Urgente') ? 'Confirmar (con faltantes)' : 'Confirmar orden';
+  btnConfirmar.title = (eg==='Urgente') ? 'La OP se guardará en estado Pendiente y aparecerá en el consolidado de compras.' : 'Guardar la OP';
+
+  /* MOVER AL FINAL DEL BODY PARA QUE QUEDE ENCIMA DEL MODAL DINÁMICO */
+  const cobModal = document.getElementById('coberturaModal');
+  if (cobModal) document.body.appendChild(cobModal);
 
   _abrirOverlay('coberturaModal');
 
@@ -5491,10 +5510,11 @@ function cerrarModalCobertura(){
   _destroyChart('cobChartCobertura');
   _destroyChart('cobChartFaltantes');
   _cobCtx=null;
-  /* Si el modal de Nueva OP sigue abierto (porque el usuario canceló
-     la cobertura), mantenemos el contexto; si no, lo limpiamos. */
-  const nuevaOpModal=document.getElementById('genericModal');
-  if(!nuevaOpModal || !nuevaOpModal.classList.contains('open')){
+  
+  /* Si la pila de modales está vacía (es decir, ya no está Nueva OP detrás),
+     limpiamos el contexto de la OP. Si el usuario canceló la cobertura,
+     la pila sigue teniendo el modal de Nueva OP, así que NO limpiamos el contexto. */
+  if(_modalStack.length === 0){
     _nuevaOPCtx=null;
   }
 }
@@ -5540,6 +5560,8 @@ function cerrarModalCobertura(){
         const prioridadRaw=ctx.prioridad!=null?String(ctx.prioridad):'3';
         const prioridad=prioridadRaw?parseInt(prioridadRaw,10):3;
         const fechaProg=ctx.fecha_programada||null;
+        const fechaFinProg=ctx.fecha_fin_programada||null;
+
         await rpc('confirmar_orden',{
           p_codigo_pt:codigo_pt,
           p_cantidad:cantidad,
@@ -5551,12 +5573,31 @@ function cerrarModalCobertura(){
           p_prioridad:prioridad,
           p_fecha_programada:fechaProg
         });
+
+        /* Actualizar la fecha fin (ya que el RPC no la recibe por retrocompatibilidad) */
+        if(fechaFinProg) {
+          await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompleto), {
+            method: 'PATCH',
+            body: JSON.stringify({ fecha_fin_programada: fechaFinProg })
+          });
+        }
+        /* Actualizar explícitamente las fechas en la BD para asegurar que se guarden */
+        if(fechaProg) {
+          await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompleto), {
+            method: 'PATCH',
+            body: JSON.stringify({ 
+              fecha_programada: fechaProg,
+              fecha_fin_programada: fechaFinProg || null
+            })
+          });
+        }
+
         toast('Orden registrada.','success');
         cerrarModalCobertura();
+        _nuevaOPCtx=null;
+        
         /* Cerrar también el modal de Nueva OP si sigue abierto detrás */
-        const nuevaOpModal=document.getElementById('genericModal');
-        if(nuevaOpModal && nuevaOpModal.classList.contains('open')){
-          _nuevaOPCtx=null;
+        if(_modalStack.length > 0){
           cerrarModalGenerico();
         }
         renderOrden();
@@ -5650,7 +5691,8 @@ function imprimirOP(orden){
     +'<div><div class="lbl">Estado</div><div class="val">'+(orden.estado_op||'—')+'</div></div>'
     +'<div><div class="lbl">Producido</div><div class="val">'+num(producida)+' u</div></div>'
     +'<div><div class="lbl">Pendiente</div><div class="val">'+num(pendiente)+' u</div></div>'
-    +'<div><div class="lbl">Fecha programada</div><div class="val">'+(orden.fecha_programada ? new Date(orden.fecha_programada+'T00:00:00').toLocaleDateString('es-CO') : '—')+'</div></div>'
+    +'<div><div class="lbl">Fecha inicio</div><div class="val">'+(orden.fecha_programada ? new Date(orden.fecha_programada+'T00:00:00').toLocaleDateString('es-CO') : '—')+'</div></div>'
+    +'<div><div class="lbl">Fecha fin</div><div class="val">'+(orden.fecha_fin_programada ? new Date(orden.fecha_fin_programada+'T00:00:00').toLocaleDateString('es-CO') : '—')+'</div></div>'
     +'</div>';
 
   const qrText = 'OP:'+(orden.numero_op||'')+'|LOTE:'+(orden.lote||'')+'|PT:'+(orden.codigo_pt||'')+'|CANT:'+proyectada;
@@ -7022,55 +7064,127 @@ function _trazaSubproductoHTML(sub, cant, data, depth, lotesPorInsumo){
 }
 
 function imprimirProgramacionSemanal(desde, hasta, dias, fechas, ordenes, entregas){
-  let tabla = '<table class="print-table" style="width:100%; border-collapse:collapse; font-size:9pt;">';
-  tabla += '<thead><tr>';
-  dias.forEach((d, i) => {
-    tabla += `<th style="border:1px solid #000; padding:4px; text-align:center; background:#eee;">${d}<br><span style="font-weight:normal; font-size:7.5pt;">${fechas[i].toLocaleDateString('es-CO', {day:'2-digit', month:'short'})}</span></th>`;
-  });
-  tabla += '</tr></thead><tbody><tr>';
+  // Formatear el título de la semana: "SEMANA 19 AL 23 DE OCTUBRE"
+  const fDesde = fechas[0];
+  const fHasta = fechas[4]; // El viernes ahora es el índice 4 (antes era el 6)
+  const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+  let tituloSemana = '';
+  if (fDesde.getMonth() === fHasta.getMonth()) {
+    tituloSemana = `SEMANA ${fDesde.getDate()} AL ${fHasta.getDate()} DE ${meses[fDesde.getMonth()]}`;
+  } else {
+    tituloSemana = `SEMANA ${fDesde.getDate()} DE ${meses[fDesde.getMonth()]} AL ${fHasta.getDate()} DE ${meses[fHasta.getMonth()]}`;
+  }
+
+  let tabla = '<table class="print-table" style="width:100%; border-collapse:collapse; font-size:9.5pt; margin-top:20px;">';
+  tabla += '<thead><tr><th style="width:20%; border:1px solid #000; padding:8px; background:#eee;">DÍA</th><th style="border:1px solid #000; padding:8px; background:#eee;">TAREAS POR EJECUTAR</th></tr></thead><tbody>';
 
   fechas.forEach((fecha, idx) => {
     const fechaStr = fecha.toISOString().slice(0,10);
-    const opsDia = ordenes.filter(o => o.fecha_programada === fechaStr);
-    tabla += '<td style="border:1px solid #000; padding:4px; vertical-align:top; width:14.2%;">';
+    const opsDia = ordenes.filter(o => {
+      const ini = o.fecha_programada;
+      const fin = o.fecha_fin_programada || o.fecha_programada;
+      return ini && fechaStr >= ini && fechaStr <= fin;
+    });
+    
+    // Formato del día: "Lunes 12 de octubre"
+    const nombreDia = dias[idx];
+    const nombreMes = meses[fecha.getMonth()].toLowerCase();
+    const labelFecha = `${nombreDia} ${fecha.getDate()} de ${nombreMes}`;
+
+    tabla += `<tr>
+      <td style="border:1px solid #000; padding:8px; font-weight:bold; vertical-align:top;">${labelFecha}</td>
+      <td style="border:1px solid #000; padding:8px; vertical-align:top; line-height:1.5;">`;
+
     if(opsDia.length === 0) {
-      tabla += '<div style="text-align:center; color:#999; font-style:italic; margin-top:10px;">—</div>';
+      tabla += '<span style="color:#999; font-style:italic;">—</span>';
     } else {
       opsDia.forEach(o => {
-        tabla += `<div style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #ccc;">
-          <div style="font-weight:bold; font-family:monospace;">${o.numero_op || 'OP'}</div>
-          <div style="line-height:1.1; margin:2px 0;">${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</div>
-          <div style="font-size:8pt; color:#444;">${num(o.cantidad_proyectada)} u</div>
+        const numOP = o.numero_op || 'S/N';
+        const prod = o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt;
+        const cant = o.cantidad_proyectada;
+        const fin = o.fecha_fin_programada || o.fecha_programada;
+        
+        let tarea = 'Continuar';
+        if (fechaStr === o.fecha_programada && fechaStr === fin) tarea = 'Hacer';
+        else if (fechaStr === o.fecha_programada) tarea = 'Iniciar';
+        else if (fechaStr === fin) tarea = 'Terminar';
+        
+        tabla += `<div style="margin-bottom:6px;">
+          <b>${numOP}:</b> ${tarea} ${num(cant)} ${prod}
         </div>`;
       });
     }
-    tabla += '</td>';
+    tabla += `</td></tr>`;
   });
-  tabla += '</tr></tbody></table>';
 
-  let entregasHTML = '<div class="print-section-title" style="margin-top:20px;">Resumen de Entregas</div>';
-  entregasHTML += '<table class="print-table"><thead><tr><th>Fecha/Hora</th><th>OP</th><th>Producto</th><th class="num">Cantidad</th><th>Lote</th></tr></thead><tbody>';
-  if(entregas.length === 0) {
-    entregasHTML += '<tr><td colspan="5" style="text-align:center; color:#666;">No hay entregas registradas.</td></tr>';
-  } else {
-    entregas.forEach(e => {
-      entregasHTML += `<tr>
-        <td>${new Date(e.fecha).toLocaleString('es-CO')}</td>
-        <td>${e.ordenes_semanales ? e.ordenes_semanales.numero_op : '—'}</td>
-        <td>${e.ordenes_semanales && e.ordenes_semanales.productos_terminados ? e.ordenes_semanales.productos_terminados.nombre : '—'}</td>
-        <td class="num">+${num(e.cantidad)} u</td>
-        <td>${e.lote_entrega || '—'}</td>
+  // Fila inferior para las Entregas
+  tabla += `<tr>
+    <td colspan="2" style="border:1px solid #000; padding:0;">
+      <table style="width:100%; border-collapse:collapse;">
+        <tr><td colspan="2" style="background:#eee; border-bottom:1px solid #000; padding:6px 8px; font-weight:bold; text-align:center;">FECHAS DE ENTREGA DE PRODUCTOS</td></tr>`;
+
+  // Agrupar entregas por día
+  const entregasPorDia = {};
+  entregas.forEach(e => {
+    const d = new Date(e.fecha);
+    const idx = fechas.findIndex(f => f.toISOString().slice(0,10) === d.toISOString().slice(0,10));
+    if(idx !== -1) {
+      if(!entregasPorDia[idx]) entregasPorDia[idx] = [];
+      entregasPorDia[idx].push(e);
+    }
+  });
+
+  let hayEntregas = false;
+  fechas.forEach((fecha, idx) => {
+    if(entregasPorDia[idx] && entregasPorDia[idx].length > 0) {
+      hayEntregas = true;
+      const nombreDia = dias[idx].toUpperCase();
+      const txtEntregas = entregasPorDia[idx].map(e => {
+        const prod = e.ordenes_semanales && e.ordenes_semanales.productos_terminados ? e.ordenes_semanales.productos_terminados.nombre : 'Producto';
+        return `${num(e.cantidad)} ${prod}`;
+      }).join(', ');
+
+      tabla += `<tr>
+        <td style="border-bottom:1px solid #000; border-right:1px solid #000; padding:6px 8px; font-weight:bold; width:20%;">${nombreDia}:</td>
+        <td style="border-bottom:1px solid #000; padding:6px 8px;">${txtEntregas}</td>
       </tr>`;
-    });
-  }
-  entregasHTML += '</tbody></table>';
+    }
+  });
 
-  const html = printHeaderHTML('Programación Semanal', `${desde} al ${hasta}`)
+  if(!hayEntregas) {
+    tabla += `<tr><td colspan="2" style="padding:10px; text-align:center; color:#666;">No hay entregas programadas.</td></tr>`;
+  }
+
+  tabla += `</table></td></tr></tbody></table>`;
+
+  // Firmas
+  const firmas = `
+    <div class="print-signatures" style="grid-template-columns: 1fr 1fr 1fr; margin-top:60px;">
+      <div class="print-signature">
+        <div class="name">JEFE DE PRODUCCIÓN</div>
+      </div>
+      <div class="print-signature">
+        <div class="name">JEFE DE LOGÍSTICA</div>
+      </div>
+      <div class="print-signature">
+        <div class="name">GERENTE DE OPERACIONES</div>
+      </div>
+    </div>
+  `;
+
+  const html = printHeaderHTML('ORDENES DE PRODUCCIÓN', tituloSemana)
     + tabla
-    + entregasHTML
+    + firmas
     + printFooterHTML();
 
-  imprimirHTML(html, 'Programacion Semanal');
+  const cssPrint = `
+    @page { size: letter portrait; margin: 15mm; }
+    body { padding: 0; font-family: Arial, Helvetica, sans-serif; }
+    .print-header { margin-bottom: 20px; }
+    .print-table td { font-size: 9.5pt; }
+  `;
+
+  imprimirHTML(html, 'Programacion Semanal', cssPrint);
 }
 
 let html5QrCode = null; // Variable global para el escáner
@@ -7283,22 +7397,223 @@ async function renderBodega(){
   };
 }
 
+function abrirModalEvaluacion(prov, arrStats) {
+  const hoy = new Date().toISOString().slice(0,10);
+  
+  // Sugerencia automática de calidad basada en tasa de devolución
+  let sugerenciaCalidad = 5.0;
+  if (prov.tasa_dev > 10) sugerenciaCalidad = 2.0;
+  else if (prov.tasa_dev > 5) sugerenciaCalidad = 3.0;
+  else if (prov.tasa_dev > 2) sugerenciaCalidad = 4.0;
+
+  const inputScore = (id, val) => `
+    <input type="number" id="${id}" min="0" max="5" step="0.1" value="${val.toFixed(1)}" 
+           style="text-align:center; font-weight:bold; font-size:16px; font-family:'IBM Plex Mono',monospace;">
+  `;
+
+  abrirModalGenerico({
+    title:'Evaluación de Proveedor',
+    subtitle: prov.nombre + ' · NIT: ' + prov.nit,
+    icon: icono('clipboard','lg'),
+    variant: 'info',
+    size: 'md',
+    body: `
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:16px; line-height:1.5; background:var(--surface-2); padding:10px; border-radius:8px;">
+        <b>Código: CYC-GEF-FR-06</b> · Califique de 0.0 a 5.0 según los criterios establecidos en el SGC.
+      </div>
+      <div class="form-grid labels-bottom" style="padding:0;">
+        <div><label>Fecha de Evaluación</label><input id="eval_fecha" type="date" value="${hoy}"></div>
+        <div><label>Evaluador</label><input id="eval_evaluador" value="${SUPA_PROFILE ? SUPA_PROFILE.email : ''}" disabled></div>
+        
+        <div><label>Cumplimiento y Entrega</label>${inputScore('eval_entrega', 5.0)}</div>
+        
+        <div>
+          <label>Calidad y Especificaciones</label>
+          ${inputScore('eval_calidad', sugerenciaCalidad)}
+          <div class="field-hint" style="text-align:center;">Sugerido por historial: ${sugerenciaCalidad}</div>
+        </div>
+        
+        <div><label>Servicio Postventa</label>${inputScore('eval_postventa', 5.0)}</div>
+        
+        <div>
+          <label>Certificado de Fumigación</label>
+          <select id="eval_fumigacion" style="width:100%; height:42px;">
+            <option value="5.0">Sí aplica (Envía) - 5.0</option>
+            <option value="3.5">Sí aplica (No envía) - 3.5</option>
+            <option value="5.0">No aplica - 5.0</option>
+          </select>
+        </div>
+        
+        <div><label>Precio</label>${inputScore('eval_precio', 5.0)}</div>
+        
+        <div class="full-span" style="grid-column: 1 / -1; margin-top:10px;">
+          <label>Observaciones</label>
+          <textarea id="eval_obs" rows="3" placeholder="Escribe aquí el plan de mejora o comentarios adicionales..."></textarea>
+        </div>
+      </div>
+    `,
+    footer: `<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;">
+      <button class="ghost" id="eval_cancelar">Cancelar</button>
+      <button id="eval_guardar">Guardar y Calcular Nota</button>
+    </div>`,
+    onOpen: function() {
+      document.getElementById('eval_cancelar').onclick = cerrarModalGenerico;
+      
+      document.getElementById('eval_guardar').onclick = async function(ev) {
+        // Validar que los inputs no estén vacíos o fuera de rango
+        const obtenerNota = (id) => {
+          let val = parseFloat(document.getElementById(id).value);
+          if (isNaN(val)) val = 0;
+          if (val < 0) val = 0;
+          if (val > 5) val = 5;
+          return val;
+        };
+
+        const entrega = obtenerNota('eval_entrega');
+        const calidad = obtenerNota('eval_calidad');
+        const postventa = obtenerNota('eval_postventa');
+        const fumigacion = parseFloat(document.getElementById('eval_fumigacion').value);
+        const precio = obtenerNota('eval_precio');
+        
+        const promedio = (entrega + calidad + postventa + fumigacion + precio) / 5;
+        let resultado = 'No Confiable';
+        if (promedio >= 4.5) resultado = 'Excelente';
+        else if (promedio >= 3.9) resultado = 'Bueno';
+        else if (promedio >= 3.0) resultado = 'Regular';
+
+        await withLoading(ev.currentTarget, async function() {
+          await api('evaluaciones_proveedores', {
+            method: 'POST',
+            body: JSON.stringify({
+              proveedor_id: prov.id,
+              proveedor_nombre: prov.nombre,
+              proveedor_nit: prov.nit,
+              fecha: document.getElementById('eval_fecha').value,
+              evaluador_email: document.getElementById('eval_evaluador').value,
+              nota_entrega: entrega,
+              nota_calidad: calidad,
+              nota_postventa: postventa,
+              nota_fumigacion: fumigacion,
+              nota_precio: precio,
+              promedio: promedio,
+              resultado: resultado,
+              observaciones: document.getElementById('eval_obs').value.trim()
+            })
+          });
+        });
+        toast(`Evaluación guardada. Promedio: ${promedio.toFixed(1)} (${resultado})`, 'success');
+        cerrarModalGenerico();
+        renderEvaluacionProv();
+      };
+    }
+  });
+}
+
+function imprimirEvaluacionProveedor(ev) {
+  const colorRes = ev.resultado === 'Excelente' ? '#28a745' : (ev.resultado === 'Bueno' ? '#17a2b8' : (ev.resultado === 'Regular' ? '#ffc107' : '#dc3545'));
+  
+  const html = `
+    <div class="print-header">
+      <div class="print-brand">
+        <img src="logo-proclides.png" style="height:40px;">
+        <div class="print-company">PROCLIDES SOLUCIONES ESTERILES S.A.S<small>EVALUACIÓN DE PROVEEDORES</small></div>
+      </div>
+      <div class="print-title">
+        <div style="font-size:9pt; text-align:left; line-height:1.4;">
+          <b>Código:</b> CYC-GEF-FR-06<br>
+          <b>Versión:</b> 1<br>
+          <b>Vigente desde:</b> 2025-01-01
+        </div>
+      </div>
+    </div>
+
+    <div class="print-info-grid">
+      <div><div class="lbl">Nombre / Razón Social</div><div class="val">${ev.proveedor_nombre}</div></div>
+      <div><div class="lbl">C.C. o NIT</div><div class="val">${ev.proveedor_nit}</div></div>
+      <div><div class="lbl">Fecha Evaluación</div><div class="val">${new Date(ev.fecha+'T12:00:00').toLocaleDateString('es-CO')}</div></div>
+    </div>
+
+    <p style="font-size:9pt; margin:10px 0;">Verificado el cumplimiento o no de los factores de evaluación establecidos en la siguiente tabla, se calificará al Proveedor con un Puntaje entre 0.0 a 5.0 puntos.</p>
+
+    <table class="print-table" style="font-size:9pt;">
+      <thead>
+        <tr>
+          <th style="width:40%;">CARACTERÍSTICAS</th>
+          <th style="width:45%;">CRITERIO</th>
+          <th style="width:15%; text-align:center;">PUNTAJE</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td rowspan="3"><b>CUMPLIMIENTO Y ENTREGA</b></td><td>Excelente / Bueno (A tiempo o antes)</td><td style="text-align:center;">${num(ev.nota_entrega,1)}</td></tr>
+        <tr><td>Regular (Retraso menor al 20%)</td><td style="text-align:center;">—</td></tr>
+        <tr><td>No Cumple (Retraso mayor al 20%)</td><td style="text-align:center;">—</td></tr>
+        
+        <tr><td rowspan="3"><b>CALIDAD Y ESPECIFICACIONES</b></td><td>Excelente / Bueno (Cumple requisitos)</td><td style="text-align:center;">${num(ev.nota_calidad,1)}</td></tr>
+        <tr><td>Regular (Subsanó a tiempo)</td><td style="text-align:center;">—</td></tr>
+        <tr><td>No Cumple (Inconformidad grave)</td><td style="text-align:center;">—</td></tr>
+
+        <tr><td rowspan="3"><b>SERVICIO POSTVENTA</b></td><td>Excelente / Bueno (Atento)</td><td style="text-align:center;">${num(ev.nota_postventa,1)}</td></tr>
+        <tr><td>Regular (Atiende desobligado)</td><td style="text-align:center;">—</td></tr>
+        <tr><td>No Cumple (Desatiende)</td><td style="text-align:center;">—</td></tr>
+
+        <tr><td><b>CERTIFICADO DE FUMIGACIÓN</b></td><td>Sí Aplica (Envía) / No Aplica</td><td style="text-align:center;">${num(ev.nota_fumigacion,1)}</td></tr>
+        <tr><td><b>PRECIO</b></td><td>Excelente (Competitivo)</td><td style="text-align:center;">${num(ev.nota_precio,1)}</td></tr>
+      </tbody>
+    </table>
+
+    <div style="display:flex; gap:20px; margin-top:20px;">
+      <div style="flex:1; border:1px solid #000; padding:10px; text-align:center;">
+        <div style="font-size:8pt; text-transform:uppercase; color:#666;">PROMEDIO</div>
+        <div style="font-size:24pt; font-weight:bold;">${num(ev.promedio,1)}</div>
+      </div>
+      <div style="flex:2; border:1px solid #000; padding:10px; display:flex; flex-direction:column; justify-content:center;">
+        <div style="font-size:8pt; text-transform:uppercase; color:#666;">RESULTADO</div>
+        <div style="font-size:14pt; font-weight:bold; color:${colorRes};">${ev.resultado.toUpperCase()}</div>
+        <div style="font-size:8pt; color:#444; margin-top:4px;">
+          ${ev.resultado === 'Regular' ? 'Condicionado. Debe presentar plan de mejora.' : (ev.resultado === 'No Confiable' ? 'Restringido. Buscar reemplazo.' : 'Proveedor confiable y recomendado.')}
+        </div>
+      </div>
+    </div>
+
+    <div class="print-section-title">OBSERVACIONES:</div>
+    <div style="border:1px solid #000; padding:10px; min-height:50px; font-size:9pt;">${ev.observaciones || 'Sin observaciones adicionales.'}</div>
+
+    <div class="print-signatures" style="grid-template-columns:1fr 1fr;">
+      <div class="print-signature"><div class="name">EVALUADOR</div><div class="role">${ev.evaluador_email || 'Firma'}</div></div>
+      <div class="print-signature"><div class="name">COORDINADORA DE OPERACIONES</div><div class="role">Firma</div></div>
+    </div>
+    
+    ${printFooterHTML()}
+  `;
+  
+  // Forzamos márgenes más amplios y ajustamos el cuerpo para que no quede pegado al borde
+  const cssPrint = `
+    @page { size: letter portrait; margin: 20mm 20mm; }
+    body { padding: 0; }
+    .print-header { margin-bottom: 25px; }
+    .print-table { margin-bottom: 20px; }
+    .print-signatures { margin-top: 40px; }
+  `;
+  
+  imprimirHTML(html, 'Evaluacion Proveedor', cssPrint);
+}
+
 async function renderEvaluacionProv(){
   const main=document.getElementById('mainContent');
-  main.innerHTML='<div class="empty-state">Cargando datos de proveedores…</div>';
+  main.innerHTML='<div class="empty-state">Cargando evaluación de proveedores…</div>';
 
   try{
-    // Cargar todas las entradas (compras) y salidas con proveedor (devoluciones)
-    const [compras, devoluciones, proveedores] = await Promise.all([
+    const [compras, devoluciones, proveedores, evaluaciones] = await Promise.all([
       api('movimientos_inventario?select=proveedor_id,cantidad,costo_unitario_momento&tipo=eq.Entrada&proveedor_id=not.is.null'),
       api('movimientos_inventario?select=proveedor_id,cantidad,costo_unitario_momento&tipo=eq.Salida&proveedor_id=not.is.null'),
-      api('sys_proveedores?select=id,razon_social&order=razon_social')
+      api('sys_proveedores?select=id,razon_social,nit&order=razon_social'),
+      api('evaluaciones_proveedores?select=*&order=fecha.desc')
     ]);
 
-    // Agrupar por proveedor
+    // --- Calcular Análisis Automático ---
     const stats = {};
     proveedores.forEach(p => {
-      stats[p.id] = { id: p.id, nombre: p.razon_social, total_comprado: 0, valor_comprado: 0, total_devuelto: 0, valor_devuelto: 0, pedidos: 0 };
+      stats[p.id] = { id: p.id, nombre: p.razon_social, nit: p.nit, total_comprado: 0, valor_comprado: 0, total_devuelto: 0, valor_devuelto: 0, pedidos: 0 };
     });
 
     compras.forEach(c => {
@@ -7318,9 +7633,10 @@ async function renderEvaluacionProv(){
       stats[d.proveedor_id].valor_devuelto += (cant * costo);
     });
 
-    // Calcular tasa de devolución y ordenar por valor comprado (los más críticos primero)
     const arrStats = Object.values(stats).map(s => {
       s.tasa_dev = s.valor_comprado > 0 ? (s.valor_devuelto / s.valor_comprado) * 100 : 0;
+      const evalProv = evaluaciones.find(e => e.proveedor_id === s.id);
+      s.ultima_eval = evalProv;
       return s;
     }).filter(s => s.pedidos > 0).sort((a,b) => b.valor_comprado - a.valor_comprado);
 
@@ -7330,73 +7646,106 @@ async function renderEvaluacionProv(){
       <div class="page-header-flex">
         <div>
           <h2 class="page-title">Evaluación de Proveedores</h2>
-          <p class="page-sub">Análisis de volumen de compra y tasa de devoluciones por calidad.</p>
+          <p class="page-sub">Gestión de calidad y análisis histórico.</p>
         </div>
         ${botonRefreshHTML('evaluacion_prov')}
       </div>
 
-      <div class="grid-cards">
-        <div class="stat-card info"><p class="stat-label">Proveedores Activos</p><p class="stat-value">${arrStats.length}</p></div>
-        <div class="stat-card neutral"><p class="stat-label">Volumen Total Comprado</p><p class="stat-value" style="font-size:18px;">${money(totalCompradoGlobal)}</p></div>
+      <div class="panel force-expanded no-scroll">
+        <div style="padding:14px 18px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="secondary small tab-btn active" data-eval-tab="metricas">📊 Análisis Automático</button>
+            <button class="secondary small tab-btn" data-eval-tab="formales">📋 Evaluaciones Formales (SGC)</button>
+          </div>
+        </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-header"><h3>Desempeño por Proveedor</h3></div>
-        <div class="search-box"><input id="buscar_prov_eval" placeholder="Buscar proveedor…"></div>
-        ${arrStats.length === 0 ? '<div class="empty-state">No hay compras registradas con proveedores.</div>' : `
-        <table id="tablaEvaluacion">
-          <thead><tr>
-            <th>Proveedor</th>
-            <th class="num">Compras ($)</th>
-            <th class="num">% del Total</th>
-            <th class="num">Pedidos</th>
-            <th class="num">Devoluciones ($)</th>
-            <th class="num">Tasa Devolución</th>
-            <th>Evaluación</th>
-          </tr></thead>
-          <tbody>
-            ${arrStats.map(s => {
-              const pctTotal = totalCompradoGlobal > 0 ? (s.valor_comprado / totalCompradoGlobal) * 100 : 0;
-              let evalBadge = '<span class="badge success">Excelente</span>';
-              let evalColor = 'var(--success)';
-              if(s.tasa_dev > 5) { evalBadge = '<span class="badge danger">Crítico</span>'; evalColor = 'var(--danger)'; }
-              else if(s.tasa_dev > 2) { evalBadge = '<span class="badge warning">Alerta</span>'; evalColor = 'var(--warning)'; }
-              
-              return `<tr>
-                <td>${s.nombre}</td>
-                <td class="num">${money(s.valor_comprado)}</td>
-                <td class="num">
-                  <div style="display:flex; align-items:center; justify-content:flex-end; gap:8px;">
-                    <span style="font-size:11.5px;">${num(pctTotal,1)}%</span>
-                    <div style="width:50px; background:var(--surface-3); border-radius:4px; height:6px; overflow:hidden;">
-                      <div style="width:${pctTotal}%; background:var(--info); height:100%;"></div>
-                    </div>
-                  </div>
-                </td>
-                <td class="num">${s.pedidos}</td>
-                <td class="num" style="color:${s.valor_devuelto > 0 ? 'var(--danger)' : 'var(--text-muted)'};">${s.valor_devuelto > 0 ? money(s.valor_devuelto) : '—'}</td>
-                <td class="num" style="color:${evalColor}; font-weight:600;">${num(s.tasa_dev, 2)}%</td>
-                <td>${evalBadge}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>`}
+      <div id="evalMetricas">
+        <div class="grid-cards">
+          <div class="stat-card info"><p class="stat-label">Proveedores Activos</p><p class="stat-value">${arrStats.length}</p></div>
+          <div class="stat-card neutral"><p class="stat-label">Volumen Total Comprado</p><p class="stat-value" style="font-size:18px;">${money(totalCompradoGlobal)}</p></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Desempeño por Proveedor</h3></div>
+          <table>
+            <thead><tr>
+              <th>Proveedor</th>
+              <th class="num">Compras ($)</th>
+              <th class="num">Tasa Devolución</th>
+              <th>Última Evaluación</th>
+              <th class="actions"></th>
+            </tr></thead>
+            <tbody>
+              ${arrStats.map(s => {
+                const ultEval = s.ultima_eval;
+                let badgeEval = '<span class="badge neutral" style="font-size:10px;">Sin eval.</span>';
+                if(ultEval) {
+                  const color = ultEval.resultado === 'Excelente' ? 'success' : (ultEval.resultado === 'Bueno' ? 'info' : (ultEval.resultado === 'Regular' ? 'warning' : 'danger'));
+                  badgeEval = `<span class="badge ${color}">${ultEval.resultado} (${num(ultEval.promedio,1)})</span>`;
+                }
+                return `<tr>
+                  <td>${s.nombre} <span class="mono" style="font-size:11px;color:var(--text-muted);">${s.nit}</span></td>
+                  <td class="num">${money(s.valor_comprado)}</td>
+                  <td class="num" style="color:${s.tasa_dev>5?'var(--danger)':'var(--success)'}; font-weight:600;">${num(s.tasa_dev, 2)}%</td>
+                  <td>${badgeEval}</td>
+                  <td class="actions"><button class="ghost small" data-nueva-eval="${s.id}">Evaluar</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
-      
-      <div class="panel">
-        <div class="panel-header"><h3>Criterios de Evaluación</h3></div>
-        <div style="padding:16px 18px; font-size:13px; color:var(--text-secondary); line-height:1.6;">
-          <p style="margin-top:0;">La <b>Tasa de Devolución</b> mide el porcentaje del dinero comprado que tuvo que ser devuelto al proveedor (por mala calidad, vencimiento, etc.).</p>
-          <ul style="padding-left:20px; margin-bottom:0;">
-            <li><b>Excelente:</b> Menos del 2% de devoluciones. Proveedor confiable.</li>
-            <li><b>Alerta:</b> Entre 2% y 5% de devoluciones. Requiere seguimiento de calidad.</li>
-            <li><b>Crítico:</b> Más del 5% de devoluciones. Se recomienda evaluar cambio de proveedor o tomar acciones correctivas.</li>
-          </ul>
+
+      <div id="evalFormales" style="display:none;">
+        <div class="panel">
+          <div class="panel-header"><h3>Historial de Evaluaciones Formales</h3></div>
+          <table>
+            <thead><tr><th>Fecha</th><th>Proveedor</th><th class="num">Promedio</th><th>Resultado</th><th>Evaluador</th><th class="actions"></th></tr></thead>
+            <tbody>
+              ${evaluaciones.length === 0 ? '<tr><td colspan="6" style="text-align:center; padding:16px; color:var(--text-muted);">No hay evaluaciones registradas.</td></tr>' : 
+                evaluaciones.map(ev => {
+                  const color = ev.resultado === 'Excelente' ? 'success' : (ev.resultado === 'Bueno' ? 'info' : (ev.resultado === 'Regular' ? 'warning' : 'danger'));
+                  return `<tr>
+                    <td class="mono">${new Date(ev.fecha+'T12:00:00').toLocaleDateString('es-CO')}</td>
+                    <td>${ev.proveedor_nombre}</td>
+                    <td class="num" style="font-weight:bold;">${num(ev.promedio, 1)}</td>
+                    <td><span class="badge ${color}">${ev.resultado}</span></td>
+                    <td style="font-size:12px; color:var(--text-muted);">${ev.evaluador_email||'—'}</td>
+                    <td class="actions"><button class="ghost small" data-print-eval="${ev.id}">PDF</button></td>
+                  </tr>`;
+                }).join('')
+              }
+            </tbody>
+          </table>
         </div>
       </div>
     `;
 
-    filtrarTabla('buscar_prov_eval', 'tablaEvaluacion');
+    // Tabs
+    document.querySelectorAll('[data-eval-tab]').forEach(b => {
+      b.addEventListener('click', function() {
+        document.querySelectorAll('[data-eval-tab]').forEach(x => x.classList.toggle('active', x === b));
+        const tab = b.dataset.evalTab;
+        document.getElementById('evalMetricas').style.display = tab === 'metricas' ? 'block' : 'none';
+        document.getElementById('evalFormales').style.display = tab === 'formales' ? 'block' : 'none';
+      });
+    });
+
+    // Bind nuevo botón de Evaluar
+    document.querySelectorAll('[data-nueva-eval]').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const prov = arrStats.find(x => x.id === btn.dataset.nuevaEval);
+        abrirModalEvaluacion(prov, arrStats);
+      });
+    });
+
+    // Bind imprimir evaluaciones
+    document.querySelectorAll('[data-print-eval]').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const ev = evaluaciones.find(x => x.id === btn.dataset.printEval);
+        imprimirEvaluacionProveedor(ev);
+      });
+    });
 
   }catch(e){
     main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
@@ -7413,11 +7762,11 @@ async function renderProgramacion(){
     const diaSemana = hoy.getDay() || 7; 
     const lunes = new Date(hoy);
     lunes.setDate(hoy.getDate() - diaSemana + 1);
-    const domingo = new Date(lunes);
-    domingo.setDate(lunes.getDate() + 6);
+    const viernes = new Date(lunes);
+    viernes.setDate(lunes.getDate() + 4); // Solo de Lunes a Viernes
     
     const defaultDesde = lunes.toISOString().slice(0,10);
-    const defaultHasta = domingo.toISOString().slice(0,10);
+    const defaultHasta = viernes.toISOString().slice(0,10);
 
     main.innerHTML=`
       <div class="page-header-flex">
@@ -7432,7 +7781,12 @@ async function renderProgramacion(){
         <div class="panel-header"><h3>Semana a programar</h3></div>
         <div class="form-grid">
           <div><label>Desde (Lunes)</label><input id="prog_desde" type="date" value="${defaultDesde}"></div>
-          <div><label>Hasta (Domingo)</label><input id="prog_hasta" type="date" value="${defaultHasta}"></div>
+          <div><label>Hasta (Viernes)</label><input id="prog_hasta" type="date" value="${defaultHasta}"></div>
+        </div>
+        <div style="padding:0 18px 12px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="ghost small" data-prog-rango="semana_anterior">← Semana anterior</button>
+          <button type="button" class="ghost small" data-prog-rango="semana_actual">Semana actual</button>
+          <button type="button" class="ghost small" data-prog-rango="semana_siguiente">Semana siguiente →</button>
         </div>
         <div class="form-actions">
           <button id="btnProgGenerar">Generar programación</button>
@@ -7441,6 +7795,27 @@ async function renderProgramacion(){
       </div>
 
       <div id="progResultado"><div class="empty-state">Elegí la semana y presioná "Generar programación".</div></div>`;
+
+    /* Lógica de filtros rápidos */
+    document.querySelectorAll('[data-prog-rango]').forEach(function(b){
+      b.addEventListener('click', function(){
+        const r = b.dataset.progRango;
+        const hoy = new Date();
+        const diaSemana = hoy.getDay() || 7; 
+        const lunesBase = new Date(hoy);
+        lunesBase.setDate(hoy.getDate() - diaSemana + 1);
+        
+        let lunesTarget = new Date(lunesBase);
+        if (r === 'semana_anterior') lunesTarget.setDate(lunesBase.getDate() - 7);
+        else if (r === 'semana_siguiente') lunesTarget.setDate(lunesBase.getDate() + 7);
+
+        const viernesTarget = new Date(lunesTarget);
+        viernesTarget.setDate(lunesTarget.getDate() + 4);
+
+        document.getElementById('prog_desde').value = lunesTarget.toISOString().slice(0,10);
+        document.getElementById('prog_hasta').value = viernesTarget.toISOString().slice(0,10);
+      });
+    });
 
     document.getElementById('btnProgGenerar').addEventListener('click', async function(ev){
       const desdeStr = document.getElementById('prog_desde').value;
@@ -7452,17 +7827,27 @@ async function renderProgramacion(){
 
       await withLoading(ev.currentTarget, async function(){
         try {
-          // 1. Obtener OPs programadas
-          const ordenes = await api(`ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=gte.${desdeStr}&fecha_programada=lte.${hastaStr}&order=fecha_programada.asc`);
+          // 1. Obtener OPs programadas (incluye las que se cruzan con la semana)
+          const ordenesRaw = await api(`ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=lte.${hastaStr}&order=fecha_programada.asc`);
+          
+          // Filtrar las que realmente tocan esta semana (inician antes del fin y terminan después del inicio)
+          const ordenes = ordenesRaw.filter(o => {
+            const ini = o.fecha_programada;
+            const fin = o.fecha_fin_programada || o.fecha_programada;
+            return ini && fin && ini <= hastaStr && fin >= desdeStr;
+          });
+
+          // OPs pendientes pero sin fecha programada
+          const opsSinFecha = await api(`ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=is.null&order=fecha_creacion.desc`);
           
           // 2. Obtener entregas realizadas en esa semana (por fecha de entrega)
           const entregas = await api(`entregas_op?select=*,ordenes_semanales(numero_op,productos_terminados(nombre))&fecha=gte.${desdeStr}T00:00:00&fecha=lte.${hastaStr}T23:59:59&order=fecha.asc`);
 
           // 3. Agrupar por día (Lunes a Domingo)
-          const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+          const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
           const fechas = [];
           const base = new Date(desdeStr + 'T12:00:00');
-          for(let i=0; i<7; i++){
+          for(let i=0; i<5; i++){ // Solo 5 días hábiles
             const d = new Date(base);
             d.setDate(base.getDate() + i);
             fechas.push(d);
@@ -7472,8 +7857,14 @@ async function renderProgramacion(){
           
           fechas.forEach((fecha, idx) => {
             const fechaStr = fecha.toISOString().slice(0,10);
-            const opsDia = ordenes.filter(o => o.fecha_programada === fechaStr);
             
+            // Buscar OPs que estén activas este día
+            const opsDia = ordenes.filter(o => {
+              const ini = o.fecha_programada;
+              const fin = o.fecha_fin_programada || o.fecha_programada;
+              return ini && fechaStr >= ini && fechaStr <= fin;
+            });
+
             gridHTML += `<div class="prog-col">
               <div class="prog-col-header">
                 <div class="prog-day-name">${dias[idx]}</div>
@@ -7481,14 +7872,21 @@ async function renderProgramacion(){
               </div>
               <div class="prog-col-body">
                 ${opsDia.length === 0 ? '<div class="prog-empty">Libre</div>' : ''}
-                ${opsDia.map(o => `
+                ${opsDia.map(o => {
+                  const fin = o.fecha_fin_programada || o.fecha_programada;
+                  let tarea = 'Continuar';
+                  if (fechaStr === o.fecha_programada && fechaStr === fin) tarea = 'Hacer';
+                  else if (fechaStr === o.fecha_programada) tarea = 'Iniciar';
+                  else if (fechaStr === fin) tarea = 'Terminar';
+
+                  return `
                   <div class="prog-card">
                     <div class="prog-op">${o.numero_op || 'OP'}</div>
-                    <div class="prog-prod">${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</div>
+                    <div class="prog-prod"><b>${tarea}:</b> ${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</div>
                     <div class="prog-cant">${num(o.cantidad_proyectada)} u</div>
                     ${badgeOP(o.estado_op)}
                   </div>
-                `).join('')}
+                `}).join('')}
               </div>
             </div>`;
           });
@@ -7516,7 +7914,26 @@ async function renderProgramacion(){
           }
           entregasHTML += '</tbody></table></div>';
 
-          box.innerHTML = gridHTML + entregasHTML;
+          // 6. Panel de OPs sin fecha
+          let sinFechaHTML = '';
+          if (opsSinFecha.length > 0) {
+            sinFechaHTML = `
+              <div class="alert-banner warning" style="margin-bottom:20px; flex-direction:column; align-items:stretch;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <div class="alert-icon">!</div>
+                  <div class="alert-body">
+                    <strong>Atención: Hay ${opsSinFecha.length} orden(es) sin fecha programada.</strong>
+                    <span>Estas OPs no se pueden ubicar en el calendario hasta que les asignes una fecha.</span>
+                  </div>
+                </div>
+                <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
+                  ${opsSinFecha.map(o => `<span class="badge neutral" style="font-size:11px;">OP ${o.numero_op || 'S/N'} - ${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</span>`).join('')}
+                </div>
+              </div>
+            `;
+          }
+
+          box.innerHTML = sinFechaHTML + gridHTML + entregasHTML;
           document.getElementById('btnProgPrint').style.display = 'inline-block';
 
           // 5. Bind de impresión
@@ -7533,6 +7950,64 @@ async function renderProgramacion(){
   }
 }
 
+function imprimirConsolidadoMP(desde, hasta, resultado) {
+  const fechaHoy = new Date().toLocaleString('es-CO');
+  
+  let tabla = '<table class="print-table" style="width:100%; border-collapse:collapse; font-size:9.5pt; margin-top:15px;">';
+  tabla += '<thead><tr>';
+  tabla += '<th style="border:1px solid #000; padding:6px; background:#eee; text-align:left;">Código</th>';
+  tabla += '<th style="border:1px solid #000; padding:6px; background:#eee; text-align:left;">Insumo</th>';
+  tabla += '<th style="border:1px solid #000; padding:6px; background:#eee; text-align:right;">Requerido</th>';
+  tabla += '<th style="border:1px solid #000; padding:6px; background:#eee; text-align:right;">En Stock</th>';
+  tabla += '<th style="border:1px solid #000; padding:6px; background:#eee; text-align:right;">A Comprar</th>';
+  tabla += '<th style="border:1px solid #000; padding:6px; background:#eee; text-align:center;">Estado</th>';
+  tabla += '</tr></thead><tbody>';
+
+  resultado.forEach(r => {
+    const u = unidadConsumo(r.ins);
+    // Si el faltante es 0, no mostramos el número sino un guion
+    const txtFaltante = r.faltante > 0 ? `${num(r.faltante, 4)} ${u}` : '—';
+    const colorFaltante = r.faltante > 0 ? '#dc3545' : '#28a745';
+    
+    tabla += `<tr>
+      <td style="border:1px solid #000; padding:6px; font-family:monospace;">${r.ins.codigo}</td>
+      <td style="border:1px solid #000; padding:6px;">${r.ins.nombre}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:right;">${num(r.requerido, 4)} ${u}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:right;">${num(r.stock, 4)} ${u}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:right; font-weight:bold; color:${colorFaltante};">${txtFaltante}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center;">${r.faltante > 0 ? 'Comprar' : 'Cubierto'}</td>
+    </tr>`;
+  });
+
+  tabla += '</tbody></table>';
+
+  const firmas = `
+    <div class="print-signatures" style="grid-template-columns: 1fr 1fr; margin-top:60px;">
+      <div class="print-signature">
+        <div class="name">JEFE DE COMPRAS</div>
+      </div>
+      <div class="print-signature">
+        <div class="name">COORDINADOR DE PRODUCCIÓN</div>
+      </div>
+    </div>
+  `;
+
+  const html = printHeaderHTML('CONSOLIDADO DE MATERIAS PRIMAS', `Semana del ${desde} al ${hasta}`)
+    + `<div style="font-size:9pt; color:#555; margin-bottom:10px;">Generado el: ${fechaHoy}</div>`
+    + tabla
+    + firmas
+    + printFooterHTML();
+
+  const cssPrint = `
+    @page { size: letter portrait; margin: 15mm; }
+    body { padding: 0; font-family: Arial, Helvetica, sans-serif; }
+    .print-header { margin-bottom: 20px; }
+    .print-table td { font-size: 9.5pt; }
+  `;
+
+  imprimirHTML(html, 'Consolidado Materias Primas', cssPrint);
+}
+
 async function renderConsolidado(){
   const main=document.getElementById('mainContent');
   main.innerHTML='<div class="empty-state">Cargando datos de consolidado…</div>';
@@ -7545,11 +8020,11 @@ async function renderConsolidado(){
     const diaSemana = hoy.getDay() || 7; 
     const lunes = new Date(hoy);
     lunes.setDate(hoy.getDate() - diaSemana + 1);
-    const domingo = new Date(lunes);
-    domingo.setDate(lunes.getDate() + 6);
+    const viernes = new Date(lunes);
+    viernes.setDate(lunes.getDate() + 4); // Solo de Lunes a Viernes
     
     const defaultDesde = lunes.toISOString().slice(0,10);
-    const defaultHasta = domingo.toISOString().slice(0,10);
+    const defaultHasta = viernes.toISOString().slice(0,10);
 
     main.innerHTML=`
       <div class="page-header-flex">
@@ -7708,9 +8183,7 @@ async function renderConsolidado(){
           };
 
           document.getElementById('btnConsPrint').onclick = function() {
-            // Aquí iría la lógica de impresión usando imprimirHTML()
-            // Lo dejamos para el siguiente paso si lo necesitas.
-            toast('Usa el navegador para imprimir (Ctrl+P)', 'info');
+            imprimirConsolidadoMP(desde, hasta, resultado);
           };
 
         } catch(e) { box.innerHTML = '<div class="empty-state">Error: '+e.message+'</div>'; }

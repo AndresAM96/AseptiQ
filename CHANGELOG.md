@@ -1,3 +1,16 @@
+## [2.1.0] — Octubre 2026
+
+### Añadido
+- **Órdenes Multi-día**: Soporte para `fecha_fin_programada` en OPs. El Kanban y el PDF ahora indican "Iniciar", "Continuar" o "Terminar" según corresponda al día.
+- **Formato SGC de Proveedores**: Formulario de evaluación (CYC-GEF-FR-06) con cálculo de promedio, sugerencia de calidad y generación de PDF oficial para firmas.
+- **Consolidado de MP**: Generación de PDF profesional para el reporte de faltantes por semana.
+- **Programación Semanal**: Filtros rápidos (Semana anterior, actual, siguiente), restricción del calendario a Lunes-Viernes y firmas actualizadas en el PDF (Producción, Logística, Gerencia).
+
+### Cambiado
+- Se eliminó el bloqueo de creación de OPs cuando hay faltantes de stock (ahora se crean en estado Pendiente y pasan al Consolidado de Compras).
+- El modal de Cobertura ahora se apila correctamente sobre el de Nueva OP.
+- El prefijo "O.P." fue eliminado del PDF de programación para evitar redundancia con el código (Ej: OP-0001).
+
 ## [2.0.0] — Octubre 2026
 
 ### Añadido

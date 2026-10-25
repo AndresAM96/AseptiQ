@@ -1,0 +1,55 @@
+1. ¿Cuándo se debe realizar esta evaluación?
+Se debe realizar a todos los proveedores críticos (que suministran materia prima directa) al menos una vez al año, o cuando ocurra un evento significativo (ej. una devolución mayor al 5%, o un retraso grave en la entrega).
+
+2. ¿Cómo calificar los criterios? (Puntaje de 0.0 a 5.0)
+
+Cumplimiento y Entrega:
+
+4.5 - 5.0: Excelente/Bueno (Entrega a tiempo o antes).
+
+3.0 - 3.8: Regular (Retraso menor al 20% del tiempo pactado).
+
+0.0 - 2.9: No cumple (Retraso mayor al 20%).
+
+Calidad y Especificaciones Técnicas:
+
+4.5 - 5.0: Excelente/Bueno (Cumple los requisitos).
+
+3.0 - 3.8: Regular (Faltó a especificaciones pero las subsanó).
+
+0.0 - 2.9: No cumple (Inconformidades graves, afectación a la compañía).
+
+Servicio Postventa:
+
+4.5 - 5.0: Excelente/Bueno (Proactivo y atento).
+
+3.0 - 3.8: Regular (Atiende a regañadientes).
+
+0.0 - 2.9: No cumple (Desatiende requerimientos).
+
+Certificado de Fumigación (Si Aplica):
+
+Si el proveedor envía el certificado: 3.9 - 5.0.
+
+Si aplica pero NO lo envía: 3.0 - 3.8.
+
+Si no aplica (ej. proveedor de servicios): Se omite o se califica con 5.0 para no afectar el promedio.
+
+Precio:
+
+3.0 - 5.0: Competitivo en el mercado.
+
+0.0 - 2.9: No competitivo.
+
+3. ¿Cómo interpretar el resultado final (Promedio)?
+
+4.5 a 5.0 (Excelente): Proveedor confiable. Se mantiene en lista.
+
+3.9 a 4.4 (Bueno): Proveedor confiable.
+
+3.0 a 3.8 (Regular): Condicionado. Debe presentar un plan de mejora para continuar en la lista.
+
+0.0 a 2.9 (No Confiable): Restringido. Se debe buscar un reemplazo.
+
+4. ¿Quién firma?
+El formato debe ser impreso y firmado por la Coordinadora de Operaciones y el Responsable de Compras/Calidad.
