@@ -2250,8 +2250,8 @@ function initInactivityTracker() {
 
 async function renderTab(tab){
   const main=document.getElementById('mainContent');
-  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',consolidado:'Cargando consolidado…',programacion:'Cargando programación…',evaluacion_prov:'Cargando evaluación…',bodega:'Cargando bodega…',ordenes_compra:'Cargando órdenes…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
-  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,consolidado:renderConsolidado,programacion:renderProgramacion,evaluacion_prov:renderEvaluacionProv,bodega:renderBodega,ordenes_compra:renderOrdenesCompra,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
+  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',despachos:'Cargando despachos…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',consolidado:'Cargando consolidado…',programacion:'Cargando programación…',evaluacion_prov:'Cargando evaluación…',bodega:'Cargando bodega…',ordenes_compra:'Cargando órdenes…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
+  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,despachos:renderDespachos,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,consolidado:renderConsolidado,programacion:renderProgramacion,evaluacion_prov:renderEvaluacionProv,bodega:renderBodega,ordenes_compra:renderOrdenesCompra,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
   main.innerHTML='<div class="empty-state">Cargando…</div>';
   showLoader(nombres[tab]||'Cargando…');
   try{
@@ -6560,6 +6560,244 @@ function abrirModalNuevoProveedor(){
 }
 
 /* ============ DEVOLUCIONES (a proveedor y de PT) ============ */
+async function renderDespachos(){
+  const main=document.getElementById('mainContent');
+  const hoy = new Date().toISOString().slice(0,10);
+  main.innerHTML='<div class="empty-state">Cargando despachos…</div>';
+
+  try{
+    const [despachos, productos] = await Promise.all([
+      api('despachos?select=*,productos_terminados(nombre,unidades_por_caja)&order=fecha.desc,creado_en.desc&limit=100'),
+      api('productos_terminados?select=codigo_pt,nombre,unidades_por_caja,existencia_actual&estado_activo=eq.true&order=nombre')
+    ]);
+
+    main.innerHTML=`
+      <div class="page-header-flex">
+        <div>
+          <h2 class="page-title">Despachos y Entregas</h2>
+          <p class="page-sub">Registra la salida de producto terminado hacia los clientes.</p>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="secondary" id="btnPrintDespachos">${icono('printer','sm')} Imprimir Reporte del Día</button>
+          <button class="btn-add require-write" id="btnNuevoDespacho" title="Registrar Despacho">+</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Historial de Despachos</h3></div>
+        <div class="search-box"><input id="buscar_despachos" placeholder="Buscar por cliente, producto o lote…"></div>
+        
+        ${despachos.length === 0 ? '<div class="empty-state">No hay despachos registrados.</div>' : `
+        <table id="tablaDespachos">
+          <thead><tr>
+            <th>Fecha</th>
+            <th>Cliente</th>
+            <th>Producto</th>
+            <th class="num">Cant.</th>
+            <th>Lote OP</th>
+            <th>Consecutivo</th>
+            <th>OC</th>
+          </tr></thead>
+          <tbody>
+            ${despachos.map(d => {
+              const prod = d.productos_terminados ? d.productos_terminados.nombre : d.codigo_pt;
+              return `<tr>
+                <td class="mono" style="font-size:12px;">${new Date(d.fecha+'T12:00:00').toLocaleDateString('es-CO')}</td>
+                <td style="font-weight:600;">${d.cliente}</td>
+                <td>${prod}</td>
+                <td class="num">${num(d.cantidad)}</td>
+                <td class="mono" style="font-size:11px;">${d.lote_op || '—'}</td>
+                <td class="mono" style="font-size:11px;">${d.consecutivo || '—'}</td>
+                <td class="mono" style="font-size:11px;">${d.oc || '—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`}
+      </div>
+    `;
+
+    filtrarTabla('buscar_despachos', 'tablaDespachos');
+
+    document.getElementById('btnNuevoDespacho').addEventListener('click', function() {
+      abrirModalNuevoDespacho(productos);
+    });
+
+    document.getElementById('btnPrintDespachos').addEventListener('click', function() {
+      imprimirReporteDespachos(despachos, hoy);
+    });
+
+  } catch(e) {
+    main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+  }
+}
+
+function abrirModalNuevoDespacho(productos) {
+  const hoy = new Date().toISOString().slice(0,10);
+  abrirModalGenerico({
+    title:'Registrar Nuevo Despacho',
+    subtitle:'El sistema descontará el stock del producto terminado.',
+    icon: icono('truck','lg'),
+    variant: 'info',
+    size: 'md',
+    body: `
+      <div class="form-grid labels-bottom" style="padding:0;">
+        <div><label>Cliente</label><input id="desp_cliente" placeholder="Nombre del cliente o destino"></div>
+        <div>
+          <label>Producto Terminado</label>
+          <select id="desp_pt">${productos.map(p => `<option value="${p.codigo_pt}" data-stock="${p.existencia_actual}" data-caja="${p.unidades_por_caja||1}">${p.nombre} (Stock: ${num(p.existencia_actual)})</option>`).join('')}</select>
+        </div>
+        <div><label>Cantidad</label><input id="desp_cantidad" type="number" min="1" placeholder="0"></div>
+        <div><label>Lote OP</label><input id="desp_lote" placeholder="Ej: 3619"></div>
+        <div><label>Consecutivo</label><input id="desp_consecutivo" placeholder="Ej: 134 (1), 141 (6)"></div>
+        <div><label>Orden de Compra (OC)</label><input id="desp_oc" placeholder="Ej: 80089"></div>
+        <div><label>Fecha</label><input id="desp_fecha" type="date" value="${hoy}"></div>
+        <div><label>Fecha Vencimiento (MM/YY)</label><input id="desp_fv" placeholder="Ej: 08/29"></div>
+        <div class="full-span"><label>Observaciones</label><input id="desp_obs" placeholder="Observaciones de entrega..."></div>
+      </div>`,
+    footer: `<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;">
+      <button class="ghost" id="desp_cancelar">Cancelar</button>
+      <button id="desp_guardar">Registrar Despacho</button>
+    </div>`,
+    onOpen: function() {
+      document.getElementById('desp_cancelar').onclick = cerrarModalGenerico;
+      
+      document.getElementById('desp_guardar').onclick = async function(ev) {
+        const cliente = document.getElementById('desp_cliente').value.trim();
+        const pt = document.getElementById('desp_pt').value;
+        const cantidad = parseFloat(document.getElementById('desp_cantidad').value);
+        const lote = document.getElementById('desp_lote').value.trim() || null;
+        const cons = document.getElementById('desp_consecutivo').value.trim() || null;
+        const oc = document.getElementById('desp_oc').value.trim() || null;
+        const fecha = document.getElementById('desp_fecha').value;
+        const fv = document.getElementById('desp_fv').value.trim() || null;
+        const obs = document.getElementById('desp_obs').value.trim() || null;
+
+        if(!cliente) { toast('El nombre del cliente es obligatorio.', 'error'); return; }
+        if(!pt || !cantidad || cantidad <= 0) { toast('Selecciona un producto y una cantidad válida.', 'error'); return; }
+
+        try {
+          await withLoading(ev.currentTarget, async function() {
+            await rpc('registrar_despacho', {
+              p_codigo_pt: pt,
+              p_cantidad: cantidad,
+              p_cliente: cliente,
+              p_lote_op: lote,
+              p_consecutivo: cons,
+              p_oc: oc,
+              p_fecha: fecha,
+              p_fecha_vencimiento: fv,
+              p_observaciones: obs
+            });
+          });
+          toast('Despacho registrado correctamente.', 'success');
+          cerrarModalGenerico();
+          renderDespachos();
+        } catch (error) {
+          toast(error.message, 'error'); // Muestra el error real en un toast rojo
+        }
+      };
+    }
+  });
+}
+
+function imprimirReporteDespachos(despachos, fechaFiltro) {
+  // Filtrar solo los del día seleccionado (por defecto hoy)
+  const despachosDelDia = despachos.filter(d => d.fecha === fechaFiltro);
+  
+  if (despachosDelDia.length === 0) {
+    toast('No hay despachos para la fecha de hoy.', 'info');
+    return;
+  }
+
+  const fechaFormat = new Date(fechaFiltro + 'T12:00:00').toLocaleDateString('es-CO');
+  
+  let tabla = '<table class="print-table" style="width:100%; border-collapse:collapse; font-size:9pt;">';
+  tabla += '<thead><tr>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:left;">ITEM</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:left;">CÓDIGO PT</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:center;">FV</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:right;">UND.</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:right;">CAJAS</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:center;">LOTE OP</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:center;">CONSECUTIVO</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:center;">OC</th>';
+  tabla += '<th style="border:1px solid #000; background:#a5c7e9; padding:6px; text-align:left;">CLIENTE</th>';
+  tabla += '</tr></thead><tbody>';
+
+  despachosDelDia.forEach(d => {
+    const prod = d.productos_terminados ? d.productos_terminados.nombre : d.codigo_pt;
+    const caja = d.productos_terminados ? d.productos_terminados.unidades_por_caja : 1;
+    const cajas = caja > 1 ? Math.floor(d.cantidad / caja) : d.cantidad;
+    
+    tabla += `<tr>
+      <td style="border:1px solid #000; padding:6px;">${prod}</td>
+      <td style="border:1px solid #000; padding:6px; font-family:monospace;">${d.codigo_pt}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.fecha_vencimiento || '—'}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:right; font-family:monospace;">${num(d.cantidad)}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:right; font-family:monospace;">${num(cajas)}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.lote_op || '—'}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.consecutivo || '—'}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.oc || '—'}</td>
+      <td style="border:1px solid #000; padding:6px;">${d.cliente}</td>
+    </tr>`;
+  });
+
+  // Llenar filas vacías hasta 8 (opcional, para que se vea como el formato físico)
+  const filasRestantes = 8 - despachosDelDia.length;
+  if (filasRestantes > 0) {
+    for(let i=0; i<filasRestantes; i++) {
+      tabla += `<tr>
+        <td style="border:1px solid #000; padding:10px;"></td><td style="border:1px solid #000;"></td>
+        <td style="border:1px solid #000;"></td><td style="border:1px solid #000;"></td>
+        <td style="border:1px solid #000;"></td><td style="border:1px solid #000;"></td>
+        <td style="border:1px solid #000;"></td><td style="border:1px solid #000;"></td>
+        <td style="border:1px solid #000;"></td>
+      </tr>`;
+    }
+  }
+  tabla += '</tbody></table>';
+
+  const obs = despachosDelDia.map(d => d.observaciones).filter(Boolean).join(' | ');
+
+  const firmas = `
+    <div class="print-signatures" style="grid-template-columns: 1fr 1fr; margin-top:60px;">
+      <div class="print-signature">
+        <div class="name">JEFE DE LOGÍSTICA</div>
+      </div>
+      <div class="print-signature">
+        <div class="name">CONDUCTOR / RECIBE</div>
+      </div>
+    </div>
+  `;
+
+  const html = `
+    <div style="font-family: Arial; color:#000;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #1b75bb; padding-bottom:10px; margin-bottom:20px;">
+        <div><img src="logo-proclides.png" style="height:50px;"></div>
+        <div style="text-align:right; font-size:10pt;">
+          <b>Entregas para el día:</b> ${fechaFormat}
+        </div>
+      </div>
+      
+      ${tabla}
+
+      <div style="margin-top:20px; font-size:9.5pt;">
+        <b>Observaciones:</b><br>
+        <div style="border-bottom:1px solid #000; padding:10px 0; min-height:30px;">${obs || 'Sin observaciones adicionales.'}</div>
+      </div>
+
+      ${firmas}
+    </div>
+  `;
+
+  const cssPrint = `
+    @page { size: letter landscape; margin: 15mm; }
+    body { padding: 0; font-family: Helvetica, Arial, sans-serif; }
+  `;
+
+  imprimirHTML(html, 'Despachos Diarios', cssPrint);
+}
+
 async function renderDevoluciones(){
   const main=document.getElementById('mainContent');
   const [insumos,productos,proveedores,devolucionesProv,devolucionesPT]=await Promise.all([
@@ -6596,6 +6834,7 @@ async function renderDevoluciones(){
           <div><label>Insumo</label><select id="dev_insumo">${insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join(''):'<option value="">No hay insumos</option>'}</select></div>
           <div><label>Cantidad (<span id="dev_unidad_label">—</span>)</label><input id="dev_cantidad" type="number" step="0.0001" placeholder="0"></div>
           <div><label>Proveedor</label><select id="dev_proveedor"><option value="">— Selecciona —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
+          <div><label>Lote a devolver <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><select id="dev_lote"><option value="">— Cualquiera (LIFO) —</option></select></div>
           <div><label>Motivo <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="dev_motivo" placeholder="Ej: producto defectuoso"></div>
         </div>
         <div id="dev_preview" style="padding:0 18px 8px;font-size:12.5px;color:var(--text-secondary);"></div>
@@ -6675,9 +6914,24 @@ async function renderDevoluciones(){
       preview.innerHTML='Existencia actual: <strong>'+num(ins.existencia_actual)+' '+uC+'</strong> → después: <strong style="color:'+color+';">'+num(quedaria)+' '+uC+'</strong>';
     } else preview.innerHTML='Existencia actual: <strong>'+num(ins.existencia_actual)+' '+uC+'</strong>';
   }
-  selInsumo.addEventListener('change',actualizarContexto);
+  const selLote = document.getElementById('dev_lote');
+  
+  async function cargarLotesDevolucion() {
+    selLote.innerHTML = '<option value="">— Cualquiera (LIFO) —</option>';
+    const insId = selInsumo.value;
+    if(!insId) return;
+    try {
+      const lotes = await api('insumo_lotes?insumo_id=eq.'+insId+'&cantidad_actual=gt.0&select=lote,cantidad_actual&order=primer_ingreso.desc');
+      lotes.forEach(l => {
+        selLote.innerHTML += `<option value="${l.lote}">${l.lote} (${num(l.cantidad_actual)} disp.)</option>`;
+      });
+    } catch(e) { console.warn('Error cargando lotes', e); }
+  }
+
+  selInsumo.addEventListener('change',function(){ actualizarContexto(); cargarLotesDevolucion(); });
   inputCant.addEventListener('input',actualizarContexto);
   actualizarContexto();
+  cargarLotesDevolucion();
 
   document.getElementById('btnRegistrarDevolucion').addEventListener('click',async function(ev){
     const insumo_id=selInsumo.value;
@@ -6689,8 +6943,9 @@ async function renderDevoluciones(){
     if(!cantidad||cantidad<=0){toast('Ingresa una cantidad válida.','error');return;}
     if(!await confirmar({title:'Registrar devolución a proveedor',message:'Se van a descontar '+num(cantidad)+' del insumo seleccionado.',icon:'↩',variant:'warn',okText:'Registrar'})) return;
     try{
+      const lote = selLote ? selLote.value : null;
       const r=await withLoading(ev.currentTarget,async function(){
-        return await rpc('registrar_devolucion',{p_insumo_id:insumo_id,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_motivo:motivo});
+        return await rpc('registrar_devolucion',{p_insumo_id:insumo_id,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_motivo:motivo,p_lote:lote});
       });
       toast('Devolución registrada. Existencia: '+num(r.existencia_nueva),'success');
       renderDevoluciones();
@@ -8822,16 +9077,16 @@ async function ejecutarTrazaForward(data,codigoPT,cantidad){
 
   box.innerHTML='<div class="empty-state">Analizando insumos y lotes…</div>';
 
-  /* Cargar lotes por insumo desde insumo_lotes (agregado, más preciso) */
+  /* Cargar lotes ACTUALES por insumo desde insumo_lotes (Usando cantidad_actual) */
   let lotesPorInsumo={};
   try{
-    const lotes=await api('insumo_lotes?select=insumo_id,lote,cantidad_recibida,costo_unitario,ultimo_ingreso,sys_proveedores(razon_social)&order=ultimo_ingreso.desc&limit=2000');
+    const lotes=await api('insumo_lotes?select=insumo_id,lote,cantidad_actual,costo_unitario,ultimo_ingreso,sys_proveedores(razon_social)&cantidad_actual=gt.0&order=ultimo_ingreso.desc&limit=2000');
     lotes.forEach(function(l){
       if(!l.lote) return;
       if(!lotesPorInsumo[l.insumo_id]) lotesPorInsumo[l.insumo_id]=[];
       lotesPorInsumo[l.insumo_id].push({
         lote_insumo: l.lote,
-        cantidad: l.cantidad_recibida,
+        cantidad: l.cantidad_actual, // Ahora muestra el SALDO actual, no lo histórico
         sys_proveedores: l.sys_proveedores
       });
     });

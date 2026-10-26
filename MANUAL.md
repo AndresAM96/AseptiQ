@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 2.1
+**Versión:** 2.4
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -90,9 +90,9 @@ Si intentás una acción no permitida, aparece: *"Tu rol es Consulta — solo le
 
 **Sidebar (izquierda):** menú organizado en 4 grupos:
 
-- **Operación**: Dashboard, Cargar orden, Novedades, Entrada mercancía, Devoluciones.
+- **Operación**: Dashboard, Cargar orden, Novedades, Entrada mercancía, Devoluciones, Despachos, Bodega PT.
 - **Catálogo**: Insumos, Productos & BOM, Proveedores.
-- **Análisis**: Auditoría, Kardex, Compras, Mermas, Histórico, Costos OP, Rentabilidad.
+- **Logística y Calidad**: Programación, Consolidado MP, Órdenes de Compra, Trazabilidad, Auditoría, Evaluación Prov., Kardex, Compras, Mermas, Histórico, Costos OP, Rentabilidad.
 - **Sistema**: Configuración, Backup, Usuarios.
 
 Solo un grupo abierto a la vez. Al hacer click en otro, se cierra el anterior.
@@ -146,10 +146,6 @@ Cada item es clickeable y **lleva al módulo ya filtrado** (solo urgentes, solo 
 - **Cantidad** (unidades).
 - **Prioridad**: Muy alta / Alta / Normal / Baja. Por defecto Normal.
 - **Fecha programada**: opcional.
-
-**Los paneles se pueden colapsar:** cada panel tiene un botón `▾` arriba a la derecha. Algunos paneles arrancan expandidos por defecto (listados, KPIs y resúmenes) y otros colapsados (prefijos, unidades, umbrales). El estado se recuerda en el navegador.
-
-**Modales:** los formularios de creación y edición se abren en modales. Buscá el botón `+` en la esquina superior derecha de cada listado (Insumos, Productos & BOM, Proveedores, Configuración → Unidades y Umbrales), o el botón `+ Registrar salida` en Auditoría.
 
 **Órdenes registradas:**
 
@@ -264,23 +260,9 @@ Cada PT guarda la información necesaria para imprimir su etiqueta:
 6. Si es variable, rendimiento real.
 7. **Registrar entrada** → recalcula costo promedio.
 
-**Recibir varios lotes:** si el insumo viene en rollos o unidades cada uno con su propio lote (típico en Tela SMS), click en **"Recibir varios lotes (uno por línea)"** debajo del campo Lote. Aparece un textarea grande donde pegás un lote por línea:
+**Recibir varios lotes:** si el insumo viene en rollos o unidades cada uno con su propio lote (típico en Tela SMS), click en **"Recibir varios lotes"** debajo del campo Lote. Ahora puedes agregar filas individuales de `[Lote] [Cantidad]` para registrar metrajes distintos.
 
-````
-LOTE-001
-LOTE-002
-LOTE-003
-````
-
-La cantidad total se divide por igual entre los N lotes. La cantidad total se registra como una sola entrada de inventario, pero cada lote queda en el historial del insumo. Para volver al modo normal, click en "Volver a un solo lote".
-
-**Tipo subproducto:**
-
-Igual que antes, pero el campo de lote se llama **"Lote de producción"** y es el que identifica la tanda interna que estás fabricando.
-
-**Tipo subproducto:**
-
-Produce internamente. Descuenta insumos e hijos según la receta.
+**Control de Calidad (FO-AP-04):** en el formulario de entrada, selecciona la decisión de calidad (Aprobado, Rechazado, Cuarentena) y escribe observaciones. En el historial de entradas, haz clic en el ícono de la impresora para generar el formato oficial FO-AP-04.
 
 ### 6.7 Devoluciones
 
@@ -460,6 +442,13 @@ Muestra un tablero (tipo Kanban) con los 5 días hábiles (Lunes a Viernes) y la
 
 Analiza el historial de compras y devoluciones de cada proveedor.
 - **Tasa de Devolución**: Mide el porcentaje del valor comprado que tuvo que ser devuelto. Si supera el 5%, el proveedor se marca como "Crítico".
+
+### 6.24 Despachos (Salidas a Clientes)
+
+Registra la entrega de producto terminado (PT) a los clientes.
+- Hacé clic en **+** para registrar un nuevo despacho. Descuenta el stock del inventario automáticamente.
+- El botón **"Imprimir Reporte del Día"** genera el documento con formato apaisado, el listado de entregas de la fecha, observaciones y las firmas del Jefe de Logística y del Conductor.
+- El formato incluye columnas para Lote OP, Consecutivo y OC (Orden de Compra), tomados directamente de los datos ingresados.
 
 ---
 

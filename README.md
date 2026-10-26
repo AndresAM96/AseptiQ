@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v2.3.0** — Producción · Octubre 2026
+**v2.4.0** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -40,6 +40,8 @@ AseptiQ administra el flujo completo de manufactura:
 - **Planificación y Calidad**: Órdenes de producción multi-día (Iniciar/Continuar/Terminar), Formato oficial SGC para Evaluación de Proveedores y PDF del Consolidado de Materias Primas.
 - **Control de Inventario en Entregas**: El descuento de materia prima y subproductos ahora se realiza al momento de registrar la entrega de la OP (no al crearla). Si no hay subproducto en stock, el sistema produce al vuelo consumiendo la materia prima.
 - **Calidad y Almacenamiento**: Módulo de Bodega PT con Mapa Visual (zonificación por escaneo QR), formato oficial FO-AP-04 para entrada de insumos y redondeo dinámico de unidades en recetas.
+- **Trazabilidad FIFO Estricta**: Descuento exacto de lotes por antigüedad (FIFO) al entregar OPs, producir subproductos o ajustar inventario.
+- **Módulo de Despachos**: Salida de producto terminado a clientes con generación de formato de entregas diarias y firmas de recibido.
 - **Trazabilidad de Compras**: Registro de Factura, Orden de Compra (OC), Entrada de Almacén y saldos pendientes en las entradas de mercancía.
 - **Modales apilados**: se pueden abrir modales dentro de otros modales sin perder los datos (ej. crear un subproducto mientras se edita un PT).
 - **Gestión de PT mejorada**: código de barras, plantilla, vida útil y registro INVIMA directo en el formulario.
@@ -93,6 +95,8 @@ Resumen rápido:
 | Operación | Novedades | OP activas con progreso |
 | Operación | Entrada mercancía | Insumos (compra) y subproductos (producción) |
 | Operación | Devoluciones | A proveedor (insumos) y de cliente (PT) |
+| Operación | Despachos | Salidas a clientes y reporte de entregas diarias |
+| Operación | Bodega PT | Zonificación visual de cajas por escaneo QR |
 | Catálogo | Insumos | Materia prima con conversiones |
 | Catálogo | Productos & BOM | Subproductos y paquetes |
 | Catálogo | Proveedores | Maestro de proveedores |
@@ -104,6 +108,10 @@ Resumen rápido:
 | Análisis | Costos OP | Teórico vs real |
 | Análisis | Rentabilidad | Margen por producto |
 | Análisis | Trazabilidad | Lotes end-to-end (forward / backward) |
+| Análisis | Consolidado MP | Requerimiento de materias primas (MRP) |
+| Análisis | Programación | Kanban semanal con tareas y entregas |
+| Análisis | Evaluación Prov | Formato SGC (CYC-GEF-FR-06) y métricas |
+| Análisis | Órdenes de Compra | Seguimiento de OCs y saldos pendientes |
 | Sistema | Configuración | Prefijos, unidades, umbrales |
 | Sistema | Backup | Exportación de datos |
 | Sistema | Usuarios | Gestión de roles |
@@ -139,8 +147,8 @@ Resumen rápido:
 - [x] Configuración en backend + notificaciones con vistas/silenciar
 - [x] Lotes por insumo (agregado, sin FIFO)
 - [x] Códigos sugeridos con auto-select y formato de 4 dígitos
-- [ ] FIFO estricto con asignación de lote por consumo
-- [ ] Formato INVIMA de recibo de mercancía
+- [x] FIFO estricto con asignación de lote por consumo
+- [x] Formato INVIMA de recibo de mercancía (FO-AP-04)
 - [ ] Port a .NET (Blazor / MAUI)
 
 ## Documentación

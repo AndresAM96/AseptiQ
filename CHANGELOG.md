@@ -1,3 +1,23 @@
+## [2.4.0] — Octubre 2026
+
+### Añadido
+- **FIFO Estricto**: El consumo de insumos ahora descuenta de los lotes más antiguos primero. La función `consumir_insumo_fifo` maneja esto y registra en el Kardex de qué lote salió cada unidad.
+- **Módulo de Despachos**: Nueva pantalla para registrar salidas de producto terminado a clientes. Incluye generación del PDF "Reporte de Entregas Diarias" con firmas del Jefe de Logística y Conductor.
+- **Mapa Visual de Bodega**: Agrupación de cajas por ubicación física en el módulo de Zonificación.
+- **Consolidado de MP**: Generación de PDF con los requerimientos de materias primas por semana.
+- **Multi-lote en Entrada**: Capacidad de recibir un insumo dividiéndolo en varias filas con cantidades individuales por lote.
+- **Formato FO-AP-04**: Generación del formato oficial de recibo de mercancía con casillas de Aprobado/Rechazado/Cuarentena.
+
+### Cambiado
+- **Rediseño de Programación Semanal**: Ajustado a 5 días hábiles (Lunes a Viernes), con soporte para OPs multi-día (Iniciar/Continuar/Terminar) y firmas de Producción, Logística y Gerencia.
+- **Sidebar**: Reorganizado en Operación, Catálogo, Logística y Calidad (absorbe Análisis), y Sistema.
+- **Schema.sql**: Consolidación de todas las migraciones v1.3.0 a v2.4.0 en un solo archivo para facilitar nuevas instalaciones.
+
+### Corregido
+- Fix en `registrar_entrega_op`: ahora suma correctamente el Producto Terminado al stock al finalizar una OP.
+- Fix en Modal "Nueva OP" que se quedaba detrás del modal de Cobertura.
+- Fix de redondeo a enteros en insumos con unidades discretas (UND, CAJA, etc.) en el cálculo de cobertura.
+
 ## [2.3.0] — Octubre 2026
 
 ### Añadido

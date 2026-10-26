@@ -1,7 +1,7 @@
 -- =============================================================
 -- AseptiQ — Schema completo de backend
--- Versión: 1.2.0
--- Fecha: 2026-10-09
+-- Versión: 2.4.0
+-- Fecha: 2026-10-25
 -- =============================================================
 -- Este archivo crea TODA la infraestructura del backend:
 --   · 14 tablas con constraints e índices
@@ -872,3 +872,360 @@ CREATE POLICY backup_log_insert ON public.backup_log FOR INSERT TO authenticated
 -- =============================================================
 -- FIN DEL SCHEMA
 -- =============================================================
+
+-- =============================================================
+-- MIGRACIONES CONSOLIDADAS (v1.3.0 a v2.4.0)
+-- =============================================================
+
+-- 1. NUEVAS TABLAS
+CREATE TABLE IF NOT EXISTS public.etiquetas_impresas (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  codigo_pt text REFERENCES public.productos_terminados(codigo_pt) ON DELETE CASCADE,
+  lote text,
+  cantidad_paquetes int,
+  cantidad_cajas int,
+  usuario_email text,
+  fecha timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.devoluciones_pt (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  codigo_pt text NOT NULL REFERENCES public.productos_terminados(codigo_pt),
+  cantidad numeric NOT NULL CHECK (cantidad > 0),
+  estado_producto text NOT NULL DEFAULT 'bueno' CHECK (estado_producto IN ('bueno','dañado','cuarentena')),
+  motivo text,
+  usuario_id uuid,
+  usuario_email text,
+  fecha timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.evaluaciones_proveedores (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  proveedor_id uuid REFERENCES public.sys_proveedores(id) ON DELETE CASCADE,
+  proveedor_nombre text,
+  proveedor_nit text,
+  fecha date DEFAULT CURRENT_DATE,
+  evaluador_email text,
+  nota_entrega numeric(3,1) DEFAULT 5.0,
+  nota_calidad numeric(3,1) DEFAULT 5.0,
+  nota_postventa numeric(3,1) DEFAULT 5.0,
+  nota_fumigacion numeric(3,1) DEFAULT 5.0,
+  nota_precio numeric(3,1) DEFAULT 5.0,
+  promedio numeric(3,2),
+  resultado text,
+  observaciones text,
+  creado_en timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.insumo_lotes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  insumo_id uuid NOT NULL REFERENCES public.insumos(id) ON DELETE CASCADE,
+  lote text NOT NULL,
+  cantidad_recibida numeric NOT NULL DEFAULT 0,
+  cantidad_actual numeric NOT NULL DEFAULT 0,
+  costo_unitario numeric,
+  proveedor_id uuid REFERENCES public.sys_proveedores(id) ON DELETE SET NULL,
+  primer_ingreso timestamptz NOT NULL DEFAULT now(),
+  ultimo_ingreso timestamptz NOT NULL DEFAULT now(),
+  notas text,
+  creado_en timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (insumo_id, lote)
+);
+
+CREATE TABLE IF NOT EXISTS public.despachos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  codigo_pt text REFERENCES public.productos_terminados(codigo_pt) ON DELETE CASCADE,
+  cantidad numeric NOT NULL CHECK (cantidad > 0),
+  lote_op text,
+  consecutivo text,
+  oc text,
+  cliente text NOT NULL,
+  fecha date DEFAULT CURRENT_DATE,
+  fecha_vencimiento text,
+  observaciones text,
+  usuario_email text,
+  creado_en timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.cajas_ubicacion (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  codigo_caja text UNIQUE NOT NULL,
+  codigo_pt text REFERENCES public.productos_terminados(codigo_pt) ON DELETE CASCADE,
+  ubicacion text NOT NULL,
+  estado text DEFAULT 'En bodega',
+  usuario_email text,
+  actualizado_en timestamptz DEFAULT now(),
+  creado_en timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.sys_config (
+  id integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  actualizado_en timestamptz NOT NULL DEFAULT now(),
+  actualizado_por uuid,
+  actualizado_por_email text
+);
+
+-- 2. NUEVAS COLUMNAS
+ALTER TABLE public.productos_terminados 
+  ADD COLUMN IF NOT EXISTS codigo_barras text,
+  ADD COLUMN IF NOT EXISTS plantilla_etiqueta text DEFAULT 'esteril_proclides',
+  ADD COLUMN IF NOT EXISTS vida_util_meses integer DEFAULT 35,
+  ADD COLUMN IF NOT EXISTS registro_invima text;
+
+ALTER TABLE public.movimientos_inventario
+  ADD COLUMN IF NOT EXISTS estado_calidad text DEFAULT 'Aprobado',
+  ADD COLUMN IF NOT EXISTS observaciones_calidad text,
+  ADD COLUMN IF NOT EXISTS numero_factura text,
+  ADD COLUMN IF NOT EXISTS numero_oc text,
+  ADD COLUMN IF NOT EXISTS numero_entrada_almacen text,
+  ADD COLUMN IF NOT EXISTS cantidad_pendiente_oc numeric,
+  ADD COLUMN IF NOT EXISTS lote_insumo text;
+
+ALTER TABLE public.ordenes_semanales 
+  ADD COLUMN IF NOT EXISTS fecha_fin_programada date;
+
+-- 3. CONSTRAINTS
+ALTER TABLE public.productos_terminados DROP CONSTRAINT IF EXISTS productos_terminados_plantilla_etiqueta_check;
+ALTER TABLE public.productos_terminados ADD CONSTRAINT productos_terminados_plantilla_etiqueta_check 
+  CHECK (plantilla_etiqueta IN ('esteril_proclides','esteril_allmed','noesteril_allmed','noesteril_proclides_grande','noesteril_proclides_mediana'));
+
+-- 4. FUNCIONES Y TRIGGERS
+
+-- 4.1 Trigger Lotes FIFO
+CREATE OR REPLACE FUNCTION public.mov_inv_sync_lotes() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE v_lote text;
+BEGIN
+  IF NEW.tipo = 'Entrada' AND NEW.insumo_id IS NOT NULL THEN
+    v_lote := COALESCE(NULLIF(trim(NEW.lote_insumo), ''), 'SIN LOTE');
+    IF NEW.lote_insumo IS NULL OR trim(NEW.lote_insumo) = '' THEN
+      UPDATE public.movimientos_inventario SET lote_insumo = v_lote WHERE id = NEW.id;
+    END IF;
+    INSERT INTO public.insumo_lotes (insumo_id, lote, cantidad_recibida, cantidad_actual, costo_unitario, proveedor_id, primer_ingreso, ultimo_ingreso)
+    VALUES (NEW.insumo_id, v_lote, COALESCE(NEW.cantidad, 0), COALESCE(NEW.cantidad, 0), NEW.costo_unitario_momento, NEW.proveedor_id, NEW.fecha, NEW.fecha)
+    ON CONFLICT (insumo_id, lote) DO UPDATE
+      SET cantidad_recibida = public.insumo_lotes.cantidad_recibida + EXCLUDED.cantidad_recibida,
+          cantidad_actual = public.insumo_lotes.cantidad_actual + EXCLUDED.cantidad_actual,
+          ultimo_ingreso = EXCLUDED.ultimo_ingreso,
+          costo_unitario = COALESCE(EXCLUDED.costo_unitario, public.insumo_lotes.costo_unitario),
+          proveedor_id = COALESCE(EXCLUDED.proveedor_id, public.insumo_lotes.proveedor_id);
+  END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS mov_inv_sync_lotes_trg ON public.movimientos_inventario;
+CREATE TRIGGER mov_inv_sync_lotes_trg AFTER INSERT ON public.movimientos_inventario FOR EACH ROW EXECUTE FUNCTION public.mov_inv_sync_lotes();
+
+-- 4.2 Trigger Sys Config
+CREATE OR REPLACE FUNCTION public.sys_config_actualizar_meta() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.actualizado_en := now();
+  NEW.actualizado_por := auth.uid();
+  SELECT email INTO NEW.actualizado_por_email FROM public.profiles WHERE user_id = auth.uid();
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS sys_config_meta ON public.sys_config;
+CREATE TRIGGER sys_config_meta BEFORE UPDATE ON public.sys_config FOR EACH ROW EXECUTE FUNCTION public.sys_config_actualizar_meta();
+
+-- 4.3 Función FIFO
+CREATE OR REPLACE FUNCTION public.consumir_insumo_fifo(p_insumo_id uuid, p_cantidad numeric, p_motivo text, p_orden_id uuid DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_restante numeric := p_cantidad; v_tomar numeric; v_lote record; v_detalle jsonb := '[]'::jsonb;
+BEGIN
+  FOR v_lote IN SELECT id, lote, cantidad_actual FROM public.insumo_lotes WHERE insumo_id = p_insumo_id AND cantidad_actual > 0 ORDER BY primer_ingreso ASC LOOP
+    IF v_restante <= 0 THEN EXIT; END IF;
+    v_tomar := LEAST(v_restante, v_lote.cantidad_actual);
+    UPDATE public.insumo_lotes SET cantidad_actual = cantidad_actual - v_tomar WHERE id = v_lote.id;
+    INSERT INTO public.movimientos_inventario (insumo_id, tipo, cantidad, motivo, orden_id, lote_insumo) VALUES (p_insumo_id, 'Consumo', v_tomar, p_motivo, p_orden_id, v_lote.lote);
+    v_restante := v_restante - v_tomar;
+    v_detalle := v_detalle || jsonb_build_object('lote', v_lote.lote, 'cantidad', v_tomar);
+  END LOOP;
+  IF v_restante > 0 THEN
+    INSERT INTO public.movimientos_inventario (insumo_id, tipo, cantidad, motivo, orden_id, lote_insumo) VALUES (p_insumo_id, 'Consumo', v_restante, p_motivo, p_orden_id, 'SIN LOTE');
+    v_detalle := v_detalle || jsonb_build_object('lote', 'SIN LOTE', 'cantidad', v_restante);
+  END IF;
+  UPDATE public.insumos SET existencia_actual = existencia_actual - p_cantidad WHERE id = p_insumo_id;
+  RETURN jsonb_build_object('consumo_detalle', v_detalle);
+END; $$;
+
+-- 4.4 Registrar Entrada (con lote)
+CREATE OR REPLACE FUNCTION public.registrar_entrada(p_insumo_id uuid, p_cantidad numeric, p_proveedor_id uuid, p_costo_unitario numeric, p_motivo text, p_rendimiento_real numeric, p_lote_insumo text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_result jsonb; v_mov_id uuid;
+BEGIN
+  v_result := public.registrar_entrada(p_insumo_id, p_cantidad, p_proveedor_id, p_costo_unitario, p_motivo, p_rendimiento_real);
+  IF p_lote_insumo IS NOT NULL AND length(trim(p_lote_insumo)) > 0 THEN
+    SELECT id INTO v_mov_id FROM public.movimientos_inventario WHERE insumo_id = p_insumo_id AND tipo = 'Entrada' ORDER BY fecha DESC LIMIT 1;
+    IF v_mov_id IS NOT NULL THEN UPDATE public.movimientos_inventario SET lote_insumo = trim(p_lote_insumo) WHERE id = v_mov_id; END IF;
+  END IF;
+  RETURN v_result;
+END; $$;
+GRANT EXECUTE ON FUNCTION public.registrar_entrada(uuid, numeric, uuid, numeric, text, numeric, text) TO authenticated;
+
+-- 4.5 Registrar Entrega OP (con FIFO y suma a PT)
+CREATE OR REPLACE FUNCTION public.registrar_entrega_op(p_orden_id uuid, p_cantidad numeric, p_lote_entrega text DEFAULT NULL, p_motivo text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_op record; v_detalle jsonb; v_ins record; v_sub record; v_receta record; v_cant_proporcional numeric; v_stock_actual numeric; v_faltante numeric; v_email text; v_producido_antes numeric; v_existencia_pt numeric;
+BEGIN
+  SELECT * INTO v_op FROM public.ordenes_semanales WHERE id = p_orden_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OP no encontrada'; END IF;
+  v_detalle := v_op.detalle_faltantes;
+  v_producido_antes := COALESCE(v_op.cantidad_producida, 0);
+  v_cant_proporcional := p_cantidad / v_op.cantidad_proyectada;
+  FOR v_sub IN SELECT * FROM jsonb_to_recordset(v_detalle->'subproductos') AS x(subproducto_id uuid, requerido numeric) LOOP
+    v_faltante := v_sub.requerido * v_cant_proporcional;
+    SELECT existencia_actual INTO v_stock_actual FROM public.subproductos WHERE id = v_sub.subproducto_id FOR UPDATE;
+    IF v_stock_actual >= v_faltante THEN
+      UPDATE public.subproductos SET existencia_actual = existencia_actual - v_faltante WHERE id = v_sub.subproducto_id;
+      INSERT INTO public.movimientos_inventario (subproducto_id, tipo, cantidad, motivo, orden_id) VALUES (v_sub.subproducto_id, 'Consumo', v_faltante, 'Consumo OP ' || COALESCE(v_op.numero_op,''), p_orden_id);
+    ELSE
+      IF v_stock_actual > 0 THEN
+        UPDATE public.subproductos SET existencia_actual = 0 WHERE id = v_sub.subproducto_id;
+        INSERT INTO public.movimientos_inventario (subproducto_id, tipo, cantidad, motivo, orden_id) VALUES (v_sub.subproducto_id, 'Consumo', v_stock_actual, 'Consumo OP ' || COALESCE(v_op.numero_op,''), p_orden_id);
+      END IF;
+      v_faltante := v_faltante - v_stock_actual;
+      FOR v_receta IN SELECT * FROM public.subproducto_recetas WHERE subproducto_id = v_sub.subproducto_id LOOP
+        PERFORM public.consumir_insumo_fifo(v_receta.insumo_id, (v_receta.cantidad_por_unidad * v_faltante), 'Auto-producción para OP ' || COALESCE(v_op.numero_op,''), p_orden_id);
+      END LOOP;
+    END IF;
+  END LOOP;
+  FOR v_ins IN SELECT * FROM jsonb_to_recordset(v_detalle->'insumos') AS x(insumo_id uuid, consumo_total numeric) LOOP
+    v_faltante := v_ins.consumo_total * v_cant_proporcional;
+    PERFORM public.consumir_insumo_fifo(v_ins.insumo_id, v_faltante, 'Consumo OP ' || COALESCE(v_op.numero_op,''), p_orden_id);
+  END LOOP;
+  SELECT email INTO v_email FROM public.profiles WHERE user_id = auth.uid();
+  INSERT INTO public.entregas_op (orden_id, cantidad, lote_entrega, motivo, usuario_email) VALUES (p_orden_id, p_cantidad, p_lote_entrega, p_motivo, v_email);
+  UPDATE public.productos_terminados SET existencia_actual = COALESCE(existencia_actual, 0) + p_cantidad WHERE codigo_pt = v_op.codigo_pt RETURNING existencia_actual INTO v_existencia_pt;
+  UPDATE public.ordenes_semanales SET cantidad_producida = v_producido_antes + p_cantidad, estado_op = CASE WHEN (v_producido_antes + p_cantidad) >= cantidad_proyectada THEN 'Terminada' ELSE 'En proceso' END, fecha_completado = CASE WHEN (v_producido_antes + p_cantidad) >= cantidad_proyectada THEN now() ELSE NULL END WHERE id = p_orden_id;
+  RETURN jsonb_build_object('ok', true, 'cantidad_producida', v_producido_antes + p_cantidad, 'op_cerrada', (v_producido_antes + p_cantidad) >= v_op.cantidad_proyectada, 'existencia_pt', v_existencia_pt);
+END; $$;
+
+-- 4.6 Producir Subproducto (con FIFO)
+CREATE OR REPLACE FUNCTION public.producir_subproducto(p_id uuid, p_cantidad numeric, p_lote text DEFAULT NULL, p_motivo text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_sub record; v_receta record; v_hijo record; v_items integer := 0; v_existencia_nueva numeric;
+BEGIN
+  SELECT * INTO v_sub FROM public.subproductos WHERE id = p_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Subproducto no encontrado'; END IF;
+  FOR v_receta IN SELECT insumo_id, cantidad_por_unidad FROM public.subproducto_recetas WHERE subproducto_id = p_id LOOP
+    PERFORM public.consumir_insumo_fifo(v_receta.insumo_id, (v_receta.cantidad_por_unidad * p_cantidad), 'Producción de ' || v_sub.nombre, NULL);
+    v_items := v_items + 1;
+  END LOOP;
+  FOR v_hijo IN SELECT subproducto_hijo_id, cantidad_por_unidad FROM public.subproducto_subproductos WHERE subproducto_padre_id = p_id LOOP
+    UPDATE public.subproductos SET existencia_actual = existencia_actual - (v_hijo.cantidad_por_unidad * p_cantidad) WHERE id = v_hijo.subproducto_hijo_id;
+    INSERT INTO public.movimientos_inventario (subproducto_id, tipo, cantidad, motivo) VALUES (v_hijo.subproducto_hijo_id, 'Consumo', (v_hijo.cantidad_por_unidad * p_cantidad), 'Producción de ' || v_sub.nombre);
+    v_items := v_items + 1;
+  END LOOP;
+  UPDATE public.subproductos SET existencia_actual = existencia_actual + p_cantidad WHERE id = p_id RETURNING existencia_actual INTO v_existencia_nueva;
+  INSERT INTO public.movimientos_inventario (subproducto_id, tipo, cantidad, motivo, lote_insumo) VALUES (p_id, 'Entrada', p_cantidad, COALESCE(p_motivo, 'Producción manual'), p_lote);
+  RETURN jsonb_build_object('existencia_nueva', v_existencia_nueva, 'items_afectados', v_items);
+END; $$;
+
+-- 4.7 Registrar Salida (FIFO)
+CREATE OR REPLACE FUNCTION public.registrar_salida(p_insumo_id uuid, p_cantidad numeric, p_motivo text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_insumo record; v_existencia_nueva numeric;
+BEGIN
+  SELECT * INTO v_insumo FROM public.insumos WHERE id = p_insumo_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Insumo no encontrado'; END IF;
+  PERFORM public.consumir_insumo_fifo(p_insumo_id, p_cantidad, 'Salida manual: ' || COALESCE(p_motivo,'Sin motivo'), NULL);
+  SELECT existencia_actual INTO v_existencia_nueva FROM public.insumos WHERE id = p_insumo_id;
+  RETURN jsonb_build_object('existencia_nueva', v_existencia_nueva);
+END; $$;
+
+-- 4.8 Registrar Devolución (LIFO/Lote)
+DROP FUNCTION IF EXISTS public.registrar_devolucion(uuid, numeric, uuid, text);
+CREATE OR REPLACE FUNCTION public.registrar_devolucion(p_insumo_id uuid, p_cantidad numeric, p_proveedor_id uuid, p_motivo text DEFAULT NULL, p_lote text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_insumo record; v_restante numeric := p_cantidad; v_tomar numeric; v_lote_rec record; v_existencia_nueva numeric;
+BEGIN
+  SELECT * INTO v_insumo FROM public.insumos WHERE id = p_insumo_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Insumo no encontrado'; END IF;
+  IF v_insumo.existencia_actual < p_cantidad THEN RAISE EXCEPTION 'No hay suficiente stock para devolver'; END IF;
+  IF p_lote IS NOT NULL THEN
+    UPDATE public.insumo_lotes SET cantidad_actual = cantidad_actual - p_cantidad WHERE insumo_id = p_insumo_id AND lote = p_lote;
+  ELSE
+    FOR v_lote_rec IN SELECT id, lote, cantidad_actual FROM public.insumo_lotes WHERE insumo_id = p_insumo_id AND cantidad_actual > 0 ORDER BY primer_ingreso DESC LOOP
+      IF v_restante <= 0 THEN EXIT; END IF;
+      v_tomar := LEAST(v_restante, v_lote_rec.cantidad_actual);
+      UPDATE public.insumo_lotes SET cantidad_actual = cantidad_actual - v_tomar WHERE id = v_lote_rec.id;
+      v_restante := v_restante - v_tomar;
+    END LOOP;
+  END IF;
+  UPDATE public.insumos SET existencia_actual = existencia_actual - p_cantidad WHERE id = p_insumo_id RETURNING existencia_actual INTO v_existencia_nueva;
+  INSERT INTO public.movimientos_inventario (insumo_id, tipo, cantidad, proveedor_id, motivo, lote_insumo) VALUES (p_insumo_id, 'Salida', p_cantidad, p_proveedor_id, COALESCE(p_motivo, 'Devolución a proveedor'), p_lote);
+  RETURN jsonb_build_object('existencia_nueva', v_existencia_nueva);
+END; $$;
+
+-- 4.9 Ajustar Inventario (FIFO)
+CREATE OR REPLACE FUNCTION public.ajustar_inventario(p_insumo_id uuid, p_nueva_existencia numeric, p_motivo text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_insumo record; v_dif numeric;
+BEGIN
+  SELECT * INTO v_insumo FROM public.insumos WHERE id = p_insumo_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Insumo no encontrado'; END IF;
+  v_dif := p_nueva_existencia - v_insumo.existencia_actual;
+  IF v_dif = 0 THEN RETURN jsonb_build_object('existencia_nueva', p_nueva_existencia); END IF;
+  IF v_dif > 0 THEN
+    INSERT INTO public.insumo_lotes (insumo_id, lote, cantidad_recibida, cantidad_actual, costo_unitario, primer_ingreso, ultimo_ingreso)
+    VALUES (p_insumo_id, 'AJUSTE', v_dif, v_dif, v_insumo.costo_unitario, now(), now())
+    ON CONFLICT (insumo_id, lote) DO UPDATE SET cantidad_actual = public.insumo_lotes.cantidad_actual + EXCLUDED.cantidad_actual;
+    INSERT INTO public.movimientos_inventario (insumo_id, tipo, cantidad, motivo, lote_insumo) VALUES (p_insumo_id, 'Entrada', v_dif, COALESCE(p_motivo, 'Ajuste positivo'), 'AJUSTE');
+  ELSE
+    PERFORM public.consumir_insumo_fifo(p_insumo_id, ABS(v_dif), COALESCE(p_motivo, 'Ajuste negativo'), NULL);
+  END IF;
+  UPDATE public.insumos SET existencia_actual = p_nueva_existencia WHERE id = p_insumo_id;
+  RETURN jsonb_build_object('existencia_nueva', p_nueva_existencia);
+END; $$;
+
+-- 4.10 Registrar Devolución PT
+CREATE OR REPLACE FUNCTION public.registrar_devolucion_pt(p_codigo_pt text, p_cantidad numeric, p_estado_producto text DEFAULT 'bueno', p_motivo text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_pt public.productos_terminados%ROWTYPE; v_id uuid; v_email text; v_existencia_despues numeric;
+BEGIN
+  IF p_cantidad IS NULL OR p_cantidad <= 0 THEN RAISE EXCEPTION 'Cantidad > 0'; END IF;
+  SELECT * INTO v_pt FROM public.productos_terminados WHERE codigo_pt = p_codigo_pt FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PT no encontrado'; END IF;
+  IF p_estado_producto = 'bueno' THEN
+    UPDATE public.productos_terminados SET existencia_actual = COALESCE(existencia_actual, 0) + p_cantidad WHERE codigo_pt = p_codigo_pt;
+    v_existencia_despues := COALESCE(v_pt.existencia_actual, 0) + p_cantidad;
+  ELSE
+    v_existencia_despues := COALESCE(v_pt.existencia_actual, 0);
+  END IF;
+  SELECT email INTO v_email FROM public.profiles WHERE user_id = auth.uid();
+  INSERT INTO public.devoluciones_pt (codigo_pt, cantidad, estado_producto, motivo, usuario_id, usuario_email) VALUES (p_codigo_pt, p_cantidad, p_estado_producto, p_motivo, auth.uid(), v_email) RETURNING id INTO v_id;
+  RETURN jsonb_build_object('id', v_id, 'existencia_nueva', v_existencia_despues, 'afecta_stock', p_estado_producto = 'bueno');
+END; $$;
+
+-- 4.11 Registrar Despacho
+CREATE OR REPLACE FUNCTION public.registrar_despacho(p_codigo_pt text, p_cantidad numeric, p_cliente text, p_lote_op text DEFAULT NULL, p_consecutivo text DEFAULT NULL, p_oc text DEFAULT NULL, p_fecha date DEFAULT CURRENT_DATE, p_fecha_vencimiento text DEFAULT NULL, p_observaciones text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_pt record; v_existencia_nueva numeric; v_email text;
+BEGIN
+  SELECT * INTO v_pt FROM public.productos_terminados WHERE codigo_pt = p_codigo_pt FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PT no encontrado'; END IF;
+  IF v_pt.existencia_actual < p_cantidad THEN RAISE EXCEPTION 'Stock insuficiente. Disponible: %', v_pt.existencia_actual; END IF;
+  UPDATE public.productos_terminados SET existencia_actual = existencia_actual - p_cantidad WHERE codigo_pt = p_codigo_pt RETURNING existencia_actual INTO v_existencia_nueva;
+  BEGIN SELECT email INTO v_email FROM public.profiles WHERE user_id = auth.uid(); EXCEPTION WHEN OTHERS THEN v_email := 'desconocido'; END;
+  INSERT INTO public.despachos (codigo_pt, cantidad, cliente, lote_op, consecutivo, oc, fecha, fecha_vencimiento, observaciones, usuario_email) VALUES (p_codigo_pt, p_cantidad, p_cliente, p_lote_op, p_consecutivo, p_oc, p_fecha, p_fecha_vencimiento, p_observaciones, v_email);
+  RETURN jsonb_build_object('ok', true, 'existencia_nueva', v_existencia_nueva);
+END; $$;
+
+-- 4.12 Registrar Lotes Entrada (Batch)
+CREATE OR REPLACE FUNCTION public.registrar_lotes_entrada(p_insumo_id uuid, p_lotes jsonb, p_proveedor_id uuid DEFAULT NULL, p_costo_unitario numeric DEFAULT NULL, p_fecha timestamptz DEFAULT now()) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_count integer := 0; v_item jsonb; v_lote text; v_cantidad numeric;
+BEGIN
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_lotes) LOOP
+    v_lote := trim(coalesce(v_item->>'lote','')); v_cantidad := coalesce((v_item->>'cantidad')::numeric, 0);
+    IF length(v_lote) = 0 THEN CONTINUE; END IF;
+    INSERT INTO public.insumo_lotes (insumo_id, lote, cantidad_recibida, cantidad_actual, costo_unitario, proveedor_id, primer_ingreso, ultimo_ingreso)
+    VALUES (p_insumo_id, v_lote, v_cantidad, v_cantidad, p_costo_unitario, p_proveedor_id, p_fecha, p_fecha)
+    ON CONFLICT (insumo_id, lote) DO UPDATE SET cantidad_recibida = public.insumo_lotes.cantidad_recibida + EXCLUDED.cantidad_recibida, cantidad_actual = public.insumo_lotes.cantidad_actual + EXCLUDED.cantidad_actual, ultimo_ingreso = EXCLUDED.ultimo_ingreso, costo_unitario = COALESCE(EXCLUDED.costo_unitario, public.insumo_lotes.costo_unitario), proveedor_id = COALESCE(EXCLUDED.proveedor_id, public.insumo_lotes.proveedor_id);
+    v_count := v_count + 1;
+  END LOOP;
+  RETURN jsonb_build_object('lotes_insertados', v_count);
+END; $$;
+
+-- 5. RLS PARA NUEVAS TABLAS
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT unnest(ARRAY['etiquetas_impresas','devoluciones_pt','evaluaciones_proveedores','insumo_lotes','despachos','cajas_ubicacion','sys_config'])
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('DROP POLICY IF EXISTS rol_select ON public.%I', t);
+    EXECUTE format('DROP POLICY IF EXISTS rol_write ON public.%I', t);
+    EXECUTE format('CREATE POLICY rol_select ON public.%I FOR SELECT TO authenticated USING (true)', t);
+    EXECUTE format('CREATE POLICY rol_write ON public.%I FOR ALL TO authenticated USING (public.current_user_role() IN (''admin'',''operador'')) WITH CHECK (public.current_user_role() IN (''admin'',''operador''))', t);
+  END LOOP;
+END $$;

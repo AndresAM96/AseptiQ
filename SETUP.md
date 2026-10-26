@@ -50,7 +50,7 @@ Es **un solo archivo** que crea:
 ### Verificación
 
 ```sql
--- Debe listar 14 tablas
+-- Debe listar 21 tablas
 SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;
 
 -- Debe listar las funciones RPC
@@ -58,7 +58,7 @@ SELECT proname FROM pg_proc WHERE pronamespace = 'public'::regnamespace ORDER BY
 ```
 
 Tablas esperadas:
-`ajustes_costo_insumo`, `backup_log`, `bom_recetas`, `entregas_op`, `insumos`, `movimientos_inventario`, `ordenes_semanales`, `paquete_subproductos`, `productos_terminados`, `profiles`, `subproducto_recetas`, `subproducto_subproductos`, `subproductos`, `sys_proveedores`.
+`ajustes_costo_insumo`, `backup_log`, `bom_recetas`, `entregas_op`, `insumos`, `movimientos_inventario`, `ordenes_semanales`, `paquete_subproductos`, `productos_terminados`, `profiles`, `subproducto_recetas`, `subproducto_subproductos`, `subproductos`, `sys_proveedores`, `etiquetas_impresas`, `devoluciones_pt`, `evaluaciones_proveedores`, `insumo_lotes`, `despachos`, `cajas_ubicacion`, `sys_config`.
 
 ### Nota sobre migraciones históricas
 
