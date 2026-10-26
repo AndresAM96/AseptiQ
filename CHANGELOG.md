@@ -1,3 +1,18 @@
+## [2.3.0] — Octubre 2026
+
+### Añadido
+- **Formato FO-AP-04**: Botón de impresión en el historial de entradas de mercancía para generar el documento de "Entrada de Insumos al Almacén" con casillas de calidad (Aprobado, Rechazado, Cuarentena).
+- **Mapa Visual de Bodega**: Pestaña en el módulo Bodega PT que agrupa las cajas por su ubicación física (Estantes) y muestra la cantidad en tiempo real.
+- **Redondeo Inteligente**: El cálculo de cobertura ahora redondea hacia arriba (Math.ceil) los insumos con unidades discretas (UND, Caja, Rollo) para evitar decimales en elementos indivisibles.
+- **Campos de Calidad**: Selección de estado de calidad y observaciones directamente en el formulario de Entrada Mercancía.
+
+### Cambiado
+- **Descuento de Inventario**: Se eliminó el descuento al crear la OP. Ahora el inventario se descuenta al registrar la entrega (parcial o total).
+- **Auto-producción**: Si se entrega una OP y faltan subproductos, el sistema descuenta la materia prima necesaria para fabricarlos al vuelo.
+- **Recálculo de Cobertura**: El modal de detalle de la OP ahora recalcula dinámicamente el stock actual antes de mostrar los faltantes.
+- **Sidebar**: Reorganización de los menús (Operación, Catálogo, Logística y Calidad, Sistema) para mejorar la usabilidad.
+- **Limpieza UI**: Se eliminó el badge de alertas del menú de Insumos (la campana ya cumple esa función) y se movió el "Campo de Lote" a un lugar más accesible.
+
 ## [2.2.0] — Octubre 2026
 
 ### Añadido

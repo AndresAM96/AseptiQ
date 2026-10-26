@@ -552,30 +552,6 @@ function cerrarCampana(){
   });
 })();
 
-/* ============ INDICADOR DE STOCK EN EL SIDEBAR ============ */
-async function actualizarIndicadorStock(){
-  try{
-    const insumos=await api('insumos?select=existencia_actual,punto_reorden,unidad_medida,conversiones&estado_activo=eq.true');
-    let urgente=0,reorden=0;
-    insumos.forEach(function(i){
-      const e=estadoInsumo(i);
-      if(e==='Urgente')urgente++;
-      else if(e==='Reorden')reorden++;
-    });
-    const total=urgente+reorden;
-    const el=document.getElementById('navBadgeInsumos');
-    if(!el)return;
-    if(total<=0){el.style.display='none';return;}
-    el.textContent=total>99?'99+':String(total);
-    el.style.background = urgente>0 ? 'var(--danger)' : 'var(--warning)';
-    el.style.color = urgente>0 ? '#ffffff' : '#241a02';
-    el.style.display='flex';
-    el.title = urgente+' urgente(s) · '+reorden+' en reorden';
-  }catch(e){
-    /* Silencioso: el badge es cosmético, no debe romper la app si falla */
-  }
-}
-
 /* ============ RECUPERAR SESIÓN AL CARGAR ============ */
 async function intentarSesionExistente(){
   try{
@@ -617,7 +593,6 @@ async function intentarSesionExistente(){
     dialogInit();
     activarNavItem(tabGuardado);
     renderTab(tabGuardado);
-    setTimeout(actualizarIndicadorStock, 600);
     setTimeout(actualizarCampana, 800);
     return true;
   }catch(e){
@@ -1563,7 +1538,6 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
     dialogInit();
     renderTab('dashboard');
     initInactivityTracker();
-    setTimeout(actualizarIndicadorStock, 600);
     setTimeout(actualizarCampana, 800);
   }catch(e){
     const m=String(e.message||e);
@@ -2276,8 +2250,8 @@ function initInactivityTracker() {
 
 async function renderTab(tab){
   const main=document.getElementById('mainContent');
-  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',consolidado:'Cargando consolidado…',programacion:'Cargando programación…',evaluacion_prov:'Cargando evaluación…',bodega:'Cargando bodega…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
-  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,consolidado:renderConsolidado,programacion:renderProgramacion,evaluacion_prov:renderEvaluacionProv,bodega:renderBodega,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
+  const nombres={dashboard:'Cargando dashboard…',orden:'Cargando órdenes…',novedades:'Cargando novedades…',insumos:'Cargando insumos…',productos:'Cargando productos…',entradas:'Cargando entradas…',devoluciones:'Cargando devoluciones…',proveedores:'Cargando proveedores…',auditoria:'Cargando auditoría…',kardex:'Cargando kardex…',compras:'Cargando compras…',mermas:'Cargando mermas…',historico:'Cargando histórico…',costos:'Cargando análisis de costos…',rentabilidad:'Cargando rentabilidad…',trazabilidad:'Cargando trazabilidad…',consolidado:'Cargando consolidado…',programacion:'Cargando programación…',evaluacion_prov:'Cargando evaluación…',bodega:'Cargando bodega…',ordenes_compra:'Cargando órdenes…',backup:'Cargando backup…',usuarios:'Cargando usuarios…',config:'Cargando configuración…'};
+  const r={dashboard:renderDashboard,orden:renderOrden,novedades:renderNovedades,insumos:renderInsumos,productos:renderProductos,entradas:renderEntradas,devoluciones:renderDevoluciones,proveedores:renderProveedores,auditoria:renderAuditoria,kardex:renderKardex,compras:renderCompras,mermas:renderMermas,historico:renderHistorico,costos:renderCostosOP,rentabilidad:renderRentabilidad,trazabilidad:renderTrazabilidad,consolidado:renderConsolidado,programacion:renderProgramacion,evaluacion_prov:renderEvaluacionProv,bodega:renderBodega,ordenes_compra:renderOrdenesCompra,backup:renderBackup,usuarios:renderUsuarios,config:renderConfig};
   main.innerHTML='<div class="empty-state">Cargando…</div>';
   showLoader(nombres[tab]||'Cargando…');
   try{
@@ -2289,7 +2263,6 @@ async function renderTab(tab){
     aplicarPermisos();
     prepararPaneles();
     /* Refrescar los indicadores en segundo plano. No bloquea el render. */
-    setTimeout(actualizarIndicadorStock, 0);
     setTimeout(actualizarCampana, 200);
   }
 }
@@ -2341,6 +2314,19 @@ function badgeStockSub(s){
 }
 
 /* ============ COBERTURA ============ */
+/* Redondea al entero superior si la unidad es discreta (UND, CAJA, etc.) */
+function redondearConsumo(cantidad, unidad) {
+  if (!cantidad) return 0;
+  const u = String(unidad).toLowerCase().trim();
+  const discretas = ['u', 'und', 'unidad', 'unidades', 'caja', 'cajas', 'par', 'pares', 'rollo', 'rollos', 'bolsa', 'bolsas', 'etiqueta', 'etiquetas', 'paquete', 'paquetes', 'pieza', 'piezas', 'bulto', 'bultos'];
+  
+  if (discretas.includes(u)) {
+    return Math.ceil(cantidad); // Redondea hacia arriba (ej: 49.8 -> 50)
+  }
+  // Si es continua (metros, kg, litros), dejamos hasta 4 decimales
+  return Number(Number(cantidad).toFixed(4));
+}
+
 async function calcularCobertura(codigo_pt,cantidad){
   const insConsumo={};
   const subConsumo={};
@@ -2367,15 +2353,22 @@ async function calcularCobertura(codigo_pt,cantidad){
   });
 
   const detalle=Object.values(insConsumo).map(function(it){
-    const ins=it.insumo,total=it.total;
+    const ins=it.insumo;
+    const u = unidadConsumo(ins);
+    
+    // Aplicamos el redondeo a la cantidad requerida
+    const total = redondearConsumo(it.total, u); 
+    
     const disp=ins.existencia_actual-total;
     let est='Cubierto';
     if(disp<0)est='Urgente';else if(disp<=ins.punto_reorden)est='Reorden';
-    return {insumo_id:ins.id,nombre:ins.nombre,unidad:unidadConsumo(ins),existencia_consumo:ins.existencia_actual,consumo_total:total,faltante:disp<0?Math.abs(disp):0,estado:est};
+    return {insumo_id:ins.id,nombre:ins.nombre,unidad:u,existencia_consumo:ins.existencia_actual,consumo_total:total,faltante:disp<0?Math.abs(disp):0,estado:est};
   });
 
   const detalleSub=Object.values(subConsumo).map(function(it){
-    const s=it.sub,req=it.total;
+    const s=it.sub;
+    // Los subproductos se miden en unidades, aplicamos redondeo
+    const req = redondearConsumo(it.total, 'u');
     const stock=Number(s.existencia_actual)||0;
     const delStock=Math.min(stock,req);
     const faltante=req-delStock;
@@ -5606,17 +5599,51 @@ function cerrarModalCobertura(){
   });
 })();
 
-function abrirModalDetalleOrden(orden){
+async function abrirModalDetalleOrden(orden){
   if(!orden)return;
-
-  const d=orden.detalle_faltantes||{};
-  const insumosDet=Array.isArray(d)?d:(d.insumos||[]);
-  const subsDet=Array.isArray(d)?[]:(d.subproductos||[]);
 
   const producida=Number(orden.cantidad_producida)||0;
   const proyectada=Number(orden.cantidad_proyectada)||0;
   const pendiente=proyectada-producida;
   const pct=proyectada>0?Math.round(producida/proyectada*100):0;
+
+  let insumosDet = [];
+  let subsDet = [];
+  let estadoReal = orden.estado_cobertura || 'Cubierto';
+
+  if (pendiente > 0) {
+    showLoader('Recalculando stock en tiempo real...');
+    try {
+      // Calcular cobertura solo para lo que FALTA producir
+      const res = await calcularCobertura(orden.codigo_pt, pendiente);
+      insumosDet = res.detalle || [];
+      subsDet = res.detalleSub || [];
+      estadoReal = res.estado_general;
+
+      // Si el estado cambió (ej. de Urgente a Cubierto), lo actualizamos en la base de datos
+      if (orden.estado_cobertura !== estadoReal) {
+        await api('ordenes_semanales?id=eq.'+orden.id, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            estado_cobertura: estadoReal,
+            detalle_faltantes: {insumos: insumosDet, subproductos: subsDet}
+          })
+        });
+        // Actualizamos el objeto local
+        orden.estado_cobertura = estadoReal;
+        orden.detalle_faltantes = {insumos: insumosDet, subproductos: subsDet};
+      }
+    } catch(e) {
+      console.warn('Error recalculando cobertura, usando datos estáticos:', e);
+      const d = orden.detalle_faltantes || {};
+      insumosDet = Array.isArray(d) ? d : (d.insumos || []);
+      subsDet = Array.isArray(d) ? [] : (d.subproductos || []);
+    } finally {
+      hideLoader();
+    }
+  } else {
+    estadoReal = 'Terminada';
+  }
 
   const prodNombre=orden.productos_terminados?orden.productos_terminados.nombre:orden.codigo_pt;
   const titulo=(orden.numero_op||'OP —')+(orden.lote?' · lote '+orden.lote:'');
@@ -5912,6 +5939,121 @@ async function renderNovedades(){
 }
 
 /* ============ ENTRADAS ============ */
+function imprimirFormatoEntradaAlmacen(mov, nombreInsumo, nombreProveedor) {
+  const colorAzul = '#1b75bb';
+  const fRecep = new Date(mov.fecha).toLocaleDateString('es-CO');
+  
+  // Armar el string de lotes
+  let lotesStr = mov.lote_insumo || '—';
+  
+  const cssPrint = `
+    @page { size: letter portrait; margin: 15mm; }
+    body { padding: 0; font-family: Helvetica, Arial, sans-serif; color: ${colorAzul}; }
+    .form-box { border: 2px solid ${colorAzul}; padding: 0; width: 100%; box-sizing: border-box; }
+    .form-table { width: 100%; border-collapse: collapse; }
+    .form-table td { border: 1px solid ${colorAzul}; padding: 8px 12px; font-size: 10pt; }
+    .form-label { font-weight: normal; color: ${colorAzul}; font-size: 10pt; margin-bottom: 4px; display: block; }
+    .form-value { font-weight: bold; font-size: 11pt; border-bottom: 1px solid ${colorAzul}; display: block; padding-bottom: 2px; min-height: 18px; }
+    .check-box { display: inline-block; width: 40px; border-bottom: 1px solid ${colorAzul}; margin-left: 10px; }
+  `;
+
+  const html = `
+    <div class="form-box">
+      <table class="form-table" style="border: none;">
+        <tr>
+          <td style="width: 25%; border: none; border-bottom: 1px solid ${colorAzul}; border-right: 1px solid ${colorAzul}; text-align: center;">
+            <img src="logo-proclides.png" style="height: 40px;"><br>
+            <span style="font-size: 8pt;">Soluciones Estériles</span>
+          </td>
+          <td colspan="2" style="width: 50%; border: none; border-bottom: 1px solid ${colorAzul}; border-right: 1px solid ${colorAzul}; text-align: center;">
+            <div style="font-weight: bold; font-size: 12pt;">ENTRADA DE INSUMOS AL ALMACÉN</div>
+            <div style="font-size: 16pt; font-weight: bold; margin-top: 5px;">Nº <span style="color: red;">${mov.numero_entrada_almacen || '______'}</span></div>
+          </td>
+          <td style="width: 25%; border: none; border-bottom: 1px solid ${colorAzul}; vertical-align: top; font-size: 9pt;">
+            Código: FO-AP-04<br>
+            Fecha de aprobación: <br>
+            Versión 2
+          </td>
+        </tr>
+        
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
+            <span class="form-label">Descripción del insumo o producto:</span>
+            <span class="form-value">${nombreInsumo}</span>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
+            <span class="form-label">Proveedor:</span>
+            <span class="form-value">${nombreProveedor || '—'}</span>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
+            <span class="form-label">Lote (s):</span>
+            <span class="form-value">${lotesStr}</span>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
+            <span class="form-label">OC:</span>
+            <span class="form-value">${mov.numero_oc || '—'}</span>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
+            <span class="form-label">Número de factura:</span>
+            <span class="form-value">${mov.numero_factura || '—'}</span>
+          </td>
+        </tr>
+        
+        <tr>
+          <td style="width: 33%; border-left:none; text-align: center;">
+            <span class="form-label" style="margin:0;">Fecha de recepción</span>
+            <div class="form-value" style="border:none; margin-top: 5px;">${fRecep}</div>
+          </td>
+          <td style="width: 33%; text-align: center;">
+            <span class="form-label" style="margin:0;">Cantidad total</span>
+            <div class="form-value" style="border:none; margin-top: 5px;">${num(mov.cantidad)}</div>
+          </td>
+          <td style="width: 33%; border-right:none; text-align: center;">
+            <span class="form-label" style="margin:0;">Unidad de empaque</span>
+            <div class="form-value" style="border:none; margin-top: 5px;">${mov.unidad_compra || 'UND'}</div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td colspan="2" style="width: 50%; border-left:none; vertical-align: top;">
+            <span class="form-label" style="font-weight:bold; font-size:11pt; margin-bottom: 10px;">Decisión final:</span>
+            <div style="margin-bottom: 8px; font-size: 11pt;">Aprobado <span class="check-box" style="text-align:center;">${mov.estado_calidad === 'Aprobado' ? 'X' : ''}</span></div>
+            <div style="margin-bottom: 8px; font-size: 11pt;">Rechazado <span class="check-box" style="text-align:center;">${mov.estado_calidad === 'Rechazado' ? 'X' : ''}</span></div>
+            <div style="font-size: 11pt;">Cuarentena <span class="check-box" style="text-align:center;">${mov.estado_calidad === 'Cuarentena' ? 'X' : ''}</span></div>
+          </td>
+          <td colspan="2" style="width: 50%; border-right:none; vertical-align: top;">
+            <span class="form-label" style="font-weight:bold; font-size:11pt;">Fecha de aprobación / rechazo / cuarentena</span>
+            <div style="margin-top: 15px;"></div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; height: 150px; vertical-align: top;">
+            <span class="form-label">Observaciones:</span>
+            <div style="font-size: 10pt; margin-top: 5px;">${mov.observaciones_calidad || ''}</div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td colspan="4" style="border-left:none; border-right:none; border-bottom:none; height: 80px; vertical-align: bottom;">
+            <span class="form-label" style="font-weight:bold; font-size:12pt;">Firma</span>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  imprimirHTML(html, 'Entrada Almacen', cssPrint);
+}
+
 async function renderEntradas(){
   const main=document.getElementById('mainContent');
   const [insumos,subproductos,proveedores,movimientos,opsActivas]=await Promise.all([
@@ -5952,6 +6094,14 @@ async function renderEntradas(){
           <div><label>N° Orden de Compra (OC)</label><input id="ent_oc" placeholder="Ej: OC-2026-014"></div>
           <div><label>N° Entrada Almacén</label><input id="ent_entrada_almacen" placeholder="Ej: EA-1024" title="Puede ser el número de remisión o entrada interna"></div>
           <div><label>Saldo Pendiente de OC</label><input id="ent_pendiente_oc" type="number" step="0.0001" placeholder="Cant. que falta por entregar"></div>
+          
+          <!-- Nuevos campos de Calidad -->
+          <div><label>Decisión de Calidad</label><select id="ent_estado_calidad">
+            <option value="Aprobado">Aprobado</option>
+            <option value="Rechazado">Rechazado</option>
+            <option value="Cuarentena">Cuarentena</option>
+          </select></div>
+          <div class="full-span"><label>Observaciones de Calidad</label><input id="ent_obs_calidad" placeholder="Ej: Empaque en buen estado, cumple especificaciones..."></div>
         </div>
         
         <div id="ent_motivo_wrap" style="display:none;"><label>Motivo</label><input id="ent_motivo" placeholder="Ej: producción interna, ajuste"></div>
@@ -5987,7 +6137,8 @@ async function renderEntradas(){
           const cant=esSub?('+'+num(m.cantidad)+' u'):('+'+num(m.cantidad)+' '+(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):''));
           const ref=esSub?(m.motivo||'—'):(m.sys_proveedores?m.sys_proveedores.razon_social:(m.motivo||'—'));
           const docs = esSub ? '—' : `<span style="font-size:11px;">${m.numero_oc ? 'OC: '+m.numero_oc : ''} ${m.numero_factura ? ' / Fact: '+m.numero_factura : ''}</span>`;
-          return '<tr><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td>'+docs+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
+          const btnPrint = esSub ? '' : `<button class="ghost small icon-only" data-print-entrada="${m.id}" title="Imprimir FO-AP-04">${icono('printer')}</button>`;
+          return '<tr><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td>'+docs+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td><td class="actions">'+btnPrint+'</td></tr>';
         }).join('')}
       </table>`}
     </div>`;
@@ -6159,6 +6310,21 @@ async function renderEntradas(){
 
   popularItems();
 
+  /* Bind para imprimir el formato FO-AP-04 */
+  document.querySelectorAll('[data-print-entrada]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const movId = btn.dataset.printEntrada;
+      const mov = movimientos.find(m => m.id === movId);
+      if (mov) {
+        // Buscar nombre del insumo y proveedor
+        const ins = insumos.find(i => i.id === mov.insumo_id);
+        const nombreIns = ins ? ins.nombre : '(Insumo)';
+        const nombreProv = mov.sys_proveedores ? mov.sys_proveedores.razon_social : '—';
+        imprimirFormatoEntradaAlmacen(mov, nombreIns, nombreProv);
+      }
+    });
+  });
+
   document.getElementById('btnAbrirNuevoProveedor').addEventListener('click',function(){
     abrirModalNuevoProveedor();
   });
@@ -6178,6 +6344,8 @@ async function renderEntradas(){
         const oc = document.getElementById('ent_oc') ? document.getElementById('ent_oc').value.trim() : null;
         const entrada_almacen = document.getElementById('ent_entrada_almacen') ? document.getElementById('ent_entrada_almacen').value.trim() : null;
         const pendiente_oc = document.getElementById('ent_pendiente_oc') ? parseFloat(document.getElementById('ent_pendiente_oc').value) : null;
+        const estado_calidad = document.getElementById('ent_estado_calidad') ? document.getElementById('ent_estado_calidad').value : 'Aprobado';
+        const obs_calidad = document.getElementById('ent_obs_calidad') ? document.getElementById('ent_obs_calidad').value.trim() : null;
 
         if(modoMultiLote){
           /* Modo multi-lote: leer las filas dinámicas */
@@ -6236,7 +6404,9 @@ async function renderEntradas(){
                   numero_factura: factura,
                   numero_oc: oc,
                   numero_entrada_almacen: entrada_almacen,
-                  cantidad_pendiente_oc: pendiente_oc
+                  cantidad_pendiente_oc: pendiente_oc,
+                  estado_calidad: estado_calidad,
+                  observaciones_calidad: obs_calidad
                 })
               });
             }
@@ -6524,7 +6694,6 @@ async function renderDevoluciones(){
       });
       toast('Devolución registrada. Existencia: '+num(r.existencia_nueva),'success');
       renderDevoluciones();
-      setTimeout(actualizarIndicadorStock,300);
     }catch(e){toast(e.message,'error');}
   });
 
@@ -7350,66 +7519,239 @@ function imprimirProgramacionSemanal(desde, hasta, dias, fechas, ordenes, entreg
 
 let html5QrCode = null; // Variable global para el escáner
 
+async function renderOrdenesCompra(){
+  const main=document.getElementById('mainContent');
+  main.innerHTML='<div class="empty-state">Cargando órdenes de compra…</div>';
+
+  try{
+    // Traer todas las entradas que tengan número de OC
+    const entradas = await api('movimientos_inventario?select=*,insumos(nombre,codigo,unidad_consumo),sys_proveedores(razon_social)&tipo=eq.Entrada&numero_oc=not.is.null&order=fecha.desc');
+
+    // Agrupar por OC
+    const agrupado = {};
+    entradas.forEach(e => {
+      const oc = e.numero_oc.trim();
+      if(!agrupado[oc]) {
+        agrupado[oc] = {
+          numero_oc: oc,
+          proveedor: e.sys_proveedores ? e.sys_proveedores.razon_social : '—',
+          items: [],
+          ultima_fecha: e.fecha,
+          pendiente: 0
+        };
+      }
+      agrupado[oc].items.push(e);
+      
+      // Tomar el pendiente de la entrada más reciente
+      if (new Date(e.fecha) >= new Date(agrupado[oc].ultima_fecha)) {
+        agrupado[oc].ultima_fecha = e.fecha;
+        agrupado[oc].pendiente = e.cantidad_pendiente_oc || 0;
+      }
+    });
+
+    const listaOCs = Object.values(agrupado).sort((a,b) => new Date(b.ultima_fecha) - new Date(a.ultima_fecha));
+
+    main.innerHTML=`
+      <div class="page-header-flex">
+        <div>
+          <h2 class="page-title">Órdenes de Compra</h2>
+          <p class="page-sub">Seguimiento de entregas parciales y saldos pendientes por proveedor.</p>
+        </div>
+        ${botonRefreshHTML('ordenes_compra')}
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Listado de OCs</h3></div>
+        <div class="search-box"><input id="buscar_oc" placeholder="Buscar por N° OC o proveedor…"></div>
+        
+        ${listaOCs.length === 0 ? '<div class="empty-state">No hay Órdenes de Compra registradas en las entradas de mercancía.</div>' : `
+        <table id="tablaOCs">
+          <thead><tr>
+            <th>N° OC</th>
+            <th>Proveedor</th>
+            <th>Último Ingreso</th>
+            <th class="num">Ítems Recibidos</th>
+            <th class="num">Saldo Pendiente</th>
+            <th>Estado</th>
+            <th class="actions"></th>
+          </tr></thead>
+          <tbody>
+            ${listaOCs.map(oc => {
+              const enProceso = oc.pendiente > 0;
+              return `<tr>
+                <td class="mono" style="font-weight:bold; font-size:13px;">${oc.numero_oc}</td>
+                <td>${oc.proveedor}</td>
+                <td class="mono" style="font-size:12px; color:var(--text-secondary);">${new Date(oc.ultima_fecha).toLocaleDateString('es-CO')}</td>
+                <td class="num">${oc.items.length}</td>
+                <td class="num" style="font-weight:bold; color:${enProceso ? 'var(--warning)' : 'var(--success)'};">
+                  ${enProceso ? num(oc.pendiente,4) : 'Completada'}
+                </td>
+                <td>
+                  ${enProceso ? '<span class="badge warning">Pendiente</span>' : '<span class="badge success">Cerrada</span>'}
+                </td>
+                <td class="actions">
+                  <button class="ghost small" data-ver-oc="${oc.numero_oc}">Ver Detalle</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`}
+      </div>
+
+      <div id="ocDetalleContainer"></div>
+    `;
+
+    filtrarTabla('buscar_oc', 'tablaOCs');
+
+    // Bind para ver el detalle de una OC
+    document.querySelectorAll('[data-ver-oc]').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const numOC = btn.dataset.verOc;
+        const ocData = agrupado[numOC];
+        mostrarDetalleOC(ocData);
+      });
+    });
+
+  } catch(e) {
+    main.innerHTML='<div class="empty-state">Error: '+traducirError(e.message)+'</div>';
+  }
+}
+
+function mostrarDetalleOC(oc) {
+  const box = document.getElementById('ocDetalleContainer');
+  
+  const filas = oc.items.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map(e => {
+    const ins = e.insumos || {};
+    const u = ins.unidad_consumo || 'UND';
+    return `<tr>
+      <td class="mono" style="font-size:12px;">${new Date(e.fecha).toLocaleDateString('es-CO')}</td>
+      <td class="mono" style="font-size:12px; color:var(--info);">${e.numero_factura || '—'}</td>
+      <td>${ins.nombre || '?'}</td>
+      <td class="num" style="color:var(--success); font-weight:bold;">+${num(e.cantidad,4)} ${u}</td>
+      <td class="mono" style="font-size:11px;">${e.lote_insumo || '—'}</td>
+      <td>${e.estado_calidad === 'Aprobado' ? '<span class="badge success">Aprobado</span>' : (e.estado_calidad === 'Rechazado' ? '<span class="badge danger">Rechazado</span>' : '<span class="badge warning">Cuarentena</span>')}</td>
+    </tr>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="panel force-expanded" style="border: 1px solid var(--accent);">
+      <div class="panel-header" style="background: var(--surface-2);">
+        <h3>Historial de Entregas · OC ${oc.numero_oc} <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(${oc.proveedor})</span></h3>
+        <button class="ghost small" id="btnCerrarDetalleOC">Cerrar</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Fecha Recepción</th>
+          <th>Factura</th>
+          <th>Insumo</th>
+          <th class="num">Cant. Recibida</th>
+          <th>Lote</th>
+          <th>Calidad</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById('btnCerrarDetalleOC').onclick = function() {
+    box.innerHTML = '';
+  };
+  
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function renderBodega(){
   const main=document.getElementById('mainContent');
   
-  // Detener la cámara si estaba encendida de una visita anterior
+  // Detener la cámara si estaba encendida
   if(html5QrCode && html5QrCode.isScanning) {
     try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e){}
   }
 
-  // Detectar si es un dispositivo táctil (tablet/móvil)
   const isTouchDevice = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
   main.innerHTML=`
     <div class="page-header-flex">
       <div>
-        <h2 class="page-title">Zonificación de Bodega</h2>
-        <p class="page-sub">Escaneá el QR de una caja para asignarle una ubicación física.</p>
+        <h2 class="page-title">Bodega PT</h2>
+        <p class="page-sub">Escaneá cajas o visualizá el mapa de ubicaciones.</p>
       </div>
       ${botonRefreshHTML('bodega')}
     </div>
 
-    <div class="grid-cards g2" style="align-items:start;">
-      <div class="panel force-expanded">
-        <div class="panel-header"><h3>Escanear Caja</h3></div>
-        <div style="padding:16px; text-align:center;">
-          
-          <!-- Vista para PC (Escáner USB) -->
-          <div id="scanPCContainer" style="display:${isTouchDevice ? 'none' : 'block'};">
-            <div style="font-size:48px; margin-bottom:12px; color:var(--text-muted);">⌨️</div>
-            <label style="font-size:13px; margin-bottom:8px; display:block;">Usa tu pistola láser o escribe el código</label>
-            <input id="scanInputPC" placeholder="Clic aquí y escanea el código..." style="text-align:center; font-size:18px; font-family:monospace; letter-spacing:1px; padding:12px;">
-            <div class="field-hint" style="margin-top:6px;">El campo se limpia automáticamente al leer.</div>
-          </div>
-
-          <!-- Vista para Tablet/Móvil (Cámara) -->
-          <div id="scanMobileContainer" style="display:${isTouchDevice ? 'block' : 'none'};">
-            <div id="reader" style="width:100%; max-width:400px; margin:0 auto; border-radius:12px; overflow:hidden; border:1px solid var(--border); display:none;"></div>
-            <button id="btnStartScan" class="full" style="max-width:300px; margin:0 auto; margin-bottom:8px;">Encender Cámara</button>
-            <button id="btnCancelScan" class="danger-btn full" style="max-width:300px; margin:0 auto; display:none;">Cancelar escaneo</button>
-          </div>
-
-          <!-- Panel de resultado (común para ambos) -->
-          <div id="scanResult" style="margin-top:20px; display:none;">
-            <div class="alert-banner success" style="margin-bottom:10px;"><div class="alert-icon">✓</div><div class="alert-body"><strong>Caja escaneada:</strong> <span id="scanCode" style="font-family:monospace; font-size:16px;"></span></div></div>
-            <div class="form-grid" style="padding:0; text-align:left;">
-              <div class="full-span"><label>Ubicación Física (Estante, Nivel, etc.)</label><input id="scanLocation" placeholder="Ej: Estante A - Nivel 2"></div>
-              <div class="full-span"><label>Estado de la caja</label><select id="scanStatus"><option value="En bodega">En bodega</option><option value="Despachada">Despachada</option><option value="Cuarentena">En cuarentena</option></select></div>
-            </div>
-            <button id="btnSaveLocation" class="success-btn full" style="margin-top:10px;">Guardar Ubicación</button>
-          </div>
+    <div class="panel force-expanded no-scroll">
+      <div style="padding:14px 18px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="secondary small tab-btn active" data-bodega-tab="escaner">📷 Escanear Caja</button>
+          <button class="secondary small tab-btn" data-bodega-tab="mapa">🗺 Mapa Visual</button>
         </div>
       </div>
+    </div>
 
-      <div class="panel">
-        <div class="panel-header"><h3>Últimos Movimientos</h3></div>
-        <div class="search-box"><input id="buscar_bodega" placeholder="Buscar por código o ubicación…"></div>
-        <div id="bodegaListado"><div class="empty-state">Cargando movimientos…</div></div>
+    <!-- Pestaña 1: Escáner -->
+    <div id="bodegaEscanerWrap">
+      <div class="grid-cards g2" style="align-items:start;">
+        <div class="panel force-expanded">
+          <div class="panel-header"><h3>Escanear Caja</h3></div>
+          <div style="padding:16px; text-align:center;">
+            
+            <!-- Vista para PC (Escáner USB) -->
+            <div id="scanPCContainer" style="display:${isTouchDevice ? 'none' : 'block'};">
+              <div style="font-size:48px; margin-bottom:12px; color:var(--text-muted);">⌨️</div>
+              <label style="font-size:13px; margin-bottom:8px; display:block;">Usa tu pistola láser o escribe el código</label>
+              <input id="scanInputPC" placeholder="Clic aquí y escanea el código..." style="text-align:center; font-size:18px; font-family:monospace; letter-spacing:1px; padding:12px;">
+              <div class="field-hint" style="margin-top:6px;">El campo se limpia automáticamente al leer.</div>
+            </div>
+
+            <!-- Vista para Tablet/Móvil (Cámara) -->
+            <div id="scanMobileContainer" style="display:${isTouchDevice ? 'block' : 'none'};">
+              <div id="reader" style="width:100%; max-width:400px; margin:0 auto; border-radius:12px; overflow:hidden; border:1px solid var(--border); display:none;"></div>
+              <button id="btnStartScan" class="full" style="max-width:300px; margin:0 auto; margin-bottom:8px;">Encender Cámara</button>
+              <button id="btnCancelScan" class="danger-btn full" style="max-width:300px; margin:0 auto; display:none;">Cancelar escaneo</button>
+            </div>
+
+            <!-- Panel de resultado -->
+            <div id="scanResult" style="margin-top:20px; display:none;">
+              <div class="alert-banner success" style="margin-bottom:10px;"><div class="alert-icon">✓</div><div class="alert-body"><strong>Caja escaneada:</strong> <span id="scanCode" style="font-family:monospace; font-size:16px;"></span></div></div>
+              <div class="form-grid" style="padding:0; text-align:left;">
+                <div class="full-span"><label>Ubicación Física (Estante, Nivel, etc.)</label><input id="scanLocation" placeholder="Ej: Estante A - Nivel 2"></div>
+                <div class="full-span"><label>Estado de la caja</label><select id="scanStatus"><option value="En bodega">En bodega</option><option value="Despachada">Despachada</option><option value="Cuarentena">En cuarentena</option></select></div>
+              </div>
+              <button id="btnSaveLocation" class="success-btn full" style="margin-top:10px;">Guardar Ubicación</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h3>Últimos Movimientos</h3></div>
+          <div class="search-box"><input id="buscar_bodega" placeholder="Buscar por código o ubicación…"></div>
+          <div id="bodegaListado"><div class="empty-state">Cargando movimientos…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pestaña 2: Mapa Visual -->
+    <div id="bodegaMapaWrap" style="display:none;">
+      <div class="panel force-expanded">
+        <div class="panel-header"><h3>Mapa de Bodega (Cajas activas)</h3></div>
+        <div class="search-box"><input id="buscar_mapa" placeholder="Buscar por ubicación…"></div>
+        <div id="bodegaMapaListado" class="bodega-map-grid">
+          <div class="empty-state" style="grid-column:1/-1;">Cargando mapa…</div>
+        </div>
       </div>
     </div>`;
 
-  // Cargar el listado de cajas
+  // Tabs
+  document.querySelectorAll('[data-bodega-tab]').forEach(b => {
+    b.addEventListener('click', function() {
+      document.querySelectorAll('[data-bodega-tab]').forEach(x => x.classList.toggle('active', x === b));
+      const tab = b.dataset.bodegaTab;
+      document.getElementById('bodegaEscanerWrap').style.display = tab === 'escaner' ? 'block' : 'none';
+      document.getElementById('bodegaMapaWrap').style.display = tab === 'mapa' ? 'block' : 'none';
+    });
+  });
+
+  // Cargar el listado de cajas (Tabla)
   async function cargarCajas() {
     const box = document.getElementById('bodegaListado');
     try {
@@ -7428,11 +7770,59 @@ async function renderBodega(){
       filtrarTabla('buscar_bodega', 'tablaBodega');
     } catch(e) { box.innerHTML = '<div class="empty-state">Error al cargar.</div>'; }
   }
+
+  // Cargar el Mapa Visual (Grid)
+  async function cargarMapa() {
+    const box = document.getElementById('bodegaMapaListado');
+    try {
+      const cajas = await api('cajas_ubicacion?select=*&estado=eq.En bodega');
+      if(!cajas.length) {
+        box.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">No hay cajas activas en bodega.</div>';
+        return;
+      }
+
+      // Agrupar por ubicación
+      const ubicaciones = {};
+      cajas.forEach(c => {
+        const ub = c.ubicacion.trim() || 'Sin ubicación asignada';
+        if(!ubicaciones[ub]) ubicaciones[ub] = [];
+        ubicaciones[ub].push(c);
+      });
+
+      // Renderizar tarjetas
+      box.innerHTML = Object.keys(ubicaciones).sort().map(ub => {
+        const items = ubicaciones[ub];
+        return `<div class="bodega-map-card" data-ubicacion="${ub.toLowerCase()}">
+          <div class="bodega-map-header">
+            <div class="bodega-map-title">📍 ${ub}</div>
+            <div class="bodega-map-count">${items.length} caja${items.length===1?'':'s'}</div>
+          </div>
+          <div class="bodega-map-body">
+            ${items.map(c => `<div class="bodega-map-item">
+              <span class="bodega-map-code">${c.codigo_caja}</span>
+              <span style="font-size:11px; color:var(--text-muted);">${c.codigo_pt}</span>
+            </div>`).join('')}
+          </div>
+        </div>`;
+      }).join('');
+
+      // Filtro simple para el mapa
+      const inp = document.getElementById('buscar_mapa');
+      inp.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('.bodega-map-card').forEach(card => {
+          card.style.display = card.dataset.ubicacion.includes(q) ? 'block' : 'none';
+        });
+      });
+
+    } catch(e) { box.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Error al cargar mapa.</div>'; }
+  }
+
   cargarCajas();
+  cargarMapa();
 
   const resultDiv = document.getElementById('scanResult');
 
-  // Función compartida para procesar el código (viene de la cámara o de la pistola)
   function procesarCodigoEscaneado(codigo) {
     if (!codigo) return;
     document.getElementById('scanCode').textContent = codigo;
@@ -7442,27 +7832,22 @@ async function renderBodega(){
     window._codigoCajaEscaneada = codigo;
   }
 
-  // --- LÓGICA PARA PC (Pistola láser / Teclado) ---
   if (!isTouchDevice) {
     const inputPC = document.getElementById('scanInputPC');
-    // Mantener el foco en el input para que la pistola escriba directo
     inputPC.focus();
-    
     inputPC.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
         e.preventDefault();
         const codigo = this.value.trim();
         if (codigo) {
           procesarCodigoEscaneado(codigo);
-          this.value = ''; // Limpiar para el siguiente escaneo
+          this.value = '';
         }
       }
     });
-    // Si el usuario hace clic en otro lado, devolver el foco al input
     document.getElementById('scanPCContainer').addEventListener('click', () => inputPC.focus());
   }
 
-  // --- LÓGICA PARA TABLET/MÓVIL (Cámara) ---
   if (isTouchDevice) {
     const btnStart = document.getElementById('btnStartScan');
     const btnCancel = document.getElementById('btnCancelScan');
@@ -7472,17 +7857,12 @@ async function renderBodega(){
       btnStart.style.display = 'none';
       btnCancel.style.display = 'block';
       readerDiv.style.display = 'block';
-      
-      if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode("reader");
-      }
-
+      if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
       try {
         await html5QrCode.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText, decodedResult) => {
-            // Al escanear con éxito
+          (decodedText) => {
             html5QrCode.stop().then(() => {
               readerDiv.style.display = 'none';
               btnStart.style.display = 'block';
@@ -7491,7 +7871,7 @@ async function renderBodega(){
               procesarCodigoEscaneado(decodedText);
             }).catch(err => console.error(err));
           },
-          (errorMessage) => { /* Ignorar errores de frames */ }
+          (errorMessage) => { }
         );
       } catch (err) {
         toast("Error al encender la cámara: " + err, "error");
@@ -7503,10 +7883,7 @@ async function renderBodega(){
 
     btnCancel.onclick = async function() {
       if (html5QrCode && html5QrCode.isScanning) {
-        try {
-          await html5QrCode.stop();
-          html5QrCode.clear();
-        } catch(e) { console.error(e); }
+        try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) { console.error(e); }
       }
       readerDiv.style.display = 'none';
       btnStart.style.display = 'block';
@@ -7515,20 +7892,16 @@ async function renderBodega(){
     };
   }
 
-  // --- GUARDAR UBICACIÓN ---
   document.getElementById('btnSaveLocation').onclick = async function() {
     const codigo = window._codigoCajaEscaneada;
     const ubicacion = document.getElementById('scanLocation').value.trim();
     const estado = document.getElementById('scanStatus').value;
     
     if(!ubicacion) { toast('Escribí una ubicación física.', 'error'); return; }
-    
-    // Extraer el código PT del código de caja (ej: PT0101046-C001 -> PT0101046)
     const codigoPT = codigo.split('-')[0];
 
     try {
       await withLoading(this, async function() {
-        // UPSERT en base al codigo_caja
         await api('cajas_ubicacion?on_conflict=codigo_caja', {
           method: 'POST',
           headers: apiHeaders({'Prefer': 'resolution=merge-duplicates'}),
@@ -7544,13 +7917,14 @@ async function renderBodega(){
         toast('Ubicación guardada correctamente.', 'success');
         resultDiv.style.display = 'none';
         
-        // Devolver foco al input si es PC
         if (!isTouchDevice) {
             const inputPC = document.getElementById('scanInputPC');
             if (inputPC) inputPC.focus();
         }
         
+        // Refrescar ambas vistas
         cargarCajas();
+        cargarMapa();
       });
     } catch(e) {
       toast('Error al guardar: ' + e.message, 'error');
