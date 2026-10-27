@@ -1062,6 +1062,14 @@ const CONFIG_DEFAULT={
 let _configCache=null;
 let _configCargando=null;
 
+/* Devuelve la fecha en formato YYYY-MM-DD respetando la zona horaria local */
+function fechaLocalISO(dateObj) {
+  const d = dateObj ? new Date(dateObj) : new Date();
+  const offset = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - (offset * 60 * 1000));
+  return local.toISOString().slice(0, 10);
+}
+
 function getConfig(){
   /* Síncrono: usa el cache si está disponible, si no el default.
      La primera vez hay que llamar a cargarConfig() (async). */
@@ -3690,15 +3698,6 @@ function calcularVencimiento(fechaFab) {
   return d;
 }
 
-/* Vida útil: 3 años - 1 mes - 1 día = 35 meses - 1 día */
-function calcularVencimiento(fechaFab) {
-  if(!fechaFab) return null;
-  const d = new Date(fechaFab);
-  d.setMonth(d.getMonth() + 35);
-  d.setDate(d.getDate() - 1);
-  return d;
-}
-
 /* Devuelve true si el config tiene los logos cargados. */
 function etiquetasTienenLogos(cfg){
   const e = (cfg && cfg.etiquetas) || {};
@@ -6266,7 +6265,9 @@ async function renderEntradas(){
       const ins=insumos.find(function(i){return i.id===selItem.value;});
       if(!ins){preview.innerHTML='';return;}
       const uC=unidadCompra(ins),uCons=unidadConsumo(ins),f=factorTotal(ins);
-      labelU.textContent=uCons;
+      labelU.textContent = uC + ' → ' + uCons;
+      // Aclaramos visualmente que se ingresa en unidad de compra
+      if(inputCant) inputCant.placeholder = 'Cantidad en ' + uC;
       inputCosto.placeholder=(ins.costo_unitario&&ins.costo_unitario>0)?'Actual: '+money(ins.costo_unitario*f)+' por '+uC:'Opcional';
       const esVar=ins.tipo_conversion==='variable';
       rendBox.style.display=esVar?'grid':'none';
@@ -6634,7 +6635,7 @@ async function renderDespachos(){
 }
 
 function abrirModalNuevoDespacho(productos) {
-  const hoy = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,10);
+  const hoy = fechaLocalISO();
   abrirModalGenerico({
     title:'Registrar Nuevo Despacho',
     subtitle:'El sistema descontará el stock del producto terminado.',
@@ -6649,7 +6650,11 @@ function abrirModalNuevoDespacho(productos) {
           <select id="desp_pt">${productos.map(p => `<option value="${p.codigo_pt}" data-stock="${p.existencia_actual}" data-caja="${p.unidades_por_caja||1}">${p.nombre} (Stock: ${num(p.existencia_actual)})</option>`).join('')}</select>
         </div>
         <div><label>Cantidad</label><input id="desp_cantidad" type="number" min="1" placeholder="0"></div>
-        <div><label>Lote OP</label><input id="desp_lote" placeholder="Ej: 3619"></div>
+        <div>
+          <label>Lote OP</label>
+          <input id="desp_lote" list="dl_lotes_op" placeholder="Ej: 3619" autocomplete="off">
+          <datalist id="dl_lotes_op"></datalist>
+        </div>
         <div><label>Consecutivo</label><input id="desp_consecutivo" placeholder="Ej: 134 (1), 141 (6)"></div>
         <div><label>Orden de Compra (OC)</label><input id="desp_oc" placeholder="Ej: 80089"></div>
         <div><label>Fecha</label><input id="desp_fecha" type="date" value="${hoy}"></div>
@@ -6662,6 +6667,26 @@ function abrirModalNuevoDespacho(productos) {
     </div>`,
     onOpen: function() {
       document.getElementById('desp_cancelar').onclick = cerrarModalGenerico;
+
+      /* Cargar lotes de OP existentes para este PT */
+      const selPT = document.getElementById('desp_pt');
+      const dlLotes = document.getElementById('dl_lotes_op');
+      
+      async function cargarLotesPT() {
+        dlLotes.innerHTML = '';
+        const pt = selPT.value;
+        if(!pt) return;
+        try {
+          const entregas = await api('entregas_op?select=lote_entrega,ordenes_semanales!inner(codigo_pt)&ordenes_semanales.codigo_pt=eq.'+pt+'&lote_entrega=not.is.null&limit=50');
+          const lotesUnicos = [...new Set(entregas.map(e => e.lote_entrega))];
+          lotesUnicos.forEach(l => {
+            dlLotes.innerHTML += `<option value="${esc(l)}"></option>`;
+          });
+        } catch(e) { console.warn('Error cargando lotes para despacho', e); }
+      }
+      
+      selPT.addEventListener('change', cargarLotesPT);
+      cargarLotesPT();
       
       document.getElementById('desp_guardar').onclick = async function(ev) {
         const cliente = document.getElementById('desp_cliente').value.trim();
@@ -8557,8 +8582,8 @@ async function renderProgramacion(){
     const viernes = new Date(lunes);
     viernes.setDate(lunes.getDate() + 4); // Solo de Lunes a Viernes
     
-    const defaultDesde = lunes.toISOString().slice(0,10);
-    const defaultHasta = viernes.toISOString().slice(0,10);
+    const defaultDesde = fechaLocalISO(lunes);
+    const defaultHasta = fechaLocalISO(viernes);
 
     main.innerHTML=`
       <div class="page-header-flex">
@@ -8815,8 +8840,8 @@ async function renderConsolidado(){
     const viernes = new Date(lunes);
     viernes.setDate(lunes.getDate() + 4); // Solo de Lunes a Viernes
     
-    const defaultDesde = lunes.toISOString().slice(0,10);
-    const defaultHasta = viernes.toISOString().slice(0,10);
+    const defaultDesde = fechaLocalISO(lunes);
+    const defaultHasta = fechaLocalISO(viernes);
 
     main.innerHTML=`
       <div class="page-header-flex">
@@ -9472,7 +9497,7 @@ async function renderCompras(){
       const inpD=document.getElementById('comp_desde');
       const inpH=document.getElementById('comp_hasta');
       const hoy=new Date();
-      const iso=function(d){return d.toISOString().slice(0,10);};
+      const iso=function(d){return fechaLocalISO(d);};
       if(r==='limpiar'){inpD.value='';inpH.value='';return;}
       if(r==='mes'){const d=new Date(hoy.getFullYear(),hoy.getMonth(),1);inpD.value=iso(d);inpH.value=iso(hoy);}
       else if(r==='mes_ant'){const ini=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);const fin=new Date(hoy.getFullYear(),hoy.getMonth(),0);inpD.value=iso(ini);inpH.value=iso(fin);}
@@ -9719,7 +9744,7 @@ async function renderMermas(){
       const inpD=document.getElementById('mer_desde');
       const inpH=document.getElementById('mer_hasta');
       const hoy=new Date();
-      const iso=function(d){return d.toISOString().slice(0,10);};
+      const iso=function(d){return fechaLocalISO(d);};
       if(r==='limpiar'){inpD.value='';inpH.value='';return;}
       if(r==='mes'){const d=new Date(hoy.getFullYear(),hoy.getMonth(),1);inpD.value=iso(d);inpH.value=iso(hoy);}
       else if(r==='mes_ant'){const ini=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);const fin=new Date(hoy.getFullYear(),hoy.getMonth(),0);inpD.value=iso(ini);inpH.value=iso(fin);}
@@ -10006,7 +10031,7 @@ async function renderKardex(){
       const inpD=document.getElementById('kar_desde');
       const inpH=document.getElementById('kar_hasta');
       const hoy=new Date();
-      const iso=function(d){return d.toISOString().slice(0,10);};
+      const iso=function(d){return fechaLocalISO(d);};
       if(r==='limpiar'){inpD.value='';inpH.value='';}
       else if(r==='7d'){const d=new Date(hoy);d.setDate(d.getDate()-7);inpD.value=iso(d);inpH.value=iso(hoy);}
       else if(r==='30d'){const d=new Date(hoy);d.setDate(d.getDate()-30);inpD.value=iso(d);inpH.value=iso(hoy);}
@@ -10249,7 +10274,7 @@ async function renderBackup(){
         <button id="btnGenerarBackup" title="Generar y descargar el ZIP">Generar backup (.zip)</button>
       </div>
       <div class="field-hint" style="padding:0 18px 14px;">
-        El backup incluye <b>13 tablas</b> en formato CSV. Un backup completo de 10.000 movimientos pesa aproximadamente 3–5 MB.
+        El backup incluye <b>18 tablas</b> en formato CSV (incluyendo lotes, despachos y configuración). Un backup completo puede pesar varios MB dependiendo del historial.
       </div>
     </div>
 
@@ -10652,7 +10677,7 @@ async function renderAuditoria(){
       const inpD=document.getElementById('rep_desde');
       const inpH=document.getElementById('rep_hasta');
       const hoy=new Date();
-      const iso=function(d){return d.toISOString().slice(0,10);};
+      const iso=function(d){return fechaLocalISO(d);};
       if(r==='limpiar'){
         inpD.value='';
         inpH.value='';
