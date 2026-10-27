@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v2.4.0** — Producción · Octubre 2026
+**v2.4.2** — Producción · Octubre 2026
 
 ## ¿Qué resuelve?
 
@@ -43,6 +43,7 @@ AseptiQ administra el flujo completo de manufactura:
 - **Trazabilidad FIFO Estricta**: Descuento exacto de lotes por antigüedad (FIFO) al entregar OPs, producir subproductos o ajustar inventario.
 - **Módulo de Despachos**: Salida de producto terminado a clientes con generación de formato de entregas diarias y firmas de recibido.
 - **Trazabilidad de Compras**: Registro de Factura, Orden de Compra (OC), Entrada de Almacén y saldos pendientes en las entradas de mercancía.
+- **Fechas Locales y Autocompletado**: Despachos y programación usan zona horaria local (evita saltos de día). El campo Lote en Despachos autocompleta con los lotes ya entregados.
 - **Modales apilados**: se pueden abrir modales dentro de otros modales sin perder los datos (ej. crear un subproducto mientras se edita un PT).
 - **Gestión de PT mejorada**: código de barras, plantilla, vida útil y registro INVIMA directo en el formulario.
 - **Lote del proveedor** en entradas de insumos (opcional) para trazabilidad INVIMA.

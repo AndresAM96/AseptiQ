@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 2.4
+**Versión:** 2.4.2
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -449,6 +449,8 @@ Registra la entrega de producto terminado (PT) a los clientes.
 - Hacé clic en **+** para registrar un nuevo despacho. Descuenta el stock del inventario automáticamente.
 - El botón **"Imprimir Reporte del Día"** genera el documento con formato apaisado, el listado de entregas de la fecha, observaciones y las firmas del Jefe de Logística y del Conductor.
 - El formato incluye columnas para Lote OP, Consecutivo y OC (Orden de Compra), tomados directamente de los datos ingresados.
+- **Autocompletado de Lote**: Al seleccionar un producto, el campo Lote OP sugerirá los lotes que ya han sido entregados para ese PT, evitando errores de digitación.
+- **Fecha local**: El sistema sugiere la fecha de hoy según tu zona horaria (no se adelanta después de las 7 PM).
 
 ---
 

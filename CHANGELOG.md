@@ -1,3 +1,16 @@
+## [2.4.2] — Octubre 2026
+
+### Añadido
+- **Lotes en Despachos**: El campo "Lote OP" en el modal de despacho ahora es un autocompletado (datalist) que sugiere los lotes que ya fueron entregados para ese Producto Terminado, evitando errores de tipeo.
+
+### Corregido
+- **Zona Horaria (Timezone)**: Se implementó la función `fechaLocalISO()` para evitar que las fechas de despacho, programación y reportes se adelanten un día después de las 7:00 PM (hora Colombia).
+- **Unidades en Entrada Mercancía**: El campo de cantidad ahora aclara explícitamente en su *placeholder* que se debe ingresar en unidad de compra (ej: "Cantidad en Caja"), para evitar confusiones con la unidad de consumo.
+- **Backup**: Se actualizó el texto informativo (ahora indica que el backup incluye 18 tablas, no 13).
+
+### Limpieza
+- Eliminación de código duplicado en el frontend (`calcularVencimiento` estaba definida dos veces).
+
 ## [2.4.1] — Octubre 2026
 
 ### Seguridad (Crítico)
