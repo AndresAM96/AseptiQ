@@ -1,3 +1,25 @@
+## [2.4.1] — Octubre 2026
+
+### Seguridad (Crítico)
+- **RPCs protegidos**: Se revocó el acceso a `anon` y se agregó `validar_escritura()` a todas las funciones que modifican datos. Ahora es imposible saltarse la UI llamando a la API directamente si no se tiene el rol adecuado.
+- **Perfiles inactivos bloqueados**: Los usuarios con `activo=false` ya no pueden leer datos (política RLS actualizada).
+- **Contraseña en texto plano eliminada**: Se quitó la opción de guardar la contraseña en `localStorage`. Solo se recuerda el correo electrónico.
+- **Sesión auto-renovable**: Se agregó el listener `TOKEN_REFRESHED` para evitar que la sesión se caiga a la hora sin motivo.
+
+### Integridad de Inventario (Crítico)
+- **FIFO con Costos**: La función `consumir_insumo_fifo` ahora guarda el `costo_unitario_momento` en los movimientos de salida. Esto repara los reportes de Mermas y Costos OP que estaban dando $0.
+- **Entrada Multi-lote sin duplicados**: Se creó el RPC `registrar_entrada_multi_lote` que actualiza el stock y los lotes de forma atómica, eliminando el doble conteo.
+- **Stock a prueba de ediciones**: El formulario de edición de insumos ya no permite modificar la existencia a mano (se bloquea el input). Solo se ajusta mediante Entradas o Auditoría.
+- **Validación de Entregas**: `registrar_entrega_op` ahora verifica que no se entregue más cantidad de la pendiente y respeta el `factor_receta` en la auto-producción.
+- **Bodega PT arreglada**: El `split('-')` fue reemplazado por `lastIndexOf('-')`, por lo que ahora reconoce correctamente el código del PT al escanear cajas.
+
+### Corregido (Frontend)
+- **Backup sin truncar**: Ahora pagina las consultas (offset/limit) para traer todos los registros, incluso si superan los 1000. Además, incluye las tablas nuevas.
+- **Falsos positivos de "Error"**: Se corrigió la función `withLoading` que interpretaba un guardado exitoso como un error si la función no retornaba datos.
+- **Consolidado MP**: Ahora filtra correctamente las OPs que caen en el rango de fechas y solo calcula sobre la cantidad pendiente (no la proyectada total).
+- **Caché de umbrales**: Al cambiar los umbrales en Configuración, los colores de Urgente/Reorden en Insumos se actualizan de inmediato.
+- **Trazabilidad Exacta**: La vista "¿De dónde vino?" ahora consulta los consumos reales de la OP (vía `orden_id` + `lote_insumo`), mostrando exactamente qué lote se usó, en lugar de adivinar con el stock actual.
+
 ## [2.4.0] — Octubre 2026
 
 ### Añadido

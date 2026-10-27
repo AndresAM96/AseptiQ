@@ -10,6 +10,13 @@ let SUPA_CLIENT=null, SUPA_SESSION=null;
 let SUPA_ROLE=null, SUPA_PROFILE=null;
 let _cerrandoPorExpiracion = false;
 
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>'"]/g, function(m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[m];
+  });
+}
+
 async function manejarSesionExpirada() {
   if (_cerrandoPorExpiracion) return;
   _cerrandoPorExpiracion = true;
@@ -75,6 +82,9 @@ async function withLoading(btn,fn){
   btn.disabled=true;btn.innerHTML='Guardando…';
   try{
     const r=await fn();
+    if (r === false) {
+      throw new Error('La acción no se completó. Revisa los datos.');
+    }
     btn.classList.add('btn-ok');btn.innerHTML='✓ Guardado';
     setTimeout(function(){btn.classList.remove('btn-ok');btn.innerHTML=orig;btn.disabled=false;},1400);
     return r;
@@ -566,6 +576,8 @@ async function intentarSesionExistente(){
     SUPA_CLIENT.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' && !_cerrandoPorExpiracion) {
         manejarSesionExpirada();
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        SUPA_SESSION = session; // Actualizamos la sesión con el token nuevo
       }
     });
 
@@ -1136,9 +1148,12 @@ async function saveConfig(c){
   }
 }
 
-/* Invalida el cache (por si se edita desde otro dispositivo) */
+/* Invalida el cache de la app y del core (para que los umbrales cambien de inmediato) */
 function _invalidateConfigCache(){
   _configCache=null;
+  if(typeof window._invalidateConfigCache === 'function') {
+    try { window._invalidateConfigCache(); } catch(e) {}
+  }
 }
 
 /* ============ TEMA CLARO/OSCURO ============ */
@@ -1520,11 +1535,8 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
       try{localStorage.removeItem('inv_supa_creds');}catch(e){}
     }
     /* Email + contraseña */
-    if(document.getElementById('rememberCreds').checked){
-      try{localStorage.setItem('aseptiq_creds',JSON.stringify({email:email,password:password}));}catch(e){}
-    } else {
-      try{localStorage.removeItem('aseptiq_creds');}catch(e){}
-    }
+    /* Seguridad: Eliminamos por completo el guardado de contraseña en localStorage */
+    try{localStorage.removeItem('aseptiq_creds');}catch(e){}
 
     /* Transición a la app */
     try{localStorage.setItem('aseptiq_tab','dashboard');}catch(e){}
@@ -2219,14 +2231,11 @@ function initInactivityTracker() {
       document.getElementById('rememberMe').checked=true;
     }
   }catch(e){}
-  /* Prellenar email y contraseña si el usuario pidió recordarlas */
+  /* Prellenar email (la contraseña ya no se guarda por seguridad) */
   try{
     const c=JSON.parse(localStorage.getItem('aseptiq_creds'));
     if(c&&c.email){
       document.getElementById('supaEmail').value=c.email;
-      document.getElementById('rememberCreds').checked=true;
-      document.getElementById('credsWarning').style.display='block';
-      if(c.password) document.getElementById('supaPassword').value=c.password;
     }
   }catch(e){}
 
@@ -3962,7 +3971,7 @@ function _htmlFormInsumo(insumo,cfg,numSug){
     <div class="form-grid" style="padding:0;">
       <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoInsumo}</span><input id="ins_codigo_num" value="${numSug}" ${insumo?'disabled':''} autocomplete="off"></div><div class="field-validate" id="ins_codigo_status"></div></div>
       <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${insumo?insumo.nombre:''}"></div>
-      <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(opcional)</span></label><input id="ins_existencia" type="number" step="0.0001" value="${insumo?insumo.existencia_actual:''}" placeholder="0"></div>
+      <div><label>Existencia actual ${insumo?'<span style="color:var(--text-muted);font-weight:400;">(solo lectura)</span>':'<span style="color:var(--text-muted);font-weight:400;">(opcional)</span>'}</label><input id="ins_existencia" type="number" step="0.0001" value="${insumo?insumo.existencia_actual:''}" placeholder="0" ${insumo?'disabled title="Usa Entrada Mercancía o Auditoría para ajustar el stock"':''}></div>
       <div><label>Stock objetivo</label><input id="ins_reorden" type="number" step="0.0001" min="0.0001" value="${insumo?insumo.punto_reorden:''}" placeholder="Ej: 100" title="El sistema calcula los umbrales de urgente y reorden como % de este valor (configurable en Configuración)"></div>
       <div><label>Costo Und. (Unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${insumo?insumo.costo_unitario:0}"></div>
     </div>
@@ -4216,8 +4225,8 @@ async function abrirModalInsumo(insumoId,insumos,cfg,onSaveCallback){
         sincronizarCadenaDesdeDOM();
         const cAct=getConfig();
         const pr=parseFloat(document.getElementById('ins_reorden').value);
-        if(!pr||pr<=0){toast('Punto de reorden obligatorio y mayor a cero.','error');return;}
-        if(cadenaEdicion.length===0||!cadenaEdicion[0].unidad){toast('Define al menos la unidad de compra.','error');return;}
+        if(!pr||pr<=0){toast('Punto de reorden obligatorio y mayor a cero.','error');return false;}
+        if(cadenaEdicion.length===0||!cadenaEdicion[0].unidad){toast('Define al menos la unidad de compra.','error');return false;}
         for(let i=0;i<cadenaEdicion.length;i++){
           const n=cadenaEdicion[i];
           if(!n.unidad){toast('Nivel '+(i+1)+': falta unidad.','error');return;}
@@ -4226,18 +4235,21 @@ async function abrirModalInsumo(insumoId,insumos,cfg,onSaveCallback){
         const esVar=tipoConversionEdicion==='variable';
         const tieneDim=cadenaEdicion.some(function(n){return n.formula&&n.formula.ancho&&n.formula.largo;});
         const tipo=esVar?'variable':(tieneDim?'dimensional':'fijo');
-        const body={
+                const body={
           nombre:document.getElementById('ins_nombre').value.trim(),
           unidad_medida:cadenaEdicion[0].unidad,
           unidad_consumo:cadenaEdicion.length>1?cadenaEdicion[cadenaEdicion.length-1].unidad:null,
           factor_conversion:cadenaEdicion.length>1?factorTotal({conversiones:cadenaEdicion}):null,
-          existencia_actual:parseFloat(document.getElementById('ins_existencia').value)||0,
           punto_reorden:pr,
           costo_unitario:parseFloat(document.getElementById('ins_costo').value)||0,
           conversiones:cadenaEdicion,
           tipo_conversion:tipo
         };
-        if(!body.nombre){toast('Completa el nombre.','error');return;}
+        
+        /* Solo enviamos la existencia si es un insumo nuevo */
+        if(!insumo) body.existencia_actual = parseFloat(document.getElementById('ins_existencia').value)||0;
+        
+        if(!body.nombre){toast('Completa el nombre.','error');return false;}
         try{
           await withLoading(ev.currentTarget,async function(){
             if(insumo){
@@ -4247,7 +4259,7 @@ async function abrirModalInsumo(insumoId,insumos,cfg,onSaveCallback){
               if(numManual){
                 let limpio=numManual;
                 if(limpio.indexOf(cAct.prefijoInsumo)===0){limpio=limpio.slice(cAct.prefijoInsumo.length);}
-                if(!limpio){toast('El código no puede estar vacío.','error');return;}
+                if(!limpio){toast('El código no puede estar vacío.','error');return false;}
                 body.codigo=cAct.prefijoInsumo+limpio;
               }else{
                 let n2;try{n2=await rpc('siguiente_codigo',{p_prefijo:cAct.prefijoInsumo,p_tabla:'insumos'});}catch(e){n2=siguienteCodigoLocal(cAct.prefijoInsumo,insumos);}
@@ -4749,7 +4761,7 @@ async function abrirModalSubproducto(subproductoId,data,cfg,onSaveCallback){
               if(numManual){
                 let limpio=numManual;
                 if(limpio.indexOf(cfg.prefijoSubproducto)===0){limpio=limpio.slice(cfg.prefijoSubproducto.length);}
-                if(!limpio){toast('El código no puede estar vacío.','error');return;}
+                if(!limpio){toast('El código no puede estar vacío.','error');return false;}
                 cod=cfg.prefijoSubproducto+limpio;
               }else{
                 try{cod=cfg.prefijoSubproducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoSubproducto,p_tabla:'subproductos'});}catch(e){cod=cfg.prefijoSubproducto+siguienteCodigoLocal(cfg.prefijoSubproducto,data.subproductos);}
@@ -4923,7 +4935,7 @@ async function abrirModalPaquete(codigoPT,data,cfg,draft){
               if(numManual){
                 let limpio=numManual;
                 if(limpio.indexOf(cfg.prefijoProducto)===0){limpio=limpio.slice(cfg.prefijoProducto.length);}
-                if(!limpio){toast('El código no puede estar vacío.','error');return;}
+                if(!limpio){toast('El código no puede estar vacío.','error');return false;}
                 cod=cfg.prefijoProducto+limpio;
               }else{
                 try{cod=cfg.prefijoProducto+await rpc('siguiente_codigo',{p_prefijo:cfg.prefijoProducto,p_tabla:'productos_terminados'});}catch(e){cod=cfg.prefijoProducto+siguienteCodigoLocal(cfg.prefijoProducto,data.productos);}
@@ -6373,26 +6385,16 @@ async function renderEntradas(){
           if(filas.length === 0) { toast('Agregá al menos un lote con su cantidad.', 'error'); return; }
 
           const r=await withLoading(ev.currentTarget,async function(){
-            /* 1. Registrar la entrada total (sin lote específico) */
-            const rEntrada=await rpc('registrar_entrada',{
-              p_insumo_id:itemId,
-              p_cantidad:cantidadTotalMulti,
-              p_proveedor_id:proveedor_id,
-              p_costo_unitario:costo,
-              p_motivo:null,
-              p_rendimiento_real:rend,
-              p_lote_insumo:null
-            });
-            /* 2. Insertar cada lote por separado */
-            const rLotes=await rpc('registrar_lotes_entrada',{
+            /* Llamamos al NUEVO RPC unificado (evita doble conteo y actualiza el stock general) */
+            await rpc('registrar_entrada_multi_lote',{
               p_insumo_id:itemId,
               p_lotes:filas,
               p_proveedor_id:proveedor_id,
-              p_costo_unitario:costo,
-              p_fecha:new Date().toISOString()
+              p_costo_unitario:costo
             });
-            return {entrada:rEntrada,lotes:rLotes,n:filas.length};
+            return {n:filas.length};
           });
+          toast('Entrada OK · '+num(cantidadTotalMulti)+' en consumo · '+r.n+' lote'+(r.n===1?'':'s')+' registrado'+(r.n===1?'':'s'),'success');
           
           /* Actualizar documentos en el último movimiento */
           try {
@@ -6632,7 +6634,7 @@ async function renderDespachos(){
 }
 
 function abrirModalNuevoDespacho(productos) {
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,10);
   abrirModalGenerico({
     title:'Registrar Nuevo Despacho',
     subtitle:'El sistema descontará el stock del producto terminado.',
@@ -8153,7 +8155,7 @@ async function renderBodega(){
     const estado = document.getElementById('scanStatus').value;
     
     if(!ubicacion) { toast('Escribí una ubicación física.', 'error'); return; }
-    const codigoPT = codigo.split('-')[0];
+    const codigoPT = codigo.substring(0, codigo.lastIndexOf('-'));
 
     try {
       await withLoading(this, async function() {
@@ -8876,12 +8878,16 @@ async function renderConsolidado(){
 
       await withLoading(ev.currentTarget, async function(){
         try {
-          // 1. Obtener OPs del rango
+          // 1. Obtener TODAS las OPs pendientes/proceso y filtrarlas localmente (más exacto)
           let q = 'ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)';
-          q += '&or=(fecha_programada.gte.'+desde+',fecha_creacion.gte.'+desde+'T00:00:00)';
-          q += '&or=(fecha_programada.lte.'+hasta+',fecha_creacion.lte.'+hasta+'T23:59:59)';
+          const ordenesRaw = await api(q);
           
-          const ordenes = await api(q);
+          const ordenes = ordenesRaw.filter(o => {
+            // Si tiene fecha programada, usamos esa; si no, usamos la fecha de creación
+            const fIni = o.fecha_programada || o.fecha_creacion.split('T')[0];
+            const fFin = o.fecha_fin_programada || fIni;
+            return fIni <= hasta && fFin >= desde;
+          });
 
           if(!ordenes.length){
             box.innerHTML = '<div class="empty-state">No hay órdenes en este rango.</div>';
@@ -8903,7 +8909,9 @@ async function renderConsolidado(){
           }
 
           ordenes.forEach(o => {
-            const cantOP = Number(o.cantidad_proyectada) || 0;
+            // Solo calculamos sobre lo que FALTA producir
+            const cantOP = (Number(o.cantidad_proyectada) || 0) - (Number(o.cantidad_producida) || 0);
+            if (cantOP <= 0) return;
             // Insumos directos
             data.bom.filter(b => b.codigo_pt === o.codigo_pt).forEach(b => {
               requerimientos[b.insumo_id] = (requerimientos[b.insumo_id] || 0) + (b.cantidad_por_unidad * cantOP);
@@ -9077,17 +9085,17 @@ async function ejecutarTrazaForward(data,codigoPT,cantidad){
 
   box.innerHTML='<div class="empty-state">Analizando insumos y lotes…</div>';
 
-  /* Cargar lotes ACTUALES por insumo desde insumo_lotes (Usando cantidad_actual) */
+  /* Cargar los lotes EXACTOS consumidos para este PT/OP */
   let lotesPorInsumo={};
   try{
-    const lotes=await api('insumo_lotes?select=insumo_id,lote,cantidad_actual,costo_unitario,ultimo_ingreso,sys_proveedores(razon_social)&cantidad_actual=gt.0&order=ultimo_ingreso.desc&limit=2000');
-    lotes.forEach(function(l){
-      if(!l.lote) return;
-      if(!lotesPorInsumo[l.insumo_id]) lotesPorInsumo[l.insumo_id]=[];
-      lotesPorInsumo[l.insumo_id].push({
-        lote_insumo: l.lote,
-        cantidad: l.cantidad_actual, // Ahora muestra el SALDO actual, no lo histórico
-        sys_proveedores: l.sys_proveedores
+    // Buscamos los consumos asociados a las OPs de este PT
+    const consumos=await api(`movimientos_inventario?select=insumo_id,lote_insumo,cantidad,orden_id,ordenes_semanales!inner(codigo_pt)&tipo=eq.Consumo&ordenes_semanales.codigo_pt=eq.${codigoPT}&lote_insumo=not.is.null`);
+    consumos.forEach(function(c){
+      if(!lotesPorInsumo[c.insumo_id]) lotesPorInsumo[c.insumo_id]=[];
+      lotesPorInsumo[c.insumo_id].push({
+        lote_insumo: c.lote_insumo,
+        cantidad: c.cantidad,
+        sys_proveedores: null // Podríamos cruzar con el lote si quisiéramos
       });
     });
   }catch(e){
@@ -10295,6 +10303,20 @@ async function renderBackup(){
       </table>
     </div>`;
 
+  async function fetchAll(table, select = '*', order = '') {
+    let allData = [];
+    let from = 0;
+    const limit = 1000;
+    while (true) {
+      const q = `${table}?select=${select}${order ? '&order='+order : ''}&limit=${limit}&offset=${from}`;
+      const chunk = await api(q);
+      allData = allData.concat(chunk);
+      if (chunk.length < limit) break;
+      from += limit;
+    }
+    return allData;
+  }
+
   document.getElementById('btnGenerarBackup').addEventListener('click',async function(ev){
     const rango=document.getElementById('bk_rango').value;
     const incluirMov=document.getElementById('bk_auditoria').checked;
@@ -10321,27 +10343,44 @@ async function renderBackup(){
 
         /* Definición de tablas a exportar */
         const tareas=[
-          {tabla:'insumos',archivo:'insumos.csv',query:'insumos?select=*&order=codigo'},
-          {tabla:'subproductos',archivo:'subproductos.csv',query:'subproductos?select=*&order=codigo'},
-          {tabla:'subproducto_recetas',archivo:'subproducto_recetas.csv',query:'subproducto_recetas?select=*'},
-          {tabla:'subproducto_subproductos',archivo:'subproducto_subproductos.csv',query:'subproducto_subproductos?select=*'},
-          {tabla:'productos_terminados',archivo:'productos_terminados.csv',query:'productos_terminados?select=*&order=codigo_pt'},
-          {tabla:'bom_recetas',archivo:'bom_recetas.csv',query:'bom_recetas?select=*'},
-          {tabla:'paquete_subproductos',archivo:'paquete_subproductos.csv',query:'paquete_subproductos?select=*'},
-          {tabla:'ordenes_semanales',archivo:'ordenes_semanales.csv',query:'ordenes_semanales?select=*&order=fecha_creacion.desc'},
-          {tabla:'entregas_op',archivo:'entregas_op.csv',query:'entregas_op?select=*&order=fecha.desc'},
-          {tabla:'ajustes_costo_insumo',archivo:'ajustes_costo_insumo.csv',query:'ajustes_costo_insumo?select=*&order=fecha.desc'},
-          {tabla:'sys_proveedores',archivo:'sys_proveedores.csv',query:'sys_proveedores?select=*&order=razon_social'},
-          {tabla:'profiles',archivo:'profiles.csv',query:'profiles?select=user_id,email,nombre,role,activo,creado_en&order=email'}
+          {tabla:'insumos',archivo:'insumos.csv',tablaName:'insumos', order:'codigo'},
+          {tabla:'subproductos',archivo:'subproductos.csv',tablaName:'subproductos', order:'codigo'},
+          {tabla:'subproducto_recetas',archivo:'subproducto_recetas.csv',tablaName:'subproducto_recetas'},
+          {tabla:'subproducto_subproductos',archivo:'subproducto_subproductos.csv',tablaName:'subproducto_subproductos'},
+          {tabla:'productos_terminados',archivo:'productos_terminados.csv',tablaName:'productos_terminados', order:'codigo_pt'},
+          {tabla:'bom_recetas',archivo:'bom_recetas.csv',tablaName:'bom_recetas'},
+          {tabla:'paquete_subproductos',archivo:'paquete_subproductos.csv',tablaName:'paquete_subproductos'},
+          {tabla:'ordenes_semanales',archivo:'ordenes_semanales.csv',tablaName:'ordenes_semanales', order:'fecha_creacion.desc'},
+          {tabla:'entregas_op',archivo:'entregas_op.csv',tablaName:'entregas_op', order:'fecha.desc'},
+          {tabla:'ajustes_costo_insumo',archivo:'ajustes_costo_insumo.csv',tablaName:'ajustes_costo_insumo', order:'fecha.desc'},
+          {tabla:'sys_proveedores',archivo:'sys_proveedores.csv',tablaName:'sys_proveedores', order:'razon_social'},
+          {tabla:'profiles',archivo:'profiles.csv',tablaName:'profiles', select:'user_id,email,nombre,role,activo,creado_en', order:'email'},
+          {tabla:'insumo_lotes',archivo:'insumo_lotes.csv',tablaName:'insumo_lotes'},
+          {tabla:'despachos',archivo:'despachos.csv',tablaName:'despachos', order:'fecha.desc'},
+          {tabla:'devoluciones_pt',archivo:'devoluciones_pt.csv',tablaName:'devoluciones_pt', order:'fecha.desc'},
+          {tabla:'evaluaciones_proveedores',archivo:'evaluaciones_proveedores.csv',tablaName:'evaluaciones_proveedores', order:'fecha.desc'},
+          {tabla:'cajas_ubicacion',archivo:'cajas_ubicacion.csv',tablaName:'cajas_ubicacion'}
         ];
 
         if(incluirMov&&isoCorte){
-          tareas.push({tabla:'movimientos_inventario',archivo:'movimientos_inventario.csv',query:'movimientos_inventario?select=*&fecha=gte.'+isoCorte+'&order=fecha.desc&limit=50000'});
+          tareas.push({tabla:'movimientos_inventario',archivo:'movimientos_inventario.csv',tablaName:'movimientos_inventario', select:'*', filter:'&fecha=gte.'+isoCorte, order:'fecha.desc'});
         }
 
-        /* Fetch + CSV */
+        /* Fetch + CSV (Paginado para superar el límite de 1000) */
         for(const t of tareas){
-          const rows=await api(t.query);
+          let query = t.tablaName + '?select=' + (t.select||'*');
+          if(t.order) query += '&order=' + t.order;
+          if(t.filter) query += t.filter;
+          
+          let rows = [];
+          let offset = 0;
+          const limit = 1000;
+          while(true) {
+            const chunk = await api(query + '&limit=' + limit + '&offset=' + offset);
+            rows = rows.concat(chunk);
+            if (chunk.length < limit) break;
+            offset += limit;
+          }
           totalRegistros+=rows.length;
           tablasIncluidas.push({tabla:t.tabla,registros:rows.length});
 
