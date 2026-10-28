@@ -1,3 +1,99 @@
+## [2.5.1] — Octubre 2026
+
+### Seguridad (Crítico)
+- **`current_user_role()` detecta inactivos**: ahora devuelve `'inactivo'` si el usuario tiene `activo=false`. Bloquea lectura en todas las tablas de negocio.
+- **`REVOKE EXECUTE … FROM PUBLIC, anon`**: cierra el bypass que tenía el intento de v2.4.1. `ALTER DEFAULT PRIVILEGES` para funciones futuras.
+- **`consumir_insumo_fifo` revocada de `authenticated`**: es función interna, ningún usuario debe invocarla directo.
+- **`registrar_entrada_multi_lote` delega en `registrar_entrada`**: elimina el doble conteo del trigger y respeta `factor_conversion` + costo promedio ponderado.
+- **`mov_inv_sync_lotes` solo actúa con `estado_calidad='Aprobado'`**: Rechazado/Cuarentena ya no entra a stock ni a lotes.
+- **`registrar_entrada` ya no inserta manualmente en `insumo_lotes`**: lo hace exclusivamente el trigger (evita duplicación).
+
+### Integridad de inventario
+- **FIFO con `p_tipo`**: `consumir_insumo_fifo` recibe `'Consumo'` o `'Salida'`; `registrar_salida` y `ajustar_inventario` lo usan en una sola pasada (elimina el `UPDATE … ORDER BY fecha DESC LIMIT 1` frágil).
+- **Ajuste positivo sin duplicación**: `ajustar_inventario` delega en `registrar_entrada` cuando `diff > 0`.
+- **FIFO deshabilitado para insumos sin lotes reales**: si el insumo no tiene ningún lote ≠ `'SIN LOTE'`, el consumo es directo (sin pasar por FIFO).
+- **`registrar_devolucion` registra `costo_unitario_momento`** en el movimiento de salida.
+
+### Consumo desde BOM (recursión + validación)
+- **`registrar_entrega_op` recalcula desde `bom_recetas` + `paquete_subproductos`**: ya no depende de `detalle_faltantes` (snapshot).
+- **`planificar_consumo_subproducto` (STABLE)**: preview recursivo sin mutar, para validar stock antes de tocar datos.
+- **`consumir_subproducto_recursivo`**: auto-producción recursiva con detección de ciclos (`p_visited uuid[]`).
+- **FASE 1 agrupada**: los requerimientos se acumulan por `insumo_id` antes de validar (antes se validaban uno por uno y podía pasar stock negativo).
+- **Validación de stock antes de mutar**: si algún insumo no alcanza, la entrega falla con `Faltantes: [...]` y no deja estado parcial.
+
+### Cajas con lote (trazabilidad)
+- **`reservar_cajas_lote`**: reserva códigos atómicamente con `pg_advisory_xact_lock`. Formato `{PT}-C{###}-LOTE-{lote}`.
+- **`siguiente_codigo_caja`**: cuenta solo los códigos del lote actual. Lote `3619` y `4000` tienen secuencias separadas.
+- **`abrirModalEtiquetas`**: reserva los códigos en el backend antes de imprimir; bloquea la impresión de cajas si no hay lote.
+- **`imprimirEtiquetasPT`**: usa los códigos reservados (no genera `C001` a mano).
+- **`renderBodega`**: parsea formato nuevo (`PT-0001-C001-LOTE-3619`) y viejo (`PT-0001-C001`) con regex.
+
+### Frontend (XSS, fechas, paginación)
+- **`esc()` aplicado a ~40 sitios**: `toast`, notificaciones, tablas de Insumos/Productos/Proveedores/Órdenes/Novedades/Kardex/Compras/Mermas/Costos/Rentabilidad/Bodega/Programación/Evaluación/Usuarios/Cobertura/Consolidado, y formularios de edición.
+- **`fechaLocalISO` en 8 lugares**: despachos, programación, consolidado, kardex, etiquetas, backup, `formatoRelativo`.
+- **`apiAll` (helper de paginación)**: aplicado a Compras, Mermas, Histórico, Auditoría (3 ramas), Programación y Consolidado. Reportes con > 1000 filas ya no truncan.
+- **Backup con `order` determinista**: `id` como tiebreaker en las 6 tablas que faltaban. Paginación `offset/limit` estable.
+- **`_invalidateConfigCache` correcto**: invoca el de `aseptiq_core.js`. Los cambios de umbral se reflejan sin recargar.
+- **`removeItem('aseptiq_creds')`**: elimina contraseña vieja de `localStorage`. Migración del JSON.
+- **`TOKEN_REFRESHED`** agregado al listener de login (antes solo en sesión restaurada).
+
+### Corregido
+- **`guardar_subproducto` no pisa `existencia_actual` al editar** (bug equivalente al que se había corregido en `insumos`).
+- **Toasts con `"—"`**: los RPCs devuelven `cantidad_consumo` y `cantidad_pendiente`.
+- **Lista "Contenido del backup"**: agregadas las 7 tablas nuevas (`etiquetas_impresas`, `insumo_lotes`, `devoluciones_pt`, `evaluaciones_proveedores`, `despachos`, `cajas_ubicacion`, `sys_config`).
+
+### Limpieza
+- **Eliminado checkbox "Recordar mi usuario y contraseña"** del login (era engañoso desde v2.4.1).
+- **`DROP FUNCTION registrar_lotes_entrada(...)`** (huérfana desde v2.5.1).
+- **Header de `schema.sql`**: advertencia de no ejecutarlo sobre una base ya migrada.
+
+### Notas de despliegue
+- Aplicar `migraciones/v2.5.0_auditoria.sql` **primero**, luego `migraciones/v2.5.1_cajas_fifo_recursivo.sql`.
+- Verificar con el SQL pre-flight de `AUDIT_CLOSURE.md §7.2`.
+- Hacer backup pre-deploy: `pg_dump … > pre_v251.sql`.
+
+---
+
+## [2.5.0] — Octubre 2026
+
+### Seguridad (Crítico)
+- **`validar_escritura` en las 18 RPCs de escritura**: `confirmar_orden`, `cancelar_orden`, `guardar_subproducto`, `guardar_paquete`, `eliminar_insumo`, `ajustar_inventario`, `ajustar_subproducto`, `ajustar_costo_insumo`, `producir_subproducto`, `registrar_devolucion`, `registrar_devolucion_pt`, `registrar_despacho`, `registrar_entrada`, `registrar_salida`, `registrar_entrega_op`, `consumir_insumo_fifo`, `registrar_entrada_multi_lote`, `siguiente_codigo`. Cierra el bypass del intento de v2.4.1.
+- **`SET search_path = public` en todas las `SECURITY DEFINER`**: mitiga search-path hijacking.
+- **Cantidades > 0**: `registrar_salida` y `consumir_insumo_fifo` rechazan `p_cantidad <= 0` (antes subían el stock con valores negativos).
+- **Policy `profiles_select` corregida**: exige rol activo. Los inactivos no leen correos ni roles.
+- **Policies SELECT en las 19 tablas de negocio**: exigen `current_user_role() IN ('admin','operador','consulta')`. Bloquea a los inactivos.
+
+### Integridad
+- **`registrar_entrada_multi_lote` delega en `registrar_entrada`**: elimina el doble conteo del trigger y respeta conversión de unidades + costo promedio.
+- **`consumir_insumo_fifo` con `p_tipo`**: reemplaza el `UPDATE … LIMIT 1` frágil por un parámetro explícito.
+- **`ajustar_inventario` sin INSERT manual en `insumo_lotes`**: el trigger es la única fuente.
+- **`registrar_entrega_op` recalcula desde BOM**: no usa el snapshot `detalle_faltantes` que se desincronizaba.
+
+### Calidad
+- **`registrar_entrada` con `p_estado_calidad`**: `Rechazado` y `Cuarentena` no suman a `existencia_actual` ni a `insumo_lotes`. Solo `Aprobado` entra al stock.
+- **`mov_inv_sync_lotes` (trigger) respeta la calidad**: idem.
+
+### Frontend
+- **`esc()` en hotspots críticos**: `toast`, notificaciones, tablas de Insumos/Productos/Proveedores/Órdenes/Novedades/Kardex/Compras/Mermas/Costos/Rentabilidad/Usuarios/Cobertura, y formularios de edición.
+- **`fechaLocalISO` aplicado**: despachos, programación, consolidado, kardex, etiquetas, backup.
+- **`_invalidateConfigCache` correcto**: invoca el de `aseptiq_core.js`.
+- **`apiAll` para paginación**: Compras, Mermas, Histórico, Auditoría (3 ramas), Programación, Consolidado.
+- **Backup con `order` determinista**: `id` como tiebreaker.
+- **`removeItem('aseptiq_creds')` + `TOKEN_REFRESHED` en login**: contraseña vieja eliminada, refresh de sesión correcto.
+
+### Corregido
+- **`guardar_subproducto` no pisa existencia al editar**.
+- **Toasts con `"—"`**: RPCs devuelven `cantidad_consumo` y `cantidad_pendiente`.
+- **Contenido del backup**: lista actualizada a 21 tablas.
+
+### Limpieza
+- **Checkbox "Recordar mi usuario y contraseña" eliminado** del HTML.
+- **`DROP FUNCTION registrar_lotes_entrada(...)`** (huérfana).
+- **Header de `schema.sql`**: advertencia sobre reinstalación.
+
+---
+
+
 ## [2.4.2] — Octubre 2026
 
 ### Añadido

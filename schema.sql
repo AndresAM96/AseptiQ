@@ -1,7 +1,26 @@
 -- =============================================================
--- AseptiQ — Schema completo de backend
--- Versión: 2.4.0
--- Fecha: 2026-10-25
+-- AseptiQ — Schema de backend (DDL base)
+-- Versión: 2.4.0 (DDL) · 2.5.1 (funciones finales en migraciones/)
+-- Fecha: 2026-10-27
+-- =============================================================
+--
+-- ⚠ IMPORTANTE — ORDEN DE EJECUCIÓN
+--
+--   Este archivo contiene DDL y funciones v2.4.0. Las versiones FINALES
+--   de las funciones están en migraciones/v2.5.0_auditoria.sql y
+--   migraciones/v2.5.1_cajas_fifo_recursivo.sql.
+--
+--   Instalación nueva:
+--     1. Correr este archivo (DDL + auth + RLS base).
+--     2. Correr migraciones/v2.5.0_auditoria.sql.
+--     3. Correr migraciones/v2.5.1_cajas_fifo_recursivo.sql.
+--     4. Correr DROP FUNCTION IF EXISTS public.registrar_lotes_entrada(...).
+--
+--   Base ya en producción:
+--     NO correr este archivo. Solo aplicar migraciones nuevas.
+--
+--   Si corrés este archivo sobre una base migrada, RESTITUYE las
+--   versiones VIEJAS (y vulnerables) de las funciones. No lo hagas.
 -- =============================================================
 -- Este archivo crea TODA la infraestructura del backend:
 --   · 14 tablas con constraints e índices

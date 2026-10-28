@@ -1,6 +1,6 @@
 # AseptiQ · Manual del usuario
 
-**Versión:** 2.4.2
+**Versión:** 2.5.1
 **Última actualización:** Octubre 2026
 **Empresa:** Proclides Soluciones Estériles S.A.S.
 
@@ -262,7 +262,11 @@ Cada PT guarda la información necesaria para imprimir su etiqueta:
 
 **Recibir varios lotes:** si el insumo viene en rollos o unidades cada uno con su propio lote (típico en Tela SMS), click en **"Recibir varios lotes"** debajo del campo Lote. Ahora puedes agregar filas individuales de `[Lote] [Cantidad]` para registrar metrajes distintos.
 
+**Insumos sin lote y FIFO:** si el insumo no maneja lotes reales (nunca se recibió con número de lote), el consumo **no** pasa por FIFO — se descuenta directo del stock. Esto evita que todas las entradas "SIN LOTE" se mezclen en un mismo bucket con costos y fechas dispares. La trazabilidad en ese caso es "sabemos cuánto salió, no cuál".
+
 **Control de Calidad (FO-AP-04):** en el formulario de entrada, selecciona la decisión de calidad (Aprobado, Rechazado, Cuarentena) y escribe observaciones. En el historial de entradas, haz clic en el ícono de la impresora para generar el formato oficial FO-AP-04.
+
+**Importante:** una entrada marcada **Rechazado** o **Cuarentena** **no** suma al stock ni a los lotes. Queda registrada en el historial con su movimiento, pero el insumo no se puede consumir hasta que se marque como Aprobado (proceso manual fuera del sistema).
 
 ### 6.7 Devoluciones
 
@@ -427,6 +431,7 @@ Permite saber en qué parte física del almacén está cada caja.
 - **En PC**: Se usa una pistola láser USB. El sistema mantiene el foco en un campo de texto; al disparar la pistola, el código se ingresa automáticamente.
 - **En Tablet/Móvil**: Se usa la cámara del dispositivo con el botón "Encender Cámara".
 - Al escanear el QR de la caja, se abre un panel para asignarle una ubicación (ej: "Estante A - Nivel 2") y su estado (En bodega, Despachada, etc.).
+- **Códigos con lote:** desde v2.5.1 el código de caja tiene el formato `{PT}-C{###}-LOTE-{lote}` (ej: `PT-0001-C001-LOTE-3619`). Si imprimís 3 cajas del lote `3619` y después 2 más del mismo lote, se generan `C001`, `C002`, `C003`, `C004`, `C005` (no se repite el `C001`). Lotes distintos tienen secuencias separadas. **El lote es obligatorio** para imprimir etiquetas de caja.
 
 ### 6.21 Consolidado MP (Materias Primas)
 
@@ -603,7 +608,22 @@ Andá a **Entrada mercancía**, seleccioná el insumo, y en el campo Lote click 
 Porque el sistema no asigna lotes exactos a cada consumo (eso requeriría FIFO estricto). La vista muestra los lotes que **existen** para ese insumo en las últimas entradas registradas. Sirve para saber qué lotes podrían haber sido consumidos, no cuál fue exactamente.
 
 **¿Qué pasa si no pongo lote en una entrada?**
-Nada — el campo es opcional. Ese insumo aparecerá en Trazabilidad con "Sin entradas registradas" en lugar de un chip de lote. Para INVIMA, se recomienda registrar el lote siempre.
+Nada — el campo es opcional. Ese insumo aparecerá en Trazabilidad con "Sin entradas registradas" en lugar de un chip de lote. Para INVIMA, se recomienda registrar el lote siempre. **Importante:** si un insumo nunca se recibe con lote, su consumo no pasa por FIFO (se descuenta directo del stock).
+
+**Recibí una entrada marcada como Rechazado/Cuarentena y el stock no subió.**
+Es el comportamiento correcto desde v2.5.1. Solo las entradas **Aprobadas** suman a stock y a lotes. Si querés que suba al stock, tenés que registrar una nueva entrada con `estado_calidad='Aprobado'` (el sistema no tiene un flujo de "liberación de cuarentena" — es manual).
+
+**El código de caja antes era `PT-0001-C001` y ahora es `PT-0001-C001-LOTE-3619`. ¿Por qué?**
+Porque antes el `C001` se repetía entre impresiones y dos cajas distintas colisionaban en el upsert de `cajas_ubicacion`. Ahora el código incluye el lote y el sistema reserva los consecutivos atómicamente (`reservar_cajas_lote`). Las cajas viejas con formato anterior siguen funcionando (el `renderBodega` parsea ambos formatos).
+
+**Cambié un umbral en Configuración pero no veo el cambio en Insumos.**
+Desde v2.5.1 el caché de umbrales se invalida al guardar. Si aún no ves el cambio, recargá con `Ctrl+Shift+R`. Si persiste, revisá la consola del navegador (`F12`) por errores en `saveConfig`.
+
+---
+
+## 11. Documentación de cierre de auditoría
+
+Los hallazgos técnicos, correcciones aplicadas, riesgos aceptados y checklist de despliegue están en [`AUDIT_CLOSURE.md`](AUDIT_CLOSURE.md). Ese documento es el que se firma para cerrar formalmente la auditoría de octubre 2026.
 
 ---
 

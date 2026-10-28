@@ -4,7 +4,7 @@ Sistema de gestión de inventario, producción y costos desarrollado para **Proc
 
 ## Estado
 
-**v2.4.2** — Producción · Octubre 2026
+**v2.5.1** — Producción · Octubre 2026 (cierre de auditoría técnica)
 
 ## ¿Qué resuelve?
 
@@ -48,6 +48,17 @@ AseptiQ administra el flujo completo de manufactura:
 - **Gestión de PT mejorada**: código de barras, plantilla, vida útil y registro INVIMA directo en el formulario.
 - **Lote del proveedor** en entradas de insumos (opcional) para trazabilidad INVIMA.
 
+## Cierre de auditoría técnica
+
+La versión 2.5.1 cierra los 24 hallazgos de la auditoría técnica de octubre 2026. El detalle de cada corrección, los riesgos aceptados y el checklist de despliegue están documentados en [`AUDIT_CLOSURE.md`](AUDIT_CLOSURE.md).
+
+**Verificación rápida post-deploy:**
+
+- Seguridad: `REVOKE … FROM PUBLIC`, `validar_escritura` en las 18 RPCs, policies de inactivos. Ver `AUDIT_CLOSURE.md §7.2`.
+- Integridad: multi-lote delega a `registrar_entrada` (sin doble conteo), FIFO con `p_tipo`, calidad Rechazado/Cuarentena fuera del stock.
+- Consumo: `registrar_entrega_op` desde BOM con recursión por subproductos y validación previa de stock.
+- Cajas: código `{PT}-C{###}-LOTE-{lote}` con reserva atómica.
+
 ## Stack
 
 - **Frontend**: HTML + CSS + JavaScript vanilla (sin build step).
@@ -71,6 +82,7 @@ AseptiQ/
 ├── SETUP.md                # Guía de instalación
 ├── PORT_DOTNET.md          # Plan de port a .NET
 ├── CHANGELOG.md            # Historial de versiones
+├── AUDIT_CLOSURE.md        # Cierre de auditoría técnica (v2.5.1)
 ├── .gitignore
 └── README.md
 ```

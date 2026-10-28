@@ -44,6 +44,31 @@ async function api(path,options){
   if(!res.ok)throw new Error((b&&b.message)?b.message:('Error '+res.status));
   return b;
 }
+
+/* =========================================================
+   apiAll — paginación transparente para reportes.
+   Uso: apiAll('movimientos_inventario?select=*&tipo=eq.Entrada', {order:'fecha.desc,id'})
+   Devuelve todos los registros.
+   ========================================================= */
+async function apiAll(path, opts){
+  opts = opts || {};
+  const pageSize = opts.pageSize || 1000;
+  let offset = 0;
+  let all = [];
+  /* Si el path ya trae order/limit/offset, los respetamos y solo agregamos & */
+  const sep = path.indexOf('?') >= 0 ? '&' : '?';
+  const orderQs = opts.order ? (sep + 'order=' + encodeURIComponent(opts.order)) : '';
+  while(true){
+    const url = path + orderQs + sep + 'limit=' + pageSize + '&offset=' + offset;
+    const chunk = await api(url);
+    all = all.concat(chunk);
+    if(chunk.length < pageSize) break;
+    offset += pageSize;
+    if(offset > 100000) break; /* tope de seguridad */
+  }
+  return all;
+}
+
 async function rpc(fn,params){
   const res=await fetch(SUPA_URL.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers:apiHeaders(),body:JSON.stringify(params||{})});
   const t=await res.text();let b=null;if(t){try{b=JSON.parse(t);}catch(e){}}
@@ -110,7 +135,8 @@ function toast(msg,type){
   const e=document.createElement('div');
   e.className='toast '+(type||'');
   const ic=type==='success'?'✓':type==='error'?'✕':'ⓘ';
-  e.innerHTML='<span class="ic">'+ic+'</span><span class="msg">'+msg+'</span>';
+  /* N7: escapar el mensaje — puede venir de un error del servidor */
+  e.innerHTML='<span class="ic">'+ic+'</span><span class="msg">'+esc(msg)+'</span>';
   area.appendChild(e);
   setTimeout(function(){e.remove();},type==='error'?6500:4500);
 }
@@ -303,7 +329,7 @@ function renderNotifPanel(){
         return '<div class="notif-item danger" data-notif-tab="insumos" data-notif-filtro="Urgente">'
           +'<div class="notif-item-icon">'+icono('alert-circle')+'</div>'
           +'<div class="notif-item-content">'
-          +'<div class="notif-item-title">'+i.nombre+' ('+num(i.existencia_actual)+' '+unidadConsumo(i)+')</div>'
+          +'<div class="notif-item-title">'+esc(i.nombre)+' ('+num(i.existencia_actual)+' '+esc(unidadConsumo(i))+')</div>'
           +'<div class="notif-item-sub">Por debajo del umbral urgente · objetivo '+num(i.punto_reorden)+' '+unidadConsumo(i)+'</div>'
           +'</div>'
           +btnSilenciar('insumo', i.id, 'este insumo')
@@ -322,7 +348,7 @@ function renderNotifPanel(){
         return '<div class="notif-item warning" data-notif-tab="orden">'
           +'<div class="notif-item-icon">'+icono('clock')+'</div>'
           +'<div class="notif-item-content">'
-          +'<div class="notif-item-title">'+(o.numero_op||'OP')+' · '+prod+'</div>'
+          +'<div class="notif-item-title">'+esc(o.numero_op||'OP')+' · '+esc(prod)+'</div>'
           +'<div class="notif-item-sub">Pendiente hace '+dias+' día'+(dias===1?'':'s')+'</div>'
           +'</div>'
           +btnSilenciar('op', o.id, 'esta OP')
@@ -339,7 +365,7 @@ function renderNotifPanel(){
         return '<div class="notif-item warning" data-notif-tab="insumos" data-notif-filtro="Reorden">'
           +'<div class="notif-item-icon">'+icono('alert-triangle')+'</div>'
           +'<div class="notif-item-content">'
-          +'<div class="notif-item-title">'+i.nombre+'</div>'
+          +'<div class="notif-item-title">'+esc(i.nombre)+'</div>'
           +'<div class="notif-item-sub">Existencia '+num(i.existencia_actual)+' '+unidadConsumo(i)+' · cerca del mínimo</div>'
           +'</div>'
           +btnSilenciar('insumo', i.id, 'este insumo')
@@ -358,7 +384,7 @@ function renderNotifPanel(){
           +'<div class="notif-item-icon">'+icono('sparkles')+'</div>'
           +'<div class="notif-item-content">'
           +'<div class="notif-item-title">Entrega registrada · '+num(e.cantidad)+' u</div>'
-          +'<div class="notif-item-sub">'+(op||'')+(e.lote_entrega?' · lote '+e.lote_entrega:'')+' · '+new Date(e.fecha).toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'})+'</div>'
+          +'<div class="notif-item-sub">'+esc(op||'')+(e.lote_entrega?' · lote '+esc(e.lote_entrega):'')+' · '+new Date(e.fecha).toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'})+'</div>'
           +'</div>'
           +btnSilenciar('entrega', e.id, 'esta entrega')
           +'</div>';
@@ -1150,6 +1176,7 @@ async function saveConfig(c){
       body:payloadStr
     });
     console.log('[AseptiQ] Config guardada en backend:',res);
+    _invalidateConfigCache();
   }catch(e){
     console.error('[AseptiQ] ERROR al guardar config en backend:',e);
     throw e;
@@ -1158,10 +1185,9 @@ async function saveConfig(c){
 
 /* Invalida el cache de la app y del core (para que los umbrales cambien de inmediato) */
 function _invalidateConfigCache(){
-  _configCache=null;
-  if(typeof window._invalidateConfigCache === 'function') {
-    try { window._invalidateConfigCache(); } catch(e) {}
-  }
+  _configCache = null;
+  // Limpiar el caché de aseptiq_core.js (variable global _cfgCache)
+  try { if (typeof _cfgCache !== 'undefined') _cfgCache = null; } catch(e) {}
 }
 
 /* ============ TEMA CLARO/OSCURO ============ */
@@ -1516,6 +1542,8 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
   SUPA_CLIENT.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT' && !_cerrandoPorExpiracion) {
       manejarSesionExpirada();
+    } else if (event === 'TOKEN_REFRESHED' && session) {
+      SUPA_SESSION = session;
     }
   });
 
@@ -1575,9 +1603,7 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
 (function(){ try{document.documentElement.setAttribute('data-theme',getTema());}catch(e){} })();
 
 /* Toggle del aviso cuando se activa/desactiva el checkbox */
-document.getElementById('rememberCreds').addEventListener('change',function(e){
-  document.getElementById('credsWarning').style.display=e.target.checked?'block':'none';
-});
+/* (removido) El checkbox de "Recordar contraseña" fue eliminado por seguridad */
 
 /* ============ TABLAS RESPONSIVE ============ */
 /* Marca automáticamente cada tabla nueva con:
@@ -2239,11 +2265,18 @@ function initInactivityTracker() {
       document.getElementById('rememberMe').checked=true;
     }
   }catch(e){}
-  /* Prellenar email (la contraseña ya no se guarda por seguridad) */
+  /* Prellenar email. La contraseña ya no se guarda por seguridad. */
   try{
-    const c=JSON.parse(localStorage.getItem('aseptiq_creds'));
-    if(c&&c.email){
-      document.getElementById('supaEmail').value=c.email;
+    const raw = localStorage.getItem('aseptiq_creds');
+    if(raw){
+      let c=null;
+      try{ c=JSON.parse(raw); }catch(e){}
+      if(c&&c.email) document.getElementById('supaEmail').value=c.email;
+      // Migrar: eliminar cualquier contraseña vieja guardada
+      if(c && c.password){
+        c.password='';
+        localStorage.setItem('aseptiq_creds', JSON.stringify({email:c.email}));
+      }
     }
   }catch(e){}
 
@@ -2636,12 +2669,12 @@ function abrirModalDatosEtiquetas(){
     return '<div class="etq-empresa-block">'
       +'<div class="etq-empresa-title">'+(id==='proclides'?'Proclides':'Allers / Allmed')+'</div>'
       +'<div class="form-grid" style="padding:0;">'
-        +'<div><label>Razón social</label><input id="etq_'+id+'_razon" value="'+(emp.razonSocial||'').replace(/"/g,'&quot;')+'"></div>'
-        +'<div><label>NIT</label><input id="etq_'+id+'_nit" value="'+(emp.nit||'').replace(/"/g,'&quot;')+'"></div>'
-        +'<div class="full-span"><label>Dirección</label><input id="etq_'+id+'_dir" value="'+(emp.direccion||'').replace(/"/g,'&quot;')+'"></div>'
-        +'<div><label>Teléfono</label><input id="etq_'+id+'_tel" value="'+(emp.telefono||'').replace(/"/g,'&quot;')+'"></div>'
-        +'<div><label>Web</label><input id="etq_'+id+'_web" value="'+(emp.web||'').replace(/"/g,'&quot;')+'"></div>'
-        +'<div class="full-span"><label>Correos (uno por línea)</label><textarea id="etq_'+id+'_correos" rows="2" style="font-family:inherit;">'+((emp.correos||[]).join('\n'))+'</textarea></div>'
+        +'<div><label>Razón social</label><input id="etq_'+id+'_razon" value="'+esc(emp.razonSocial||'')+'"></div>'
+        +'<div><label>NIT</label><input id="etq_'+id+'_nit" value="'+esc(emp.nit||'')+'"></div>'
+        +'<div class="full-span"><label>Dirección</label><input id="etq_'+id+'_dir" value="'+esc(emp.direccion||'')+'"></div>'
+        +'<div><label>Teléfono</label><input id="etq_'+id+'_tel" value="'+esc(emp.telefono||'')+'"></div>'
+        +'<div><label>Web</label><input id="etq_'+id+'_web" value="'+esc(emp.web||'')+'"></div>'
+        +'<div class="full-span"><label>Correos (uno por línea)</label><textarea id="etq_'+id+'_correos" rows="2" style="font-family:inherit;">'+esc((emp.correos||[]).join('\n'))+'</textarea></div>'
       +'</div>'
     +'</div>';
   }
@@ -3118,7 +3151,7 @@ function abrirModalEtiquetas(tipo,item,data){
       'noesteril_proclides_grande': 'No Estéril Proclides Grande (150×100mm)',
       'noesteril_proclides_mediana': 'No Estéril Proclides Mediana (80×44mm)'
     };
-    const hoy = new Date().toISOString().slice(0,10);
+    const hoy = fechaLocalISO();
 
     const undsPorCaja = item.unidades_por_caja || 1;
 
@@ -3147,17 +3180,40 @@ function abrirModalEtiquetas(tipo,item,data){
         document.getElementById('etq_imprimir').addEventListener('click', async function(ev){
           const cantidad = Math.max(1, parseInt(document.getElementById('etq_cantidad').value,10)||1);
           const cantidadCajas = Math.max(0, parseInt(document.getElementById('etq_cajas').value,10)||0);
-          const lote = document.getElementById('etq_lote').value.trim() || 'SIN LOTE';
+          const lote = document.getElementById('etq_lote').value.trim();
           const fechaFab = document.getElementById('etq_fecha_fab').value;
-          
+
+          if (cantidadCajas > 0 && !lote) {
+            toast('Debes indicar un lote para imprimir etiquetas de caja.', 'error');
+            return;
+          }
+
+          /* Reservar códigos de caja en el backend (con lote) */
+          let codigosCajas = [];
+          if (cantidadCajas > 0) {
+            try {
+              codigosCajas = await rpc('reservar_cajas_lote', {
+                p_codigo_pt: item.codigo_pt,
+                p_lote: lote,
+                p_cantidad: cantidadCajas
+              });
+            } catch (err) {
+              toast('No se pudieron reservar los códigos de caja: ' + err.message, 'error');
+              return;
+            }
+          }
+
+          const loteFinal = lote || 'SIN LOTE';
           try {
-            imprimirEtiquetasPT(item, data, plantilla, {cantidad, cantidadCajas, lote, fechaFab});
+            imprimirEtiquetasPT(item, data, plantilla, {
+              cantidad, cantidadCajas, lote: loteFinal, fechaFab, codigosCajas
+            });
             toast('Ventana de impresión abierta.', 'success');
           } catch(err) {
             toast(err.message, 'error');
-            return; /* Detener si falla la impresión */
+            return;
           }
-          
+
           cerrarModalGenerico();
 
           /* Preguntar al usuario si la impresión se realizó correctamente */
@@ -3347,21 +3403,20 @@ function imprimirEtiquetasPT(prod, data, plantilla, opts){
     else if(plantilla === 'noesteril_proclides_mediana') htmls.push(_tplNoEsterilProclidesMediana(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, false, undsPorCaja));
   }
 
-  // Cajas
-  if (opts.cantidadCajas > 0 && undsPorCaja > 1) {
-    for(let i=1; i<=opts.cantidadCajas; i++) {
-      const boxCode = prod.codigo_pt + '-C' + String(i).padStart(3,'0');
-      /* El QR es un poco más pequeño para la etiqueta mediana (80x44mm) */
+  // Cajas — los códigos vienen reservados del backend (con lote)
+  if (opts.cantidadCajas > 0 && undsPorCaja > 1 && Array.isArray(opts.codigosCajas) && opts.codigosCajas.length) {
+    for(let idx=0; idx<opts.codigosCajas.length; idx++) {
+      const boxCode = opts.codigosCajas[idx];
+      const cajaNum = idx + 1;
       const isMediana = plantilla === 'noesteril_proclides_mediana';
       const qrTam = isMediana ? 40 : 60;
-      /* Convertimos píxeles a milímetros para que encaje perfecto */
       const qrHtml = `<div style="width:${qrTam * 0.264583}mm; height:${qrTam * 0.264583}mm;">${qrSVG(boxCode, qrTam)}</div>`;
-      
-      if(plantilla === 'esteril_proclides') htmls.push(_tplEsterilProclides(prod, empPro, lote, strFab, strVenc, contenido, etqCfg, true, undsPorCaja, i, qrHtml));
-      else if(plantilla === 'esteril_allmed') htmls.push(_tplEsterilAllmed(prod, empAll, empPro, lote, strFab, strVenc, contenido, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
-      else if(plantilla === 'noesteril_allmed') htmls.push(_tplNoEsterilAllmed(prod, empAll, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
-      else if(plantilla === 'noesteril_proclides_grande') htmls.push(_tplNoEsterilProclidesGrande(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
-      else if(plantilla === 'noesteril_proclides_mediana') htmls.push(_tplNoEsterilProclidesMediana(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, i, qrHtml));
+
+      if(plantilla === 'esteril_proclides') htmls.push(_tplEsterilProclides(prod, empPro, lote, strFab, strVenc, contenido, etqCfg, true, undsPorCaja, cajaNum, qrHtml));
+      else if(plantilla === 'esteril_allmed') htmls.push(_tplEsterilAllmed(prod, empAll, empPro, lote, strFab, strVenc, contenido, barcodeHtml, etqCfg, true, undsPorCaja, cajaNum, qrHtml));
+      else if(plantilla === 'noesteril_allmed') htmls.push(_tplNoEsterilAllmed(prod, empAll, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, cajaNum, qrHtml));
+      else if(plantilla === 'noesteril_proclides_grande') htmls.push(_tplNoEsterilProclidesGrande(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, cajaNum, qrHtml));
+      else if(plantilla === 'noesteril_proclides_mediana') htmls.push(_tplNoEsterilProclidesMediana(prod, empPro, lote, strVenc, barcodeHtml, etqCfg, true, undsPorCaja, cajaNum, qrHtml));
     }
   }
 
@@ -3870,11 +3925,13 @@ async function renderInsumos(){
             ? '<button class="success-btn small" data-toggle-insumo="'+i.id+'" data-estado="false" data-nombre="'+i.nombre+'">Activar</button>'
             : '<button class="ghost small" data-toggle-insumo="'+i.id+'" data-estado="true" data-nombre="'+i.nombre+'">Desactivar</button>';
             
-          return `<tr style="${rowStyle}"><td class="mono">${i.codigo}</td><td>${i.nombre}${isInactivo?' <span class="badge neutral">Inactivo</span>':''}</td><td class="col-hide-md" style="font-size:11px;">${cadenaTexto(i)}</td><td class="num">${formatearExistencia(i)}</td><td class="num">${num(i.punto_reorden)} ${unidadConsumo(i)}</td><td class="num"><span class="costo-click" data-ajuste-costo="${i.id}" data-costo="${i.costo_unitario||0}" data-nombre="${String(i.nombre).replace(/"/g,'&quot;')}" title="Click para ajustar el costo">${money(i.costo_unitario)}</span></td><td class="num col-hide-md">${money((i.existencia_actual||0)*(i.costo_unitario||0))}</td><td>${badgeFor(estadoInsumo(i))}</td><td class="actions">
+          const nombreEsc = esc(i.nombre);
+const nombreAttr = esc(i.nombre);
+return `<tr style="${rowStyle}"><td class="mono">${esc(i.codigo)}</td><td>${nombreEsc}${isInactivo?' <span class="badge neutral">Inactivo</span>':''}</td><td class="col-hide-md" style="font-size:11px;">${cadenaTexto(i)}</td><td class="num">${formatearExistencia(i)}</td><td class="num">${num(i.punto_reorden)} ${esc(unidadConsumo(i))}</td><td class="num"><span class="costo-click" data-ajuste-costo="${i.id}" data-costo="${i.costo_unitario||0}" data-nombre="${nombreAttr}" title="Click para ajustar el costo">${money(i.costo_unitario)}</span></td><td class="num col-hide-md">${money((i.existencia_actual||0)*(i.costo_unitario||0))}</td><td>${badgeFor(estadoInsumo(i))}</td><td class="actions">
   <button class="ghost small icon-only" data-print-insumo="${i.id}" title="Imprimir etiquetas QR">${icono('tag')}</button>
   <button class="ghost small icon-only" data-detalle-insumo="${i.id}" title="Ver detalles">${icono('eye')}</button>
-  <button class="${isInactivo?'success-btn':'ghost'} small icon-only" data-toggle-insumo="${i.id}" data-estado="${isInactivo?'false':'true'}" data-nombre="${i.nombre}" title="${isInactivo?'Activar':'Desactivar'}">${isInactivo?icono('check'):icono('eye-off')}</button>
-  <button class="danger-btn small icon-only" data-del-insumo="${i.id}" data-del-nombre="${i.nombre}" title="Eliminar insumo">${icono('trash')}</button>
+  <button class="${isInactivo?'success-btn':'ghost'} small icon-only" data-toggle-insumo="${i.id}" data-estado="${isInactivo?'false':'true'}" data-nombre="${nombreAttr}" title="${isInactivo?'Activar':'Desactivar'}">${isInactivo?icono('check'):icono('eye-off')}</button>
+  <button class="danger-btn small icon-only" data-del-insumo="${i.id}" data-del-nombre="${nombreAttr}" title="Eliminar insumo">${icono('trash')}</button>
 </td></tr>`;
         }).join('')}
       </table>`}
@@ -3969,7 +4026,7 @@ function _htmlFormInsumo(insumo,cfg,numSug){
   return `
     <div class="form-grid" style="padding:0;">
       <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoInsumo}</span><input id="ins_codigo_num" value="${numSug}" ${insumo?'disabled':''} autocomplete="off"></div><div class="field-validate" id="ins_codigo_status"></div></div>
-      <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${insumo?insumo.nombre:''}"></div>
+      <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${insumo?esc(insumo.nombre):''}"></div>
       <div><label>Existencia actual ${insumo?'<span style="color:var(--text-muted);font-weight:400;">(solo lectura)</span>':'<span style="color:var(--text-muted);font-weight:400;">(opcional)</span>'}</label><input id="ins_existencia" type="number" step="0.0001" value="${insumo?insumo.existencia_actual:''}" placeholder="0" ${insumo?'disabled title="Usa Entrada Mercancía o Auditoría para ajustar el stock"':''}></div>
       <div><label>Stock objetivo</label><input id="ins_reorden" type="number" step="0.0001" min="0.0001" value="${insumo?insumo.punto_reorden:''}" placeholder="Ej: 100" title="El sistema calcula los umbrales de urgente y reorden como % de este valor (configurable en Configuración)"></div>
       <div><label>Costo Und. (Unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${insumo?insumo.costo_unitario:0}"></div>
@@ -4033,9 +4090,9 @@ async function abrirModalDetalleInsumo(ins,insumos,cfg){
           +'<tbody>'
           +lotesIns.map(function(l){
             return '<tr>'
-              +'<td class="mono" style="font-weight:600;">'+l.lote+'</td>'
-              +'<td class="num">'+num(l.cantidad_recibida)+' '+unidadConsumo(ins)+'</td>'
-              +'<td>'+(l.sys_proveedores?l.sys_proveedores.razon_social:'—')+'</td>'
+              +'<td class="mono" style="font-weight:600;">'+esc(l.lote)+'</td>'
+              +'<td class="num">'+num(l.cantidad_recibida)+' '+esc(unidadConsumo(ins))+'</td>'
+              +'<td>'+esc(l.sys_proveedores?l.sys_proveedores.razon_social:'—')+'</td>'
               +'<td class="mono" style="font-size:11px;color:var(--text-muted);">'+new Date(l.ultimo_ingreso).toLocaleDateString('es-CO')+'</td>'
               +'</tr>';
           }).join('')
@@ -4065,7 +4122,7 @@ function abrirModalDetalleSubproducto(sub,data,cfg){
       +rec.map(function(r){
         const ins=data.insumos.find(function(x){return x.id===r.insumo_id;});
         const u=r.unidad_receta||(ins?unidadConsumo(ins):'—');
-        return '<tr><td>'+(ins?ins.nombre:'?')+'</td><td class="num">'+num(r.cantidad_por_unidad,4)+'</td><td>'+u+(r.factor_receta&&r.factor_receta!==1?' ×'+num(r.factor_receta,4):'')+'</td></tr>';
+        return '<tr><td>'+esc(ins?ins.nombre:'?')+'</td><td class="num">'+num(r.cantidad_por_unidad,4)+'</td><td>'+esc(u)+(r.factor_receta&&r.factor_receta!==1?' ×'+num(r.factor_receta,4):'')+'</td></tr>';
       }).join('')
       +'</tbody></table>'
     : '<div class="det-val empty">Sin receta definida.</div>';
@@ -4073,7 +4130,7 @@ function abrirModalDetalleSubproducto(sub,data,cfg){
     ? '<table class="print-table" style="margin:0;"><thead><tr><th>Subproducto</th><th class="num">Cantidad</th></tr></thead><tbody>'
       +hij.map(function(h){
         const hh=data.subproductos.find(function(x){return x.id===h.subproducto_hijo_id;});
-        return '<tr><td>'+(hh?hh.nombre+' ('+hh.codigo+')':'?')+'</td><td class="num">'+num(h.cantidad_por_unidad,4)+'</td></tr>';
+        return '<tr><td>'+esc(hh?hh.nombre+' ('+hh.codigo+')':'?')+'</td><td class="num">'+num(h.cantidad_por_unidad,4)+'</td></tr>';
       }).join('')
       +'</tbody></table>'
     : '';
@@ -4122,7 +4179,7 @@ function abrirModalDetallePaquete(prod,data,cfg){
     ? '<table class="print-table" style="margin:0;"><thead><tr><th>Subproducto</th><th class="num">Cantidad / u</th></tr></thead><tbody>'
       +comp.map(function(c){
         const s=data.subproductos.find(function(x){return x.id===c.subproducto_id;});
-        return '<tr><td>'+(s?s.nombre+' ('+s.codigo+')':'?')+'</td><td class="num">'+num(c.cantidad,4)+'</td></tr>';
+        return '<tr><td>'+esc(s?s.nombre+' ('+s.codigo+')':'?')+'</td><td class="num">'+num(c.cantidad,4)+'</td></tr>';
       }).join('')
       +'</tbody></table>'
     : '<div class="det-val empty">Sin subproductos.</div>';
@@ -4130,7 +4187,7 @@ function abrirModalDetallePaquete(prod,data,cfg){
     ? '<table class="print-table" style="margin:0;"><thead><tr><th>Insumo</th><th class="num">Cantidad / u</th></tr></thead><tbody>'
       +bom.map(function(b){
         const ins=data.insumos.find(function(x){return x.id===b.insumo_id;});
-        return '<tr><td>'+(ins?ins.nombre:'?')+'</td><td class="num">'+num(b.cantidad_por_unidad,4)+' '+(ins?unidadConsumo(ins):'')+'</td></tr>';
+        return '<tr><td>'+esc(ins?ins.nombre:'?')+'</td><td class="num">'+num(b.cantidad_por_unidad,4)+' '+esc(ins?unidadConsumo(ins):'')+'</td></tr>';
       }).join('')
       +'</tbody></table>'
     : '';
@@ -4419,7 +4476,9 @@ async function renderProductos(){
             ? '<button class="success-btn small" data-toggle-sub="'+s.id+'" data-estado="false" data-nombre="'+s.nombre+'">Activar</button>'
             : '<button class="ghost small" data-toggle-sub="'+s.id+'" data-estado="true" data-nombre="'+s.nombre+'">Desactivar</button>';
             
-        return '<div class="list-item" style="'+rowStyle+'" id="subRow_'+s.id+'"><div class="list-item-head"><div><strong>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></strong> '+(isInactivo?'<span class="badge neutral">Inactivo</span>':'')+' '+badgeStockSub(s)+' '+badgeTipoSub(s.tipo||'ambos')+'</div><div class="item-actions"><button class="ghost small icon-only" data-detalle-sub="'+s.id+'" title="Ver detalles">'+icono('eye')+'</button><button class="'+(isInactivo?'success-btn':'ghost')+' small icon-only" data-toggle-sub="'+s.id+'" data-estado="'+(isInactivo?'false':'true')+'" data-nombre="'+s.nombre+'" title="'+(isInactivo?'Activar':'Desactivar')+'">'+(isInactivo?icono('check'):icono('eye-off'))+'</button><button class="danger-btn small icon-only" data-del-sub="'+s.id+'" data-del-nombre="'+s.nombre+'" title="Eliminar subproducto">'+icono('trash')+'</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(s.existencia_actual)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Valor: '+money(valor)+'</span></div><div class="composicion-list"></div></div>';
+        const nomSub = esc(s.nombre);
+const codSub = esc(s.codigo);
+return '<div class="list-item" style="'+rowStyle+'" id="subRow_'+s.id+'"><div class="list-item-head"><div><strong>'+nomSub+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+codSub+'</span></strong> '+(isInactivo?'<span class="badge neutral">Inactivo</span>':'')+' '+badgeStockSub(s)+' '+badgeTipoSub(s.tipo||'ambos')+'</div><div class="item-actions"><button class="ghost small icon-only" data-detalle-sub="'+s.id+'" title="Ver detalles">'+icono('eye')+'</button><button class="'+(isInactivo?'success-btn':'ghost')+' small icon-only" data-toggle-sub="'+s.id+'" data-estado="'+(isInactivo?'false':'true')+'" data-nombre="'+nomSub+'" title="'+(isInactivo?'Activar':'Desactivar')+'">'+(isInactivo?icono('check'):icono('eye-off'))+'</button><button class="danger-btn small icon-only" data-del-sub="'+s.id+'" data-del-nombre="'+nomSub+'" title="Eliminar subproducto">'+icono('trash')+'</button></div></div><div class="list-item-meta"><span>Existencia: <b>'+num(s.existencia_actual)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Valor: '+money(valor)+'</span></div><div class="composicion-list"></div></div>';
       }).join('')}
     </div>
 
@@ -4441,11 +4500,12 @@ async function renderProductos(){
             ? '<button class="success-btn small" data-toggle-prod="'+p.codigo_pt+'" data-estado="false" data-nombre="'+p.nombre+'">Activar</button>'
             : '<button class="ghost small" data-toggle-prod="'+p.codigo_pt+'" data-estado="true" data-nombre="'+p.nombre+'">Desactivar</button>';
             
-        return '<div class="list-item" style="'+rowStyle+'" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+(isInactivo?'<span class="badge neutral">Inactivo</span>':'')+' '+badgeStockPT(p)+'</div><div class="item-actions">'+
+        const nomPT = esc(p.nombre);
+return '<div class="list-item" style="'+rowStyle+'" id="prodRow_'+p.codigo_pt+'"><div class="list-item-head"><div><strong>'+nomPT+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(p.codigo_pt)+'</span> <span class="badge info">caja ×'+pc+'</span></strong> '+(isInactivo?'<span class="badge neutral">Inactivo</span>':'')+' '+badgeStockPT(p)+'</div><div class="item-actions">'+
   '<button class="ghost small icon-only" data-print-prod="'+p.codigo_pt+'" title="Imprimir etiquetas QR">'+icono('tag')+'</button>'+
   '<button class="ghost small icon-only" data-detalle-prod="'+p.codigo_pt+'" title="Ver detalles">'+icono('eye')+'</button>'+
-  '<button class="'+(isInactivo?'success-btn':'ghost')+' small icon-only" data-toggle-prod="'+p.codigo_pt+'" data-estado="'+(isInactivo?'false':'true')+'" data-nombre="'+p.nombre+'" title="'+(isInactivo?'Activar':'Desactivar')+'">'+(isInactivo?icono('check'):icono('eye-off'))+'</button>'+
-  '<button class="danger-btn small icon-only" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+p.nombre+'" title="Eliminar paquete">'+icono('trash')+'</button>'+
+  '<button class="'+(isInactivo?'success-btn':'ghost')+' small icon-only" data-toggle-prod="'+p.codigo_pt+'" data-estado="'+(isInactivo?'false':'true')+'" data-nombre="'+nomPT+'" title="'+(isInactivo?'Activar':'Desactivar')+'">'+(isInactivo?icono('check'):icono('eye-off'))+'</button>'+
+  '<button class="danger-btn small icon-only" data-del-prod="'+p.codigo_pt+'" data-del-nombre="'+nomPT+'" title="Eliminar paquete">'+icono('trash')+'</button>'+
 '</div></div><div class="list-item-meta"><span>Existencia: <b>'+num(ex)+'</b></span><span class="cost">Costo u.: '+money(costo)+'</span><span class="valor">Costo caja: '+money(costo*pc)+'</span>'+precioTxt+margenTxt+'</div><div class="composicion-list"></div></div>';
       }).join('')}
     </div>`;
@@ -4695,7 +4755,7 @@ async function abrirModalSubproducto(subproductoId,data,cfg,onSaveCallback){
     body: `
       <div class="form-grid" style="padding:0;">
         <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoSubproducto}</span><input id="sub_codigo_num" value="${numSubSug}" ${sub?'disabled':''} autocomplete="off"></div><div class="field-validate" id="sub_codigo_status"></div></div>
-        <div><label>Nombre</label><input id="sub_nombre" placeholder="Batón americano" value="${sub?sub.nombre:''}"></div>
+        <div><label>Nombre</label><input id="sub_nombre" placeholder="Batón americano" value="${sub?esc(sub.nombre):''}"></div>
         <div><label>Tipo</label><select id="sub_tipo">
           <option value="intermedio" ${tipoSubEdicion==='intermedio'?'selected':''}>Intermedio (usable en otros subproductos)</option>
           <option value="final" ${tipoSubEdicion==='final'?'selected':''}>Final (solo en paquetes)</option>
@@ -4822,7 +4882,7 @@ async function abrirModalPaquete(codigoPT,data,cfg,draft){
     body: `
       <div class="form-grid" style="padding:0;">
         <div><label>Código PT</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoProducto}</span><input id="prod_codigo_num" value="${numProdSug}" ${prod?'disabled':''} autocomplete="off"></div><div class="field-validate" id="prod_codigo_status"></div></div>
-        <div><label>Nombre del paquete</label><input id="prod_nombre" placeholder="Cirugía General Proclides" value="${draft?draft.nombre:(prod?prod.nombre:'')}"></div>
+        <div><label>Nombre del paquete</label><input id="prod_nombre" placeholder="Cirugía General Proclides" value="${draft?esc(draft.nombre):(prod?esc(prod.nombre):'')}"></div>
         <div><label>Unidades por caja</label><input id="prod_por_caja" type="number" min="1" step="1" value="${draft?draft.pc:(prod?prod.unidades_por_caja:1)}"></div>
         <div><label>Precio de venta <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(por unidad, opcional)</span></label><input id="prod_precio" type="number" step="0.01" min="0" value="${draft?draft.precio:(prod&&prod.precio_venta!=null?prod.precio_venta:'')}" placeholder="Ej: 12500"></div>
       </div>
@@ -5077,7 +5137,7 @@ async function renderOrden(){
           const progresoTxt=proyectada>0?'<br><span style="color:'+(producida>=proyectada?'var(--success)':'var(--info)')+';font-size:11px;">'+num(producida)+'/'+num(proyectada)+' entregado'+(producida>=proyectada?' ✓':'')+'</span>':'';
           const prioridad=prioridadBadge(o.prioridad);
           const fechaProg=o.fecha_programada?new Date(o.fecha_programada+'T00:00:00').toLocaleDateString('es-CO'):'<span style="color:var(--text-muted);">—</span>';
-          return '<tr><td class="mono">'+(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+o.lote+'</span>':'')+'</td><td>'+prioridad+'</td><td>'+prod+'</td><td class="num">'+num(o.cantidad_proyectada)+(cajas?'<br><span style="color:var(--text-muted);font-size:11px;">≈ '+cajas+' cajas</span>':'')+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fechaProg+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td class="actions"><button class="ghost small" data-orden-detalle="'+o.id+'" title="Ver detalle de la OP">Detalle</button><button class="success-btn small" data-orden-entregar="'+o.id+'" '+(fin||pendiente<=0?'disabled':'')+' title="Registrar entrega">'+(hayProgreso?'Entrega parcial':'Entregar')+'</button><button class="danger-btn small" data-orden-cancelar="'+o.id+'" '+(fin?'disabled':'')+' title="Cancelar">Cancelar</button></td></tr>';
+          return '<tr><td class="mono">'+esc(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+esc(o.lote)+'</span>':'')+'</td><td>'+prioridad+'</td><td>'+esc(prod)+'</td><td class="num">'+num(o.cantidad_proyectada)+(cajas?'<br><span style="color:var(--text-muted);font-size:11px;">≈ '+cajas+' cajas</span>':'')+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+fechaProg+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td class="actions"><button class="ghost small" data-orden-detalle="'+o.id+'" title="Ver detalle de la OP">Detalle</button><button class="success-btn small" data-orden-entregar="'+o.id+'" '+(fin||pendiente<=0?'disabled':'')+' title="Registrar entrega">'+(hayProgreso?'Entrega parcial':'Entregar')+'</button><button class="danger-btn small" data-orden-cancelar="'+o.id+'" '+(fin?'disabled':'')+' title="Cancelar">Cancelar</button></td></tr>';
         }).join('')}
       </table>`}
     </div>`;
@@ -5366,9 +5426,9 @@ function abrirModalCobertura(res,ctx){
   const faltantesIns=detalle.filter(function(d){return d.faltante>0;}).sort(function(a,b){return b.faltante-a.faltante;}).slice(0,12);
 
   /* --- Tablas --- */
-  const tablaInsumos=(detalle.length===0?'<div class="empty-state">Sin insumos directos en la receta.</div>':'<table><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+detalle.map(function(d){return '<tr><td>'+d.nombre+'</td><td class="num">'+num(d.existencia_consumo)+' '+d.unidad+'</td><td class="num">'+num(d.consumo_total)+' '+d.unidad+'</td><td class="num">'+(d.faltante>0?'<span style="color:var(--danger);">'+num(d.faltante)+' '+d.unidad+'</span>':'—')+'</td><td>'+badgeFor(d.estado)+'</td></tr>';}).join('')+'</table>');
+  const tablaInsumos=(detalle.length===0?'<div class="empty-state">Sin insumos directos en la receta.</div>':'<table><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+detalle.map(function(d){return '<tr><td>'+esc(d.nombre)+'</td><td class="num">'+num(d.existencia_consumo)+' '+esc(d.unidad)+'</td><td class="num">'+num(d.consumo_total)+' '+esc(d.unidad)+'</td><td class="num">'+(d.faltante>0?'<span style="color:var(--danger);">'+num(d.faltante)+' '+esc(d.unidad)+'</span>':'—')+'</td><td>'+badgeFor(d.estado)+'</td></tr>';}).join('')+'</table>');
   const tablaSubs=(detalleSub.length===0?'':'<div class="divider-label">Subproductos requeridos (se consumen de su stock)</div><table><tr><th>Subproducto</th><th>Tipo</th><th class="num">Stock actual</th><th class="num">Requerido</th><th class="num">Faltante</th><th>Estado</th></tr>'+detalleSub.map(function(s){
-    return '<tr><td>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></td><td>'+badgeTipoSub(s.tipo)+'</td><td class="num">'+num(s.stock_actual)+'</td><td class="num">'+num(s.requerido)+' u</td><td class="num">'+(s.faltante>0?'<span style="color:var(--danger);">'+num(s.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(s.estado)+'</td></tr>';
+    return '<tr><td>'+esc(s.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(s.codigo)+'</span></td><td>'+badgeTipoSub(s.tipo)+'</td><td class="num">'+num(s.stock_actual)+'</td><td class="num">'+num(s.requerido)+' u</td><td class="num">'+(s.faltante>0?'<span style="color:var(--danger);">'+num(s.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(s.estado)+'</td></tr>';
   }).join('')+'</table>');
 
   /* --- Bloques de gráficos --- */
@@ -5665,8 +5725,8 @@ async function abrirModalDetalleOrden(orden){
     '<div class="stat-card '+(pendiente>0?'warning':'neutral')+'"><p class="stat-label">Pendiente</p><p class="stat-value" style="font-size:18px;">'+num(pendiente)+' u</p></div>'+
     '</div>';
 
-  const tablaIns=(insumosDet.length===0?'<div class="divider-label" style="padding-left:0;">Insumos proyectados</div><div class="empty-state" style="padding:16px 0;">Sin insumos en el detalle.</div>':'<div class="divider-label" style="padding-left:0;">Insumos proyectados</div><table><tr><th>Insumo</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+insumosDet.map(function(x){return '<tr><td>'+x.nombre+'</td><td class="num">'+num(x.consumo_total)+' '+(x.unidad||'')+'</td><td class="num">'+(x.faltante>0?'<span style="color:var(--danger);">'+num(x.faltante)+' '+(x.unidad||'')+'</span>':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
-  const tablaSubs=(subsDet.length===0?'':'<div class="divider-label" style="padding-left:0;">Subproductos requeridos</div><table><tr><th>Subproducto</th><th class="num">Requerido</th><th class="num">Stock al confirmar</th><th class="num">Faltante</th><th>Estado</th></tr>'+subsDet.map(function(x){return '<tr><td>'+x.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+(x.codigo||'')+'</span></td><td class="num">'+num(x.requerido)+' u</td><td class="num">'+num(x.stock_actual)+'</td><td class="num">'+(x.faltante>0?'<span style="color:var(--danger);">'+num(x.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
+  const tablaIns=(insumosDet.length===0?'<div class="divider-label" style="padding-left:0;">Insumos proyectados</div><div class="empty-state" style="padding:16px 0;">Sin insumos en el detalle.</div>':'<div class="divider-label" style="padding-left:0;">Insumos proyectados</div><table><tr><th>Insumo</th><th class="num">Consumo</th><th class="num">Faltante</th><th>Estado</th></tr>'+insumosDet.map(function(x){return '<tr><td>'+esc(x.nombre)+'</td><td class="num">'+num(x.consumo_total)+' '+esc(x.unidad||'')+'</td><td class="num">'+(x.faltante>0?'<span style="color:var(--danger);">'+num(x.faltante)+' '+esc(x.unidad||'')+'</span>':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
+  const tablaSubs=(subsDet.length===0?'':'<div class="divider-label" style="padding-left:0;">Subproductos requeridos</div><table><tr><th>Subproducto</th><th class="num">Requerido</th><th class="num">Stock al confirmar</th><th class="num">Faltante</th><th>Estado</th></tr>'+subsDet.map(function(x){return '<tr><td>'+esc(x.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(x.codigo||'')+'</span></td><td class="num">'+num(x.requerido)+' u</td><td class="num">'+num(x.stock_actual)+'</td><td class="num">'+(x.faltante>0?'<span style="color:var(--danger);">'+num(x.faltante)+' u</span>':'—')+'</td><td>'+badgeFor(x.estado)+'</td></tr>';}).join('')+'</table>');
 
   abrirModalGenerico({
     title: titulo,
@@ -5934,7 +5994,7 @@ async function renderNovedades(){
           const producida=Number(o.cantidad_producida)||0;
           const proyectada=Number(o.cantidad_proyectada)||0;
           const progresoTxt=proyectada>0&&producida>0?'<br><span style="color:var(--info);font-size:11px;">'+num(producida)+'/'+num(proyectada)+' entregado</span>':'';
-          return '<tr><td class="mono">'+(o.numero_op||'—')+'</td><td>'+(o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt)+'</td><td class="num">'+num(o.cantidad_proyectada)+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td><button class="ghost small" data-nov-detalle="'+o.id+'" title="Ver detalle">Ver detalle</button></td></tr>';
+          return '<tr><td class="mono">'+esc(o.numero_op||'—')+'</td><td>'+esc(o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt)+'</td><td class="num">'+num(o.cantidad_proyectada)+progresoTxt+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(o.fecha_creacion).toLocaleDateString('es-CO')+'</td><td>'+badgeFor(o.estado_cobertura)+'</td><td>'+badgeOP(o.estado_op)+'</td><td><button class="ghost small" data-nov-detalle="'+o.id+'" title="Ver detalle">Ver detalle</button></td></tr>';
         }).join('')}
       </table>`}
     </div>`;
@@ -6144,10 +6204,10 @@ async function renderEntradas(){
         ${movimientos.map(function(m){
           const esSub=!!m.subproducto_id;
           const tipoBadge=esSub?'<span class="badge warning">Subproducto</span>':'<span class="badge info">Insumo</span>';
-          const item=esSub?(m.subproductos?m.subproductos.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+m.subproductos.codigo+'</span>':'(subproducto)'):(m.insumos?m.insumos.nombre:'(insumo)');
-          const cant=esSub?('+'+num(m.cantidad)+' u'):('+'+num(m.cantidad)+' '+(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):''));
-          const ref=esSub?(m.motivo||'—'):(m.sys_proveedores?m.sys_proveedores.razon_social:(m.motivo||'—'));
-          const docs = esSub ? '—' : `<span style="font-size:11px;">${m.numero_oc ? 'OC: '+m.numero_oc : ''} ${m.numero_factura ? ' / Fact: '+m.numero_factura : ''}</span>`;
+          const item=esSub?(m.subproductos?esc(m.subproductos.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(m.subproductos.codigo)+'</span>':'(subproducto)'):(m.insumos?esc(m.insumos.nombre):'(insumo)');
+          const cant=esSub?('+'+num(m.cantidad)+' u'):('+'+num(m.cantidad)+' '+esc(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):''));
+          const ref=esSub?esc(m.motivo||'—'):esc(m.sys_proveedores?m.sys_proveedores.razon_social:(m.motivo||'—'));
+          const docs = esSub ? '—' : `<span style="font-size:11px;">${m.numero_oc ? 'OC: '+esc(m.numero_oc) : ''} ${m.numero_factura ? ' / Fact: '+esc(m.numero_factura) : ''}</span>`;
           const btnPrint = esSub ? '' : `<button class="ghost small icon-only" data-print-entrada="${m.id}" title="Imprimir FO-AP-04">${icono('printer')}</button>`;
           return '<tr><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td>'+docs+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td><td class="actions">'+btnPrint+'</td></tr>';
         }).join('')}
@@ -6395,9 +6455,7 @@ async function renderEntradas(){
             });
             return {n:filas.length};
           });
-          toast('Entrada OK · '+num(cantidadTotalMulti)+' en consumo · '+r.n+' lote'+(r.n===1?'':'s')+' registrado'+(r.n===1?'':'s'),'success');
-          
-          /* Actualizar documentos en el último movimiento */
+          /* Actualizar documentos en el último movimiento (una sola vez) */
           try {
             const lastMov = await api(`movimientos_inventario?insumo_id=eq.${itemId}&order=fecha.desc&limit=1`);
             if(lastMov.length > 0) {
@@ -6415,7 +6473,7 @@ async function renderEntradas(){
             }
           } catch(err) { console.warn('No se pudieron guardar los docs', err); }
 
-          toast('Entrada OK · '+num(cantidadTotalMulti)+' en consumo · '+r.n+' lote'+(r.n===1?'':'s')+' registrado'+(r.n===1?'':'s'),'success');
+          toast('Entrada multi-lote OK · '+r.n+' lote'+(r.n===1?'':'s'),'success');
         } else {
           /* Modo normal: 1 solo lote */
           const lote=inputLote.value.trim()||null;
@@ -6437,7 +6495,8 @@ async function renderEntradas(){
             }
           } catch(err) { console.warn('No se pudieron guardar los docs', err); }
 
-          toast('Entrada OK · '+num(r.cantidad_consumo)+' en consumo · Existencia: '+num(r.existencia_nueva),'success');
+          const cc = r.cantidad_consumo != null ? num(r.cantidad_consumo) : '—';
+        toast('Entrada OK · '+cc+' en consumo · Existencia: '+num(r.existencia_nueva),'success');
         }
       } else {
         const lote=inputLote.value.trim()||null;
@@ -6498,9 +6557,9 @@ function abrirModalNuevoProveedor(){
         const cont=body.querySelector('#mp_contactos');
         cont.innerHTML=contactos.map(function(c,idx){
           return '<div class="dyn-row conv-recipe">'+
-            '<input id="mpc_nombre_'+idx+'" placeholder="Nombre" value="'+(c.nombre||'')+'">'+
-            '<input id="mpc_tel_'+idx+'" placeholder="Teléfono" value="'+(c.telefono||'')+'">'+
-            '<input id="mpc_mail_'+idx+'" placeholder="Correo" value="'+(c.correo||'')+'">'+
+            '<input id="mpc_nombre_'+idx+'" placeholder="Nombre" value="'+esc(c.nombre||'')+'">'+
+            '<input id="mpc_tel_'+idx+'" placeholder="Teléfono" value="'+esc(c.telefono||'')+'">'+
+            '<input id="mpc_mail_'+idx+'" placeholder="Correo" value="'+esc(c.correo||'')+'">'+
             '<span></span>'+
             '<button type="button" class="ghost small" data-remove-mpc="'+idx+'">×</button>'+
             '</div>';
@@ -6565,7 +6624,7 @@ function abrirModalNuevoProveedor(){
 /* ============ DEVOLUCIONES (a proveedor y de PT) ============ */
 async function renderDespachos(){
   const main=document.getElementById('mainContent');
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = fechaLocalISO();
   main.innerHTML='<div class="empty-state">Cargando despachos…</div>';
 
   try{
@@ -6875,7 +6934,7 @@ async function renderDevoluciones(){
           ${devolucionesProv.map(function(m){
             const cant=num(m.cantidad)+' '+(m.insumos?(m.insumos.unidad_consumo||m.insumos.unidad_medida):'');
             const prov=m.sys_proveedores?m.sys_proveedores.razon_social:'—';
-            return '<tr><td>'+(m.insumos?m.insumos.nombre:'(insumo)')+'</td><td class="num">-'+cant+'</td><td>'+prov+'</td><td style="color:var(--text-secondary);font-size:12.5px;">'+(m.motivo||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
+            return '<tr><td>'+esc(m.insumos?m.insumos.nombre:'(insumo)')+'</td><td class="num">-'+cant+'</td><td>'+esc(prov)+'</td><td style="color:var(--text-secondary);font-size:12.5px;">'+esc(m.motivo||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td></tr>';
           }).join('')}
         </table>`}
       </div>
@@ -6905,7 +6964,7 @@ async function renderDevoluciones(){
           ${devolucionesPT.map(function(d){
             const p=d.productos_terminados||{};
             const badgeEstado={bueno:'success',cuarentena:'warning','dañado':'danger'}[d.estado_producto]||'neutral';
-            return '<tr><td>'+(p.nombre||d.codigo_pt)+'</td><td class="num">+'+num(d.cantidad)+' u</td><td><span class="badge '+badgeEstado+'">'+d.estado_producto+'</span></td><td style="color:var(--text-secondary);font-size:12.5px;">'+(d.motivo||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(d.fecha).toLocaleDateString('es-CO')+'</td></tr>';
+            return '<tr><td>'+esc(p.nombre||d.codigo_pt)+'</td><td class="num">+'+num(d.cantidad)+' u</td><td><span class="badge '+badgeEstado+'">'+esc(d.estado_producto)+'</span></td><td style="color:var(--text-secondary);font-size:12.5px;">'+esc(d.motivo||'—')+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(d.fecha).toLocaleDateString('es-CO')+'</td></tr>';
           }).join('')}
         </table>`}
       </div>
@@ -7048,7 +7107,12 @@ async function renderProveedores(){
         <th>Dirección</th>
         <th>Contactos</th><th class="actions"></th>
       </tr>
-        ${view.map(function(p){return '<tr><td class="mono">'+p.nit+'</td><td>'+p.razon_social+'</td><td style="color:var(--text-secondary);">'+(p.direccion||'—')+'</td><td style="color:var(--text-secondary);font-size:12px;">'+((p.contactos||[]).map(function(c){return (c.nombre||'')+(c.telefono?' · '+c.telefono:'')+(c.correo?' · '+c.correo:'');}).join('<br>')||'—')+'</td><td class="actions"><button class="ghost small" data-edit-prov="'+p.id+'" title="Editar proveedor">Editar</button><button class="danger-btn small" data-del-prov="'+p.id+'" data-del-nombre="'+p.razon_social+'" title="Eliminar proveedor">Eliminar</button></td></tr>';}).join('')}
+        ${view.map(function(p){
+  const contactosHTML = (p.contactos||[]).map(function(c){
+    return esc(c.nombre||'')+(c.telefono?' · '+esc(c.telefono):'')+(c.correo?' · '+esc(c.correo):'');
+  }).join('<br>') || '—';
+  return '<tr><td class="mono">'+esc(p.nit)+'</td><td>'+esc(p.razon_social)+'</td><td style="color:var(--text-secondary);">'+esc(p.direccion||'—')+'</td><td style="color:var(--text-secondary);font-size:12px;">'+contactosHTML+'</td><td class="actions"><button class="ghost small" data-edit-prov="'+p.id+'" title="Editar proveedor">Editar</button><button class="danger-btn small" data-del-prov="'+p.id+'" data-del-nombre="'+esc(p.razon_social)+'" title="Eliminar proveedor">Eliminar</button></td></tr>';
+}).join('')}
       </table>`}
     </div>`;
   filtrarTabla('buscar_proveedores','tablaProveedores');
@@ -7076,9 +7140,9 @@ async function renderProveedores(){
 function _htmlFormProveedor(prov){
   return `
     <div class="form-grid" style="padding:0;">
-      <div><label>NIT</label><input id="prov_nit" placeholder="900123456-1" value="${prov?prov.nit:''}"></div>
-      <div><label>Razón social</label><input id="prov_nombre" placeholder="Empaques del Valle" value="${prov?prov.razon_social:''}"></div>
-      <div class="full-span"><label>Dirección</label><input id="prov_direccion" placeholder="Cra 1 # 2-34, Cali" value="${prov&&prov.direccion?prov.direccion:''}"></div>
+      <div><label>NIT</label><input id="prov_nit" placeholder="900123456-1" value="${prov?esc(prov.nit):''}"></div>
+      <div><label>Razón social</label><input id="prov_nombre" placeholder="Empaques del Valle" value="${prov?esc(prov.razon_social):''}"></div>
+      <div class="full-span"><label>Dirección</label><input id="prov_direccion" placeholder="Cra 1 # 2-34, Cali" value="${prov&&prov.direccion?esc(prov.direccion):''}"></div>
     </div>
     <div class="divider-label">Contactos</div>
     <div id="filasContactoContainer"></div>
@@ -7391,8 +7455,8 @@ async function renderHistorico(){
   try{
     const [insumos,movs,ordenes]=await Promise.all([
       api('insumos?select=id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,existencia_actual,costo_unitario&order=nombre'),
-      api('movimientos_inventario?select=id,insumo_id,subproducto_id,tipo,cantidad,fecha,motivo&order=fecha.desc&limit=5000'),
-      api('ordenes_semanales?select=id,numero_op,codigo_pt,cantidad_proyectada,estado_op,fecha_creacion&order=fecha_creacion.desc&limit=1000')
+      apiAll('movimientos_inventario?select=id,insumo_id,subproducto_id,tipo,cantidad,fecha,motivo', {order:'fecha.desc,id'}),
+      apiAll('ordenes_semanales?select=id,numero_op,codigo_pt,cantidad_proyectada,estado_op,fecha_creacion', {order:'fecha_creacion.desc,id'})
     ]);
 
     const dataConsumo=calcConsumoMensualPorInsumo(movs,insumos,5,12);
@@ -7551,7 +7615,7 @@ async function renderRentabilidad(){
             const colorM=margenU==null?'color:var(--text-muted);':(margenU>=0?'color:var(--success);':'color:var(--danger);');
             const colorT=a.margen>=0?'color:var(--success);':'color:var(--danger);';
             return '<tr>'
-              +'<td>'+a.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+a.codigo_pt+'</span></td>'
+              +'<td>'+esc(a.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+esc(a.codigo_pt)+'</span></td>'
               +'<td class="num">'+(sinPrecio?'<span style="color:var(--text-muted);">—</span>':money(a.precio_venta))+'</td>'
               +'<td class="num">'+money(a.costo_unitario)+'</td>'
               +'<td class="num" style="'+colorM+'">'+(margenU==null?'—':money(margenU))+'</td>'
@@ -7691,7 +7755,7 @@ function imprimirProgramacionSemanal(desde, hasta, dias, fechas, ordenes, entreg
   tabla += '<thead><tr><th style="width:20%; border:1px solid #000; padding:8px; background:#eee;">DÍA</th><th style="border:1px solid #000; padding:8px; background:#eee;">TAREAS POR EJECUTAR</th></tr></thead><tbody>';
 
   fechas.forEach((fecha, idx) => {
-    const fechaStr = fecha.toISOString().slice(0,10);
+    const fechaStr = fechaLocalISO(fecha);
     const opsDia = ordenes.filter(o => {
       const ini = o.fecha_programada;
       const fin = o.fecha_fin_programada || o.fecha_programada;
@@ -7861,8 +7925,8 @@ async function renderOrdenesCompra(){
             ${listaOCs.map(oc => {
               const enProceso = oc.pendiente > 0;
               return `<tr>
-                <td class="mono" style="font-weight:bold; font-size:13px;">${oc.numero_oc}</td>
-                <td>${oc.proveedor}</td>
+                <td class="mono" style="font-weight:bold; font-size:13px;">${esc(oc.numero_oc)}</td>
+                <td>${esc(oc.proveedor)}</td>
                 <td class="mono" style="font-size:12px; color:var(--text-secondary);">${new Date(oc.ultima_fecha).toLocaleDateString('es-CO')}</td>
                 <td class="num">${oc.items.length}</td>
                 <td class="num" style="font-weight:bold; color:${enProceso ? 'var(--warning)' : 'var(--success)'};">
@@ -7907,10 +7971,10 @@ function mostrarDetalleOC(oc) {
     const u = ins.unidad_consumo || 'UND';
     return `<tr>
       <td class="mono" style="font-size:12px;">${new Date(e.fecha).toLocaleDateString('es-CO')}</td>
-      <td class="mono" style="font-size:12px; color:var(--info);">${e.numero_factura || '—'}</td>
-      <td>${ins.nombre || '?'}</td>
-      <td class="num" style="color:var(--success); font-weight:bold;">+${num(e.cantidad,4)} ${u}</td>
-      <td class="mono" style="font-size:11px;">${e.lote_insumo || '—'}</td>
+      <td class="mono" style="font-size:12px; color:var(--info);">${esc(e.numero_factura || '—')}</td>
+      <td>${esc(ins.nombre || '?')}</td>
+      <td class="num" style="color:var(--success); font-weight:bold;">+${num(e.cantidad,4)} ${esc(u)}</td>
+      <td class="mono" style="font-size:11px;">${esc(e.lote_insumo || '—')}</td>
       <td>${e.estado_calidad === 'Aprobado' ? '<span class="badge success">Aprobado</span>' : (e.estado_calidad === 'Rechazado' ? '<span class="badge danger">Rechazado</span>' : '<span class="badge warning">Cuarentena</span>')}</td>
     </tr>`;
   }).join('');
@@ -8044,9 +8108,18 @@ async function renderBodega(){
       }
       box.innerHTML = '<table id="tablaBodega" style="font-size:12px;"><tr><th>Caja</th><th>Ubicación</th><th>Estado</th><th>Últ. Mov.</th></tr>' +
         cajas.map(c => `<tr>
-          <td class="mono" style="font-size:11px;">${c.codigo_caja}</td>
-          <td style="font-weight:500;">${c.ubicacion}</td>
-          <td>${c.estado === 'En bodega' ? '<span class="badge success">En bodega</span>' : (c.estado === 'Despachada' ? '<span class="badge neutral">Despachada</span>' : '<span class="badge warning">Cuarentena</span>')}</td>
+          <td class="mono" style="font-size:11px;">${esc(c.codigo_caja)}</td>
+          <td style="font-weight:500;">${esc(c.ubicacion)}</td>
+          <td>${
+            (function(){
+              const e = String(c.estado||'').trim();
+              if (e === 'En bodega')   return '<span class="badge success">En bodega</span>';
+              if (e === 'Despachada')  return '<span class="badge neutral">Despachada</span>';
+              if (e === 'Cuarentena')  return '<span class="badge warning">Cuarentena</span>';
+              if (e === 'Impresa')     return '<span class="badge info">Impresa</span>';
+              return '<span class="badge warning">'+esc(e||'—')+'</span>';
+            })()
+          }</td>
           <td class="mono" style="font-size:10.5px; color:var(--text-muted);">${new Date(c.actualizado_en).toLocaleString('es-CO', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</td>
         </tr>`).join('') + '</table>';
       filtrarTabla('buscar_bodega', 'tablaBodega');
@@ -8074,15 +8147,15 @@ async function renderBodega(){
       // Renderizar tarjetas
       box.innerHTML = Object.keys(ubicaciones).sort().map(ub => {
         const items = ubicaciones[ub];
-        return `<div class="bodega-map-card" data-ubicacion="${ub.toLowerCase()}">
+        return `<div class="bodega-map-card" data-ubicacion="${esc(ub.toLowerCase())}">
           <div class="bodega-map-header">
-            <div class="bodega-map-title">📍 ${ub}</div>
+            <div class="bodega-map-title">📍 ${esc(ub)}</div>
             <div class="bodega-map-count">${items.length} caja${items.length===1?'':'s'}</div>
           </div>
           <div class="bodega-map-body">
             ${items.map(c => `<div class="bodega-map-item">
-              <span class="bodega-map-code">${c.codigo_caja}</span>
-              <span style="font-size:11px; color:var(--text-muted);">${c.codigo_pt}</span>
+              <span class="bodega-map-code">${esc(c.codigo_caja)}</span>
+              <span style="font-size:11px; color:var(--text-muted);">${esc(c.codigo_pt)}</span>
             </div>`).join('')}
           </div>
         </div>`;
@@ -8180,7 +8253,10 @@ async function renderBodega(){
     const estado = document.getElementById('scanStatus').value;
     
     if(!ubicacion) { toast('Escribí una ubicación física.', 'error'); return; }
-    const codigoPT = codigo.substring(0, codigo.lastIndexOf('-'));
+    /* Formato nuevo: {PT}-C{###}-LOTE-{lote}  →  captura {PT}
+       Formato viejo: {PT}-C{###}             →  fallback */
+    const _m = codigo.match(/^(.+?)-C\d+-LOTE-/);
+    const codigoPT = _m ? _m[1] : codigo.substring(0, codigo.lastIndexOf('-'));
 
     try {
       await withLoading(this, async function() {
@@ -8215,7 +8291,7 @@ async function renderBodega(){
 }
 
 function abrirModalEvaluacion(prov, arrStats) {
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = fechaLocalISO();
   
   // Sugerencia automática de calidad basada en tasa de devolución
   let sugerenciaCalidad = 5.0;
@@ -8501,7 +8577,7 @@ async function renderEvaluacionProv(){
                   badgeEval = `<span class="badge ${color}">${ultEval.resultado} (${num(ultEval.promedio,1)})</span>`;
                 }
                 return `<tr>
-                  <td>${s.nombre} <span class="mono" style="font-size:11px;color:var(--text-muted);">${s.nit}</span></td>
+                  <td>${esc(s.nombre)} <span class="mono" style="font-size:11px;color:var(--text-muted);">${esc(s.nit)}</span></td>
                   <td class="num">${money(s.valor_comprado)}</td>
                   <td class="num" style="color:${s.tasa_dev>5?'var(--danger)':'var(--success)'}; font-weight:600;">${num(s.tasa_dev, 2)}%</td>
                   <td>${badgeEval}</td>
@@ -8524,10 +8600,10 @@ async function renderEvaluacionProv(){
                   const color = ev.resultado === 'Excelente' ? 'success' : (ev.resultado === 'Bueno' ? 'info' : (ev.resultado === 'Regular' ? 'warning' : 'danger'));
                   return `<tr>
                     <td class="mono">${new Date(ev.fecha+'T12:00:00').toLocaleDateString('es-CO')}</td>
-                    <td>${ev.proveedor_nombre}</td>
+                    <td>${esc(ev.proveedor_nombre)}</td>
                     <td class="num" style="font-weight:bold;">${num(ev.promedio, 1)}</td>
-                    <td><span class="badge ${color}">${ev.resultado}</span></td>
-                    <td style="font-size:12px; color:var(--text-muted);">${ev.evaluador_email||'—'}</td>
+                    <td><span class="badge ${color}">${esc(ev.resultado)}</span></td>
+                    <td style="font-size:12px; color:var(--text-muted);">${esc(ev.evaluador_email||'—')}</td>
                     <td class="actions"><button class="ghost small" data-print-eval="${ev.id}">PDF</button></td>
                   </tr>`;
                 }).join('')
@@ -8629,8 +8705,8 @@ async function renderProgramacion(){
         const viernesTarget = new Date(lunesTarget);
         viernesTarget.setDate(lunesTarget.getDate() + 4);
 
-        document.getElementById('prog_desde').value = lunesTarget.toISOString().slice(0,10);
-        document.getElementById('prog_hasta').value = viernesTarget.toISOString().slice(0,10);
+        document.getElementById('prog_desde').value = fechaLocalISO(lunesTarget);
+        document.getElementById('prog_hasta').value = fechaLocalISO(viernesTarget);
       });
     });
 
@@ -8645,7 +8721,10 @@ async function renderProgramacion(){
       await withLoading(ev.currentTarget, async function(){
         try {
           // 1. Obtener OPs programadas (incluye las que se cruzan con la semana)
-          const ordenesRaw = await api(`ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=lte.${hastaStr}&order=fecha_programada.asc`);
+          const ordenesRaw = await apiAll(
+            `ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=lte.${hastaStr}`,
+            {order:'fecha_programada.asc,id'}
+          );
           
           // Filtrar las que realmente tocan esta semana (inician antes del fin y terminan después del inicio)
           const ordenes = ordenesRaw.filter(o => {
@@ -8655,10 +8734,16 @@ async function renderProgramacion(){
           });
 
           // OPs pendientes pero sin fecha programada
-          const opsSinFecha = await api(`ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=is.null&order=fecha_creacion.desc`);
+          const opsSinFecha = await apiAll(
+            `ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)&fecha_programada=is.null`,
+            {order:'fecha_creacion.desc,id'}
+          );
           
           // 2. Obtener entregas realizadas en esa semana (por fecha de entrega)
-          const entregas = await api(`entregas_op?select=*,ordenes_semanales(numero_op,productos_terminados(nombre))&fecha=gte.${desdeStr}T00:00:00&fecha=lte.${hastaStr}T23:59:59&order=fecha.asc`);
+          const entregas = await apiAll(
+            `entregas_op?select=*,ordenes_semanales(numero_op,productos_terminados(nombre))&fecha=gte.${desdeStr}T00:00:00&fecha=lte.${hastaStr}T23:59:59`,
+            {order:'fecha.asc,id'}
+          );
 
           // 3. Agrupar por día (Lunes a Domingo)
           const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
@@ -8673,7 +8758,7 @@ async function renderProgramacion(){
           let gridHTML = '<div class="prog-grid">';
           
           fechas.forEach((fecha, idx) => {
-            const fechaStr = fecha.toISOString().slice(0,10);
+            const fechaStr = fechaLocalISO(fecha);
             
             // Buscar OPs que estén activas este día
             const opsDia = ordenes.filter(o => {
@@ -8698,8 +8783,8 @@ async function renderProgramacion(){
 
                   return `
                   <div class="prog-card">
-                    <div class="prog-op">${o.numero_op || 'OP'}</div>
-                    <div class="prog-prod"><b>${tarea}:</b> ${o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt}</div>
+                    <div class="prog-op">${esc(o.numero_op || 'OP')}</div>
+                    <div class="prog-prod"><b>${tarea}:</b> ${esc(o.productos_terminados ? o.productos_terminados.nombre : o.codigo_pt)}</div>
                     <div class="prog-cant">${num(o.cantidad_proyectada)} u</div>
                     ${badgeOP(o.estado_op)}
                   </div>
@@ -8722,10 +8807,10 @@ async function renderProgramacion(){
               const prod = e.ordenes_semanales && e.ordenes_semanales.productos_terminados ? e.ordenes_semanales.productos_terminados.nombre : '—';
               entregasHTML += `<tr>
                 <td class="mono">${new Date(e.fecha).toLocaleString('es-CO', {weekday:'short', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</td>
-                <td class="mono">${op}</td>
-                <td>${prod}</td>
+                <td class="mono">${esc(op)}</td>
+                <td>${esc(prod)}</td>
                 <td class="num" style="color:var(--success); font-weight:bold;">+${num(e.cantidad)} u</td>
-                <td class="mono">${e.lote_entrega || '—'}</td>
+                <td class="mono">${esc(e.lote_entrega || '—')}</td>
               </tr>`;
             });
           }
@@ -8882,13 +8967,13 @@ async function renderConsolidado(){
         
         if(r==='semana_actual'){
           const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6);
-          document.getElementById('cons_desde').value = lunes.toISOString().slice(0,10);
-          document.getElementById('cons_hasta').value = domingo.toISOString().slice(0,10);
+          document.getElementById('cons_desde').value = fechaLocalISO(lunes);
+          document.getElementById('cons_hasta').value = fechaLocalISO(domingo);
         } else if (r==='semana_siguiente'){
           const lunesSig = new Date(lunes); lunesSig.setDate(lunes.getDate() + 7);
           const domingoSig = new Date(lunesSig); domingoSig.setDate(lunesSig.getDate() + 6);
-          document.getElementById('cons_desde').value = lunesSig.toISOString().slice(0,10);
-          document.getElementById('cons_hasta').value = domingoSig.toISOString().slice(0,10);
+          document.getElementById('cons_desde').value = fechaLocalISO(lunesSig);
+          document.getElementById('cons_hasta').value = fechaLocalISO(domingoSig);
         }
       });
     });
@@ -8905,7 +8990,7 @@ async function renderConsolidado(){
         try {
           // 1. Obtener TODAS las OPs pendientes/proceso y filtrarlas localmente (más exacto)
           let q = 'ordenes_semanales?select=*,productos_terminados(nombre)&estado_op=in.(Pendiente,En%20proceso)';
-          const ordenesRaw = await api(q);
+          const ordenesRaw = await apiAll(q, {order:'fecha_creacion.desc,id'});
           
           const ordenes = ordenesRaw.filter(o => {
             // Si tiene fecha programada, usamos esa; si no, usamos la fecha de creación
@@ -8982,11 +9067,11 @@ async function renderConsolidado(){
                   ${resultado.map(r => {
                     const u = unidadConsumo(r.ins);
                     return `<tr>
-                      <td class="mono" style="font-size:11.5px;">${r.ins.codigo}</td>
-                      <td>${r.ins.nombre}</td>
-                      <td class="num">${num(r.requerido,4)} ${u}</td>
-                      <td class="num">${num(r.stock,4)} ${u}</td>
-                      <td class="num" style="font-weight:bold; color:${r.faltante>0?'var(--danger)':'var(--success)'};">${r.faltante>0?num(r.faltante,4)+' '+u:'—'}</td>
+                      <td class="mono" style="font-size:11.5px;">${esc(r.ins.codigo)}</td>
+                      <td>${esc(r.ins.nombre)}</td>
+                      <td class="num">${num(r.requerido,4)} ${esc(u)}</td>
+                      <td class="num">${num(r.stock,4)} ${esc(u)}</td>
+                      <td class="num" style="font-weight:bold; color:${r.faltante>0?'var(--danger)':'var(--success)'};">${r.faltante>0?num(r.faltante,4)+' '+esc(u):'—'}</td>
                       <td>${r.faltante>0?'<span class="badge danger">Comprar</span>':'<span class="badge success">Cubierto</span>'}</td>
                     </tr>`;
                   }).join('')}
@@ -9110,21 +9195,40 @@ async function ejecutarTrazaForward(data,codigoPT,cantidad){
 
   box.innerHTML='<div class="empty-state">Analizando insumos y lotes…</div>';
 
-  /* Cargar los lotes EXACTOS consumidos para este PT/OP */
+  /* N12: consumos reales del PT.
+     - Con orden_id → pertenecen a una OP de este PT.
+     - Sin orden_id → auto-producción de subproductos (producir_subproducto).
+     Se cruzan con los insumos del BOM del PT para no traer consumos ajenos. */
+  const insumosEnBOM = new Set();
+  const recolectarInsumos = (subId) => {
+    data.recetas.filter(r => r.subproducto_id === subId).forEach(r => insumosEnBOM.add(r.insumo_id));
+    data.hijos.filter(h => h.subproducto_padre_id === subId).forEach(h => recolectarInsumos(h.subproducto_hijo_id));
+  };
+  data.bom.filter(b => b.codigo_pt === codigoPT).forEach(b => insumosEnBOM.add(b.insumo_id));
+  data.paqueteSubs.filter(p => p.codigo_pt === codigoPT).forEach(p => recolectarInsumos(p.subproducto_id));
+
   let lotesPorInsumo={};
   try{
-    // Buscamos los consumos asociados a las OPs de este PT
-    const consumos=await api(`movimientos_inventario?select=insumo_id,lote_insumo,cantidad,orden_id,ordenes_semanales!inner(codigo_pt)&tipo=eq.Consumo&ordenes_semanales.codigo_pt=eq.${codigoPT}&lote_insumo=not.is.null`);
+    /* Traer TODOS los consumos con lote (paginado) y filtrar en JS */
+    const consumos = await apiAll(
+      'movimientos_inventario?select=insumo_id,lote_insumo,cantidad,orden_id,ordenes_semanales(codigo_pt)&tipo=eq.Consumo&lote_insumo=not.is.null',
+      {order:'fecha.desc,id'}
+    );
     consumos.forEach(function(c){
+      if(!c.insumo_id) return;
+      if(!insumosEnBOM.has(c.insumo_id)) return; // no es insumo de este PT
+      const esDeEstePT = c.orden_id && c.ordenes_semanales && c.ordenes_semanales.codigo_pt === codigoPT;
+      const esAutoProd = !c.orden_id; // auto-producción de subproductos
+      if(!esDeEstePT && !esAutoProd) return;
       if(!lotesPorInsumo[c.insumo_id]) lotesPorInsumo[c.insumo_id]=[];
       lotesPorInsumo[c.insumo_id].push({
         lote_insumo: c.lote_insumo,
         cantidad: c.cantidad,
-        sys_proveedores: null // Podríamos cruzar con el lote si quisiéramos
+        sys_proveedores: null
       });
     });
   }catch(e){
-    /* Fallback si la tabla no existe: usar movimientos */
+    /* Fallback: usar entradas recientes */
     const movs=await api('movimientos_inventario?select=insumo_id,cantidad,lote_insumo,fecha,sys_proveedores(razon_social)&tipo=eq.Entrada&lote_insumo=not.is.null&order=fecha.desc&limit=500');
     movs.forEach(function(m){
       if(!m.insumo_id) return;
@@ -9174,7 +9278,7 @@ async function ejecutarTrazaForward(data,codigoPT,cantidad){
         <div class="traza-tree">${html}</div>
       </div>
       <div style="padding:0 18px 14px;font-size:11.5px;color:var(--text-muted);line-height:1.5;">
-        <b>Nota:</b> los lotes mostrados corresponden a las últimas entradas registradas con lote del proveedor. La trazabilidad exacta por lote consumido requiere FIFO estricto, que no está implementado.
+        <b>Nota:</b> los lotes mostrados provienen de los movimientos de <i>Consumo</i> reales asociados a las OPs de este PT, más los consumos por auto-producción de subproductos (sin OP asignada). El stock se descuenta con FIFO estricto por antigüedad de lote. Los insumos que nunca se recibieron con lote muestran "Sin entradas registradas".
       </div>
     </div>`;
 }
@@ -9314,7 +9418,7 @@ async function renderCostosOP(){
             const o=a.orden;
             const prod=o.productos_terminados?o.productos_terminados.nombre:o.codigo_pt;
             const cuTeo=o.cantidad_proyectada>0?a.teorico.total/o.cantidad_proyectada:0;
-            return '<tr><td class="mono">'+(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+o.lote+'</span>':'')+'</td><td>'+prod+'</td><td class="num">'+num(o.cantidad_proyectada)+'</td><td class="num">'+money(a.teorico.total)+'</td><td class="num">'+money(cuTeo)+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+(o.fecha_completado?new Date(o.fecha_completado).toLocaleDateString('es-CO'):'—')+'</td><td class="actions"><button class="ghost small" data-costo-idx="'+idx+'" title="Ver comparativo">Comparar</button></td></tr>';
+            return '<tr><td class="mono">'+esc(o.numero_op||'—')+(o.lote?'<br><span style="font-size:11px;color:var(--text-muted);">'+esc(o.lote)+'</span>':'')+'</td><td>'+esc(prod)+'</td><td class="num">'+num(o.cantidad_proyectada)+'</td><td class="num">'+money(a.teorico.total)+'</td><td class="num">'+money(cuTeo)+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+(o.fecha_completado?new Date(o.fecha_completado).toLocaleDateString('es-CO'):'—')+'</td><td class="actions"><button class="ghost small" data-costo-idx="'+idx+'" title="Ver comparativo">Comparar</button></td></tr>';
           }).join('')}
         </table>`}
       </div>
@@ -9394,9 +9498,9 @@ async function mostrarComparativoOP(analisis,insumos,subproductos,costos){
             const colorC=difC>0?'color:var(--danger);':(difC<0?'color:var(--success);':'');
             const colorK=difK>0?'color:var(--danger);':(difK<0?'color:var(--success);':'');
             return '<tr>'
-              +'<td>'+c.nombre+(c.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+c.codigo+'</span>':'')+'</td>'
-              +'<td class="num">'+num(c.cant_teo,4)+' '+(c.unidad||'')+'</td>'
-              +'<td class="num">'+num(c.cant_real,4)+' '+(c.unidad||'')+'</td>'
+              +'<td>'+esc(c.nombre)+(c.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+esc(c.codigo)+'</span>':'')+'</td>'
+              +'<td class="num">'+num(c.cant_teo,4)+' '+esc(c.unidad||'')+'</td>'
+              +'<td class="num">'+num(c.cant_real,4)+' '+esc(c.unidad||'')+'</td>'
               +'<td class="num" style="'+colorC+'">'+(difC>=0?'+':'')+num(difC,4)+'</td>'
               +'<td class="num">'+money(c.costo_teo)+'</td>'
               +'<td class="num">'+money(c.costo_real)+'</td>'
@@ -9515,11 +9619,11 @@ async function renderCompras(){
 
     await withLoading(ev.currentTarget,async function(){
       try{
-        let q='movimientos_inventario?select=id,fecha,cantidad,cantidad_compra,unidad_compra,costo_unitario_momento,motivo,insumo_id,proveedor_id,insumos(id,codigo,nombre,unidad_consumo,unidad_medida),sys_proveedores(id,razon_social)&tipo=eq.Entrada&proveedor_id=not.is.null&order=fecha.desc&limit=10000';
+        let q='movimientos_inventario?select=id,fecha,cantidad,cantidad_compra,unidad_compra,costo_unitario_momento,motivo,insumo_id,proveedor_id,insumos(id,codigo,nombre,unidad_consumo,unidad_medida),sys_proveedores(id,razon_social)&tipo=eq.Entrada&proveedor_id=not.is.null';
         if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
         if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
         if(proveedorFiltro) q+='&proveedor_id=eq.'+proveedorFiltro;
-        const movs=await api(q);
+        const movs=await apiAll(q, {order:'fecha.desc,id'});
 
         if(!movs.length){
           box.innerHTML='<div class="empty-state">No hay compras para estos filtros.</div>';
@@ -9559,7 +9663,7 @@ async function renderCompras(){
         const filas=proveedoresArr.map(function(p){
           const ultima=p.ultimaFecha?new Date(p.ultimaFecha).toLocaleDateString('es-CO'):'—';
           return '<tr>'
-            +'<td>'+p.nombre+'</td>'
+            +'<td>'+esc(p.nombre)+'</td>'
             +'<td class="num">'+money(p.total)+'</td>'
             +'<td class="num">'+p.entradas+'</td>'
             +'<td class="num">'+p.insumos.size+'</td>'
@@ -9656,11 +9760,11 @@ function mostrarDetalleProveedor(prov){
     const total=cu*cant;
     return '<tr>'
       +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td>'
-      +'<td>'+(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+ins.codigo+'</span>':'')+'</td>'
-      +'<td class="num">'+num(cant,4)+' '+unidad+'</td>'
+      +'<td>'+esc(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+esc(ins.codigo)+'</span>':'')+'</td>'
+      +'<td class="num">'+num(cant,4)+' '+esc(unidad)+'</td>'
       +'<td class="num">'+money(cu)+'</td>'
       +'<td class="num"><b>'+money(total)+'</b></td>'
-      +'<td style="color:var(--text-secondary);font-size:12px;">'+(m.motivo||'—')+'</td>'
+      +'<td style="color:var(--text-secondary);font-size:12px;">'+esc(m.motivo||'—')+'</td>'
       +'</tr>';
   }).join('');
 
@@ -9763,11 +9867,11 @@ async function renderMermas(){
     await withLoading(ev.currentTarget,async function(){
       try{
         /* Salidas manuales y ajustes, sin proveedor (excluye devoluciones), sin OP (excluye consumos) */
-        let q='movimientos_inventario?select=id,fecha,cantidad,costo_unitario_momento,motivo,insumo_id,insumos(id,codigo,nombre,unidad_consumo,unidad_medida,conversiones)&tipo=eq.Salida&proveedor_id=is.null&order=fecha.desc&limit=10000';
+        let q='movimientos_inventario?select=id,fecha,cantidad,costo_unitario_momento,motivo,insumo_id,insumos(id,codigo,nombre,unidad_consumo,unidad_medida,conversiones)&tipo=eq.Salida&proveedor_id=is.null';
         if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
         if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
         if(insumoFiltro) q+='&insumo_id=eq.'+insumoFiltro;
-        const movs=await api(q);
+        const movs=await apiAll(q, {order:'fecha.desc,id'});
 
         if(!movs.length){
           box.innerHTML='<div class="empty-state">No hay mermas ni ajustes para estos filtros.</div>';
@@ -9825,7 +9929,7 @@ async function renderMermas(){
         const filasMotivo=motivosArr.map(function(mt){
           const pct=totalValor>0?(mt.valor/totalValor*100):0;
           return '<tr>'
-            +'<td>'+mt.motivo+'</td>'
+            +'<td>'+esc(mt.motivo)+'</td>'
             +'<td class="num">'+mt.movs+'</td>'
             +'<td class="num">'+money(mt.valor)+'</td>'
             +'<td class="num">'+num(pct,1)+'%</td>'
@@ -9835,8 +9939,8 @@ async function renderMermas(){
         /* Tabla por insumo */
         const filasInsumo=insumosArr.map(function(ins){
           return '<tr>'
-            +'<td>'+(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+ins.codigo+'</span>':'')+'</td>'
-            +'<td class="num">'+num(ins.cantidad,4)+' '+ins.unidad+'</td>'
+            +'<td>'+esc(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+esc(ins.codigo)+'</span>':'')+'</td>'
+            +'<td class="num">'+num(ins.cantidad,4)+' '+esc(ins.unidad)+'</td>'
             +'<td class="num">'+ins.movs.length+'</td>'
             +'<td class="num"><b>'+money(ins.valor)+'</b></td>'
             +'<td class="actions"><button class="ghost small" data-mer-ver="'+ins.id+'">Ver detalle</button></td>'
@@ -9938,10 +10042,10 @@ function mostrarDetalleMermas(ins){
     const valor=cu*cant;
     return '<tr>'
       +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td>'
-      +'<td class="num">'+num(cant,4)+' '+ins.unidad+'</td>'
+      +'<td class="num">'+num(cant,4)+' '+esc(ins.unidad)+'</td>'
       +'<td class="num">'+money(cu)+'</td>'
       +'<td class="num">'+money(valor)+'</td>'
-      +'<td style="color:var(--text-secondary);font-size:12.5px;">'+(m.motivo||'—')+'</td>'
+      +'<td style="color:var(--text-secondary);font-size:12.5px;">'+esc(m.motivo||'—')+'</td>'
       +'</tr>';
   }).join('');
 
@@ -10087,7 +10191,7 @@ async function generarKardex(insumos){
     let saldoAntesDelRango=saldoInicial;
     let saldoPrevio=saldoInicial;
     todos.forEach(function(f){
-      const fechaStr=new Date(f.fecha).toISOString().slice(0,10);
+      const fechaStr=fechaLocalISO(f.fecha);
       const enRango=(!desde||fechaStr>=desde)&&(!hasta||fechaStr<=hasta)&&(tipo==='Todos'||tipo===f.tipo);
       if(enRango){
         filas.push(f);
@@ -10113,10 +10217,10 @@ async function generarKardex(insumos){
       return '<tr>'
         +'<td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td>'
         +'<td>'+badgeTipo(f.tipo)+'</td>'
-        +'<td style="color:var(--text-secondary);font-size:12.5px;">'+f.referencia+'</td>'
+        +'<td style="color:var(--text-secondary);font-size:12.5px;">'+esc(f.referencia)+'</td>'
         +'<td class="num" style="color:var(--success);">'+entTxt+'</td>'
         +'<td class="num" style="color:var(--danger);">'+salTxt+'</td>'
-        +'<td class="num"><b>'+num(f.saldo,4)+' '+uCons+'</b></td>'
+        +'<td class="num"><b>'+num(f.saldo,4)+' '+esc(uCons)+'</b></td>'
         +'</tr>';
     }).join('');
 
@@ -10322,7 +10426,14 @@ async function renderBackup(){
           <tr><td class="mono">movimientos_inventario.csv</td><td>Movimientos dentro del rango seleccionado</td></tr>
           <tr><td class="mono">ajustes_costo_insumo.csv</td><td>Historial de ajustes manuales de costo</td></tr>
           <tr><td class="mono">sys_proveedores.csv</td><td>Maestro de proveedores con contactos</td></tr>
+          <tr><td class="mono">insumo_lotes.csv</td><td>Lotes recibidos por insumo (stock y proveedor)</td></tr>
           <tr><td class="mono">profiles.csv</td><td>Usuarios con rol y estado</td></tr>
+          <tr><td class="mono">etiquetas_impresas.csv</td><td>Registro de impresiones de etiquetas</td></tr>
+          <tr><td class="mono">devoluciones_pt.csv</td><td>Devoluciones de producto terminado</td></tr>
+          <tr><td class="mono">evaluaciones_proveedores.csv</td><td>Evaluaciones SGC de proveedores</td></tr>
+          <tr><td class="mono">despachos.csv</td><td>Salidas a clientes con lote y OC</td></tr>
+          <tr><td class="mono">cajas_ubicacion.csv</td><td>Zonificación física de cajas</td></tr>
+          <tr><td class="mono">sys_config.csv</td><td>Configuración global del sistema</td></tr>
           <tr><td class="mono">_resumen.txt</td><td>Metadata del backup (fecha, versión, conteos)</td></tr>
         </tbody>
       </table>
@@ -10370,21 +10481,21 @@ async function renderBackup(){
         const tareas=[
           {tabla:'insumos',archivo:'insumos.csv',tablaName:'insumos', order:'codigo'},
           {tabla:'subproductos',archivo:'subproductos.csv',tablaName:'subproductos', order:'codigo'},
-          {tabla:'subproducto_recetas',archivo:'subproducto_recetas.csv',tablaName:'subproducto_recetas'},
-          {tabla:'subproducto_subproductos',archivo:'subproducto_subproductos.csv',tablaName:'subproducto_subproductos'},
+          {tabla:'subproducto_recetas',archivo:'subproducto_recetas.csv',tablaName:'subproducto_recetas', order:'id'},
+          {tabla:'subproducto_subproductos',archivo:'subproducto_subproductos.csv',tablaName:'subproducto_subproductos', order:'id'},
           {tabla:'productos_terminados',archivo:'productos_terminados.csv',tablaName:'productos_terminados', order:'codigo_pt'},
-          {tabla:'bom_recetas',archivo:'bom_recetas.csv',tablaName:'bom_recetas'},
-          {tabla:'paquete_subproductos',archivo:'paquete_subproductos.csv',tablaName:'paquete_subproductos'},
-          {tabla:'ordenes_semanales',archivo:'ordenes_semanales.csv',tablaName:'ordenes_semanales', order:'fecha_creacion.desc'},
-          {tabla:'entregas_op',archivo:'entregas_op.csv',tablaName:'entregas_op', order:'fecha.desc'},
-          {tabla:'ajustes_costo_insumo',archivo:'ajustes_costo_insumo.csv',tablaName:'ajustes_costo_insumo', order:'fecha.desc'},
+          {tabla:'bom_recetas',archivo:'bom_recetas.csv',tablaName:'bom_recetas', order:'id'},
+          {tabla:'paquete_subproductos',archivo:'paquete_subproductos.csv',tablaName:'paquete_subproductos', order:'id'},
+          {tabla:'ordenes_semanales',archivo:'ordenes_semanales.csv',tablaName:'ordenes_semanales', order:'fecha_creacion.desc,id'},
+          {tabla:'entregas_op',archivo:'entregas_op.csv',tablaName:'entregas_op', order:'fecha.desc,id'},
+          {tabla:'ajustes_costo_insumo',archivo:'ajustes_costo_insumo.csv',tablaName:'ajustes_costo_insumo', order:'fecha.desc,id'},
           {tabla:'sys_proveedores',archivo:'sys_proveedores.csv',tablaName:'sys_proveedores', order:'razon_social'},
           {tabla:'profiles',archivo:'profiles.csv',tablaName:'profiles', select:'user_id,email,nombre,role,activo,creado_en', order:'email'},
-          {tabla:'insumo_lotes',archivo:'insumo_lotes.csv',tablaName:'insumo_lotes'},
-          {tabla:'despachos',archivo:'despachos.csv',tablaName:'despachos', order:'fecha.desc'},
-          {tabla:'devoluciones_pt',archivo:'devoluciones_pt.csv',tablaName:'devoluciones_pt', order:'fecha.desc'},
-          {tabla:'evaluaciones_proveedores',archivo:'evaluaciones_proveedores.csv',tablaName:'evaluaciones_proveedores', order:'fecha.desc'},
-          {tabla:'cajas_ubicacion',archivo:'cajas_ubicacion.csv',tablaName:'cajas_ubicacion'}
+          {tabla:'insumo_lotes',archivo:'insumo_lotes.csv',tablaName:'insumo_lotes', order:'id'},
+          {tabla:'despachos',archivo:'despachos.csv',tablaName:'despachos', order:'fecha.desc,id'},
+          {tabla:'devoluciones_pt',archivo:'devoluciones_pt.csv',tablaName:'devoluciones_pt', order:'fecha.desc,id'},
+          {tabla:'evaluaciones_proveedores',archivo:'evaluaciones_proveedores.csv',tablaName:'evaluaciones_proveedores', order:'fecha.desc,id'},
+          {tabla:'cajas_ubicacion',archivo:'cajas_ubicacion.csv',tablaName:'cajas_ubicacion', order:'id'}
         ];
 
         if(incluirMov&&isoCorte){
@@ -10460,7 +10571,7 @@ async function renderBackup(){
         /* Descargar */
         const url=URL.createObjectURL(blob);
         const a=document.createElement('a');
-        const fechaArchivo=new Date().toISOString().slice(0,10);
+        const fechaArchivo=fechaLocalISO();
         a.href=url;
         a.download='aseptiq_backup_'+fechaArchivo+'.zip';
         document.body.appendChild(a);
@@ -10520,8 +10631,8 @@ async function renderUsuarios(){
         ${rows.map(function(r){
           const esYo=SUPA_SESSION && SUPA_SESSION.user && r.user_id===SUPA_SESSION.user.id;
           return '<tr>'
-            +'<td>'+r.email+(esYo?' <span class="badge info">tú</span>':'')+'</td>'
-            +'<td>'+(r.nombre||'—')+'</td>'
+            +'<td>'+esc(r.email)+(esYo?' <span class="badge info">tú</span>':'')+'</td>'
+            +'<td>'+esc(r.nombre||'—')+'</td>'
             +'<td>'+badgeRol(r.role)+'</td>'
             +'<td>'+(r.activo?'<span class="badge success">Activo</span>':'<span class="badge danger">Inactivo</span>')+'</td>'
             +'<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(r.creado_en).toLocaleDateString('es-CO')+'</td>'
@@ -10794,7 +10905,7 @@ async function generarInforme(){
       const hasta=document.getElementById('rep_hasta').value;
       if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
       if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
-      const rows=await api(q);
+      const rows=await apiAll(q, {order:'fecha.desc,id'});
       /* Preparar datos para impresión */
       _informeImpresion = rows.length ? {
         tipoLabel: 'Ajustes de costo',
@@ -10874,7 +10985,7 @@ async function generarInforme(){
       if(tipo==='Entrada'||tipo==='Salida'||tipo==='Consumo') q+='&tipo=eq.'+tipo;
       if(desde) q+='&fecha=gte.'+desde+'T00:00:00';
       if(hasta) q+='&fecha=lte.'+hasta+'T23:59:59';
-      const movs=await api(q);
+      const movs=await apiAll(q, {order:'fecha.desc,id'});
       const filas=movs.map(function(m){
         return {
           fecha: m.fecha,
@@ -10937,7 +11048,7 @@ async function generarInforme(){
     if(desde)q+='&fecha=gte.'+desde+'T00:00:00';
     if(hasta)q+='&fecha=lte.'+hasta+'T23:59:59';
     if(insumoFiltro)q+='&insumo_id=eq.'+insumoFiltro;
-    const movs=await api(q);
+    const movs=await apiAll(q, {order:'fecha.desc,id'});
     movs.forEach(function(m){
       filas.push({
         fecha:m.fecha,
@@ -10953,7 +11064,7 @@ async function generarInforme(){
     let q='ordenes_semanales?select=*,productos_terminados(nombre)&order=fecha_creacion.desc';
     if(desde)q+='&fecha_creacion=gte.'+desde+'T00:00:00';
     if(hasta)q+='&fecha_creacion=lte.'+hasta+'T23:59:59';
-    const ords=await api(q);
+    const ords=await apiAll(q, {order:'fecha_creacion.desc,id'});
     ords.forEach(function(o){
       const d=o.detalle_faltantes||{};
       const insumosDet=Array.isArray(d)?d:(d.insumos||[]);

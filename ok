@@ -1,0 +1,6 @@
+ CHANGELOG.md | 96 [32m++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[m
+ MANUAL.md    | 24 [32m+++++++++++++[m[31m--[m
+ README.md    | 14 [32m++++++++[m[31m-[m
+ aseptiq.html |  4 [32m+[m[31m--[m
+ schema.sql   | 21 [32m++++++[m[31m-------[m
+ 5 files changed, 144 insertions(+), 15 deletions(-)
