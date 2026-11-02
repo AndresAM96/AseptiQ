@@ -16,6 +16,13 @@
  * 1. FORMATEO
  * ========================================================================= */
 
+function esc(str){
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>'"]/g, function(m){
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[m];
+  });
+}
+
 function money(n){return(Number(n)||0).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:2});}
 function num(n,d){if(n===null||n===undefined||isNaN(n))return '—';return Number(n).toLocaleString('es-CO',{maximumFractionDigits:d===undefined?2:d});}
 function fmtCSV(v,dec){
@@ -44,13 +51,13 @@ function cadenaTexto(i){
   const c=getCadena(i);
   return c.map(function(n,idx){
     const ult=idx===c.length-1;
-    if(ult)return '<span class="conv-tag">'+n.unidad+'</span>';
-    const dim=n.formula&&n.formula.ancho&&n.formula.largo?' <span style="color:var(--text-muted);font-size:11px;">('+n.formula.ancho+'×'+n.formula.largo+')</span>':'';
-    return n.unidad+' <span class="conv-arrow">×'+num(n.factor,4)+dim+' →</span> ';
+    if(ult)return '<span class="conv-tag">'+esc(n.unidad)+'</span>';
+    const dim=n.formula&&n.formula.ancho&&n.formula.largo?' <span style="color:var(--text-muted);font-size:11px;">('+num(n.formula.ancho,4)+'×'+num(n.formula.largo,4)+')</span>':'';
+    return esc(n.unidad)+' <span class="conv-arrow">×'+num(n.factor,4)+dim+' →</span> ';
   }).join('');
 }
 function formatearExistencia(i){
-  const uC=unidadConsumo(i),uP=unidadCompra(i),f=factorTotal(i);
+  const uC=esc(unidadConsumo(i)),uP=esc(unidadCompra(i)),f=factorTotal(i);
   const base=num(i.existencia_actual)+' '+uC;
   if(f>1)return base+' <span style="color:var(--text-muted);font-size:11.5px;">(≈ '+num(i.existencia_actual/f)+' '+uP+')</span>';
   return base;

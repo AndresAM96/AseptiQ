@@ -10,12 +10,7 @@ let SUPA_CLIENT=null, SUPA_SESSION=null;
 let SUPA_ROLE=null, SUPA_PROFILE=null;
 let _cerrandoPorExpiracion = false;
 
-function esc(str) {
-  if (str === null || str === undefined) return '';
-  return String(str).replace(/[&<>'"]/g, function(m) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[m];
-  });
-}
+/* esc() vive en aseptiq_core.js — disponible globalmente al cargar este archivo después de core */
 
 async function manejarSesionExpirada() {
   if (_cerrandoPorExpiracion) return;
@@ -597,20 +592,23 @@ async function intentarSesionExistente(){
     SUPA_URL=s.url;
     SUPA_KEY=s.key;
     SUPA_CLIENT=supabase.createClient(s.url,s.key,{auth:{persistSession:true,autoRefreshToken:true}});
-    
-    SUPA_CLIENT.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' && !_cerrandoPorExpiracion) {
-        manejarSesionExpirada();
-      } else if (event === 'TOKEN_REFRESHED' && session) {
-        SUPA_SESSION = session; // Actualizamos la sesión con el token nuevo
-      }
-    });
 
     const {data}=await SUPA_CLIENT.auth.getSession();
     const session=data && data.session;
     if(!session || !session.user) return false;
 
     SUPA_SESSION=session;
+
+    // Instalar listener DESPUÉS de confirmar sesión válida (B1).
+    // Si el token estaba expirado, getSession() devuelve null y salimos
+    // del try antes de que SIGNED_OUT dispare el alert.
+    SUPA_CLIENT.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' && !_cerrandoPorExpiracion) {
+        manejarSesionExpirada();
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        SUPA_SESSION = session;
+      }
+    });
     await cargarRol();
     await cargarConfig();
 
@@ -4113,7 +4111,7 @@ function _htmlFormInsumo(insumo,cfg,numSug){
     <div class="form-grid" style="padding:0;">
       <div><label>Código</label><div class="codigo-compuesto"><span class="codigo-prefijo">${cfg.prefijoInsumo}</span><input id="ins_codigo_num" value="${numSug}" ${insumo?'disabled':''} autocomplete="off"></div><div class="field-validate" id="ins_codigo_status"></div></div>
       <div><label>Nombre</label><input id="ins_nombre" placeholder="Tela SMS" value="${insumo?esc(insumo.nombre):''}"></div>
-      <div><label>Existencia actual ${insumo?'<span style="color:var(--text-muted);font-weight:400;">(solo lectura)</span>':'<span style="color:var(--text-muted);font-weight:400;">(opcional)</span>'}</label><input id="ins_existencia" type="number" step="0.0001" value="${insumo?insumo.existencia_actual:''}" placeholder="0" ${insumo?'disabled title="Usa Entrada Mercancía o Auditoría para ajustar el stock"':''}></div>
+      <div><label>Existencia inicial <span style="color:var(--text-muted);font-weight:400;">(se registra vía Entrada mercancía)</span></label><input id="ins_existencia" type="number" step="0.0001" value="${insumo?insumo.existencia_actual:0}" disabled title="Registra el stock inicial desde Entrada mercancía para mantener trazabilidad de lotes"></div>
       <div><label>Stock objetivo</label><input id="ins_reorden" type="number" step="0.0001" min="0.0001" value="${insumo?insumo.punto_reorden:''}" placeholder="Ej: 100" title="El sistema calcula los umbrales de urgente y reorden como % de este valor (configurable en Configuración)"></div>
       <div><label>Costo Und. (Unidad de consumo)</label><input id="ins_costo" type="number" step="0.01" min="0" value="${insumo?insumo.costo_unitario:0}"></div>
     </div>
@@ -4388,8 +4386,8 @@ async function abrirModalInsumo(insumoId,insumos,cfg,onSaveCallback){
           tipo_conversion:tipo
         };
         
-        /* Solo enviamos la existencia si es un insumo nuevo */
-        if(!insumo) body.existencia_actual = parseFloat(document.getElementById('ins_existencia').value)||0;
+        /* Existencia inicial siempre 0; se registra desde Entrada mercancía para preservar Kardex */
+        if(!insumo) body.existencia_actual = 0;
         
         if(!body.nombre){toast('Completa el nombre.','error');return false;}
         try{
@@ -4738,12 +4736,12 @@ return '<div class="list-item" style="'+rowStyle+'" id="prodRow_'+p.codigo_pt+'"
     const hij=data.hijos.filter(function(h){return h.subproducto_padre_id===s.id;});
     const compHtml=(rec.length?'<em>Insumos:</em> '+rec.map(function(r){
       const ins=insumos.find(function(x){return x.id===r.insumo_id;});
-      const nombre=ins?ins.nombre:'?';
-      const u=r.unidad_receta||(ins?unidadConsumo(ins):'');
+      const nombre=ins?esc(ins.nombre):'?';
+      const u=esc(r.unidad_receta||(ins?unidadConsumo(ins):''));
       return nombre+' ('+num(r.cantidad_por_unidad,4)+' '+u+(r.factor_receta&&r.factor_receta!==1?' ×'+num(r.factor_receta,4):'')+')';
     }).join(', ')+'<br>':'')+(hij.length?'<em>Subproductos:</em> '+hij.map(function(h){
       const hh=subproductos.find(function(x){return x.id===h.subproducto_hijo_id;});
-      return (hh?hh.nombre:'?')+' ('+num(h.cantidad_por_unidad,4)+')';
+      return (hh?esc(hh.nombre):'?')+' ('+num(h.cantidad_por_unidad,4)+')';
     }).join(', '):'');
     cont.querySelector('.composicion-list').innerHTML=compHtml||'<span style="color:var(--text-muted);">Sin composición definida.</span>';
   });
@@ -4753,10 +4751,10 @@ return '<div class="list-item" style="'+rowStyle+'" id="prodRow_'+p.codigo_pt+'"
     const bom=data.bom.filter(function(x){return x.codigo_pt===p.codigo_pt;});
     const html=(comp.length?'<em>Subproductos:</em> '+comp.map(function(c){
       const s=subproductos.find(function(x){return x.id===c.subproducto_id;});
-      return (s?s.nombre:'?')+' ('+num(c.cantidad,4)+')';
+      return (s?esc(s.nombre):'?')+' ('+num(c.cantidad,4)+')';
     }).join(', ')+'<br>':'')+(bom.length?'<em>Insumos directos:</em> '+bom.map(function(b){
       const ins=insumos.find(function(x){return x.id===b.insumo_id;});
-      return (ins?ins.nombre:'?')+' ('+num(b.cantidad_por_unidad,4)+' '+(ins?unidadConsumo(ins):'')+')';
+      return (ins?esc(ins.nombre):'?')+' ('+num(b.cantidad_por_unidad,4)+' '+(ins?esc(unidadConsumo(ins)):'')+')';
     }).join(', '):'');
     cont.querySelector('.composicion-list').innerHTML=html||'<span style="color:var(--text-muted);">Sin composición definida.</span>';
   });
@@ -6159,7 +6157,7 @@ function imprimirFormatoEntradaAlmacen(mov, nombreInsumo, nombreProveedor) {
           </td>
           <td style="width: 33%; text-align: center;">
             <span class="form-label" style="margin:0;">Cantidad total</span>
-            <div class="form-value" style="border:none; margin-top: 5px;">${num(mov.cantidad)}</div>
+            <div class="form-value" style="border:none; margin-top: 5px;">${num(mov.cantidad_compra != null ? mov.cantidad_compra : mov.cantidad)}</div>
           </td>
           <td style="width: 33%; border-right:none; text-align: center;">
             <span class="form-label" style="margin:0;">Unidad de empaque</span>
@@ -6249,7 +6247,6 @@ async function renderEntradas(){
           <div class="full-span"><label>Observaciones de Calidad</label><input id="ent_obs_calidad" placeholder="Ej: Empaque en buen estado, cumple especificaciones..."></div>
         </div>
         
-        <div id="ent_motivo_wrap" style="display:none;"><label>Motivo</label><input id="ent_motivo" placeholder="Ej: producción interna, ajuste"></div>
         <div id="ent_op_wrap" style="display:none;"><label>Pertenece a la OP</label><select id="ent_op_id"><option value="">— Sin OP asignada —</option>${opsActivas.map(o => `<option value="${o.id}">${o.numero_op || 'S/N'} - ${o.productos_terminados ? o.productos_terminados.nombre : ''}</option>`).join('')}</select></div>
 
         <!-- Bloque multi-lote separado para que no rompa el grid principal -->
