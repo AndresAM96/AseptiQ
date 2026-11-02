@@ -77,7 +77,7 @@ function estadoInsumo(o,cfg){
   const uU=objetivo*(Number(cfg.umbralUrgente)||20)/100;
   const uR=objetivo*(Number(cfg.umbralReorden)||50)/100;
   if(e<=uU)return 'Urgente';
-  if(e<=uR+1)return 'Reorden';
+  if(e<=uR)return 'Reorden';
   return 'Cubierto';
 }
 function peorEstado(a){
@@ -141,7 +141,7 @@ function _mesesAtras(n){
   return arr;
 }
 function _paleta(i){
-  const p=['#ffb020','#6ab7ff','#3ddc84','#ff5c5c','#b48cff','#ff8c42','#42d9c8','#e879d5'];
+  const p=['#ffb020','#6ab7ff','#3ddc84','#ff5c5c','#b48cff','#ff8c42','#42d9c8','#e879d5','#7ab648','#c67bff','#ff6b9d','#4ecdc4','#ffa726','#8e44ad','#e67e22','#3498db'];
   return p[i%p.length];
 }
 

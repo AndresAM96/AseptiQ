@@ -97,8 +97,7 @@ function traducirError(m){
   if(/subproductos_punto_reorden_check/i.test(m))return 'Punto de reorden inválido en subproducto.';
   if(/ordenes_semanales_estado_op_check/i.test(m))return 'Estado de OP inválido.';
   if(/violates check constraint/i.test(m))return 'Datos inválidos, revisa los campos.';
-  if(/function .* does not exist/i.test(m))return 'Falta una función en Supabase. ¿Corriste la migración v11?';
-  if(/JWT|api key|apikey/i.test(m))return 'Sesión expirada o clave inválida.';
+  if(/function .* does not exist/i.test(m))return 'Falta una función en Supabase. Contacta al administrador.';  if(/JWT|api key|apikey/i.test(m))return 'Sesión expirada o clave inválida.';
   return m;
 }
 async function withLoading(btn,fn){
@@ -330,7 +329,7 @@ function renderNotifPanel(){
           +'<div class="notif-item-icon">'+icono('alert-circle')+'</div>'
           +'<div class="notif-item-content">'
           +'<div class="notif-item-title">'+esc(i.nombre)+' ('+num(i.existencia_actual)+' '+esc(unidadConsumo(i))+')</div>'
-          +'<div class="notif-item-sub">Por debajo del umbral urgente · objetivo '+num(i.punto_reorden)+' '+unidadConsumo(i)+'</div>'
+          +'<div class="notif-item-sub">Por debajo del umbral urgente · objetivo '+num(i.punto_reorden)+' '+esc(unidadConsumo(i))+'</div>'
           +'</div>'
           +btnSilenciar('insumo', i.id, 'este insumo')
           +'</div>';
@@ -366,7 +365,7 @@ function renderNotifPanel(){
           +'<div class="notif-item-icon">'+icono('alert-triangle')+'</div>'
           +'<div class="notif-item-content">'
           +'<div class="notif-item-title">'+esc(i.nombre)+'</div>'
-          +'<div class="notif-item-sub">Existencia '+num(i.existencia_actual)+' '+unidadConsumo(i)+' · cerca del mínimo</div>'
+          +'<div class="notif-item-sub">Existencia '+num(i.existencia_actual)+' '+esc(unidadConsumo(i))+' · cerca del mínimo</div>'
           +'</div>'
           +btnSilenciar('insumo', i.id, 'este insumo')
           +'</div>';
@@ -895,7 +894,7 @@ function showFaltantesModal(faltantes){
     const badge=esInsumo?'<span class="badge info">Insumo</span>':'<span class="badge warning">Subproducto</span>';
     const faltan=Number(f.requerido)-Number(f.existencia);
     return '<div class="faltante-row">'
-      +'<div class="faltante-top"><div class="faltante-nombre">'+f.nombre+'</div>'+badge+'</div>'
+      +'<div class="faltante-top"><div class="faltante-nombre">'+esc(f.nombre)+'</div>'+badge+'</div>'
       +'<div class="faltante-detalle">'
       +'<span>Requerido: <b>'+num(f.requerido)+'</b></span>'
       +'<span>Existencia: <b>'+num(f.existencia)+'</b></span>'
@@ -1032,8 +1031,8 @@ function printHeaderHTML(titulo, subtitulo){
     +'<div><div class="print-company">Proclides Soluciones Estériles S.A.S.<small>AseptiQ · Sistema de gestión</small></div></div>'
     +'</div>'
     +'<div class="print-title">'
-    +'<h1>'+titulo+'</h1>'
-    +(subtitulo?'<div class="meta">'+subtitulo+'</div>':'')
+    +'<h1>'+esc(titulo)+'</h1>'
+    +(subtitulo?'<div class="meta">'+esc(subtitulo)+'</div>':'')
     +'</div>'
     +'</div>';
 }
@@ -1043,7 +1042,7 @@ function printFooterHTML(){
   const usuario = SUPA_PROFILE ? (SUPA_PROFILE.email || SUPA_PROFILE.nombre || '') : '';
   return '<div class="print-footer">'
     +'<span>AseptiQ · '+fecha+'</span>'
-    +'<span>'+(usuario||'')+'</span>'
+    +'<span>'+esc(usuario||'')+'</span>'
     +'</div>';
 }
 
@@ -1398,12 +1397,13 @@ function applySort(items,listKey,getters){
   });
   return arr;
 }
-function thSort(label,colKey,listKey,alignRight){
+function thSort(label,colKey,listKey,alignRight,extraClass){
   const s=getSortState(listKey);
   const active=s.key===colKey;
   const arrow=active?(s.dir==='asc'?'▲':'▼'):'';
   const style=alignRight?'text-align:right;':'';
-  return '<th class="sortable'+(alignRight?' num':'')+'" data-sort-key="'+colKey+'" data-sort-list="'+listKey+'" style="'+style+'" title="Ordenar por '+label+'">'+label+(arrow?' <span style="font-size:10px;color:var(--accent);">'+arrow+'</span>':'')+'</th>';
+  const cls='sortable'+(alignRight?' num':'')+(extraClass?' '+extraClass:'');
+  return '<th class="'+cls+'" data-sort-key="'+colKey+'" data-sort-list="'+listKey+'" style="'+style+'" title="Ordenar por '+label+'">'+label+(arrow?' <span style="font-size:10px;color:var(--accent);">'+arrow+'</span>':'')+'</th>';
 }
 function bindSortHeaders(reRenderFn){
   document.querySelectorAll('th[data-sort-key]').forEach(function(th){
@@ -2377,60 +2377,146 @@ function redondearConsumo(cantidad, unidad) {
   return Number(Number(cantidad).toFixed(4));
 }
 
-async function calcularCobertura(codigo_pt,cantidad){
-  const insConsumo={};
-  const subConsumo={};
+async function calcularCobertura(codigo_pt, cantidad){
+  /* v2.5.2 — Cobertura recursiva consistente con simular_consumo_pt del backend.
+     · Explota subproductos hijos recursivamente.
+     · Aplica factor_receta en subproducto_recetas.
+     · Consume stock de subproductos antes de explotar insumos.
+     · Estado general basado en insumos reales: un subproducto sin stock
+       pero auto-producible NO marca Urgente.
+     · Mantiene la estructura {detalle, detalleSub, estado_general} para
+       no romper abrirModalCobertura ni abrirModalDetalleOrden. */
 
-  const [bomDir,compSub]=await Promise.all([
+  const [bomDir, compSub, todosSubs, todasRecetas, todosHijos] = await Promise.all([
     api('bom_recetas?codigo_pt=eq.'+encodeURIComponent(codigo_pt)+'&select=cantidad_por_unidad,insumos(id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,existencia_actual,punto_reorden)'),
-    api('paquete_subproductos?codigo_pt=eq.'+encodeURIComponent(codigo_pt)+'&select=cantidad,subproducto_id,subproductos!paquete_subproductos_subproducto_id_fkey(id,codigo,nombre,tipo,existencia_actual)')
+    api('paquete_subproductos?codigo_pt=eq.'+encodeURIComponent(codigo_pt)+'&select=cantidad,subproducto_id,subproductos!paquete_subproductos_subproducto_id_fkey(id,codigo,nombre,tipo,existencia_actual)'),
+    api('subproductos?select=id,codigo,nombre,tipo,existencia_actual'),
+    api('subproducto_recetas?select=subproducto_id,insumo_id,cantidad_por_unidad,unidad_receta,factor_receta,insumos(id,codigo,nombre,unidad_medida,unidad_consumo,conversiones,existencia_actual,punto_reorden)'),
+    api('subproducto_subproductos?select=subproducto_padre_id,subproducto_hijo_id,cantidad_por_unidad')
   ]);
 
-  log('[cobertura MRP] PT',codigo_pt,'→ insumos directos:',bomDir.length,'subproductos:',compSub.length);
+  const subMap = {};
+  todosSubs.forEach(function(s){ subMap[s.id] = s; });
+  compSub.forEach(function(r){ if(r.subproductos) subMap[r.subproductos.id] = r.subproductos; });
+
+  const recetasPorSub = {};
+  todasRecetas.forEach(function(r){ (recetasPorSub[r.subproducto_id] = recetasPorSub[r.subproducto_id] || []).push(r); });
+  const hijosPorSub = {};
+  todosHijos.forEach(function(h){ (hijosPorSub[h.subproducto_padre_id] = hijosPorSub[h.subproducto_padre_id] || []).push(h); });
+
+  const stockSubs = {};
+  todosSubs.forEach(function(s){ stockSubs[s.id] = Number(s.existencia_actual) || 0; });
+
+  const insConsumo = {};
+  const subConsumo = {};
+
+  function explotarInsumo(ins, cant){
+    if(!ins || !cant || cant <= 0) return;
+    if(!insConsumo[ins.id]) insConsumo[ins.id] = {insumo: ins, total: 0};
+    insConsumo[ins.id].total += cant;
+  }
+
+  function explotarSub(subId, cant, depth, visited){
+    if(cant <= 0) return;
+    if(depth > 20 || visited.indexOf(subId) >= 0){
+      throw new Error('Ciclo o profundidad máxima en cobertura de subproductos (id='+subId+')');
+    }
+    const sub = subMap[subId];
+    if(!sub) return;
+
+    if(!subConsumo[subId]) subConsumo[subId] = {sub: sub, requerido: 0, consumido_stock: 0, faltante: 0};
+    subConsumo[subId].requerido += cant;
+
+    const stockDisp = stockSubs[subId] || 0;
+    const delStock = Math.min(stockDisp, cant);
+    stockSubs[subId] = stockDisp - delStock;
+    subConsumo[subId].consumido_stock += delStock;
+
+    const faltante = cant - delStock;
+    if(faltante <= 0) return;
+    subConsumo[subId].faltante += faltante;
+
+    const hijos = hijosPorSub[subId] || [];
+    hijos.forEach(function(h){
+      explotarSub(h.subproducto_hijo_id, Number(h.cantidad_por_unidad) * faltante, depth+1, visited.concat([subId]));
+    });
+
+    const recs = recetasPorSub[subId] || [];
+    recs.forEach(function(r){
+      if(r.insumos){
+        const reqIns = Number(r.cantidad_por_unidad) * Number(r.factor_receta || 1) * faltante;
+        explotarInsumo(r.insumos, reqIns);
+      }
+    });
+  }
 
   bomDir.forEach(function(r){
-    const id=r.insumos.id;
-    if(!insConsumo[id])insConsumo[id]={insumo:r.insumos,total:0};
-    insConsumo[id].total+=r.cantidad_por_unidad*cantidad;
+    if(r.insumos) explotarInsumo(r.insumos, Number(r.cantidad_por_unidad) * cantidad);
   });
-
   compSub.forEach(function(r){
-    const s=r.subproductos;
-    if(!s)return;
-    const id=s.id;
-    if(!subConsumo[id])subConsumo[id]={sub:s,total:0};
-    subConsumo[id].total+=r.cantidad*cantidad;
+    if(r.subproductos) explotarSub(r.subproductos.id, Number(r.cantidad) * cantidad, 0, []);
   });
 
-  const detalle=Object.values(insConsumo).map(function(it){
-    const ins=it.insumo;
+  const cfg = (typeof getConfig === 'function') ? getConfig() : {};
+  const uU = Number(cfg.umbralUrgente || 20);
+  const uR = Number(cfg.umbralReorden || 50);
+
+  const detalle = Object.values(insConsumo).map(function(it){
+    const ins = it.insumo;
     const u = unidadConsumo(ins);
-    
-    // Aplicamos el redondeo a la cantidad requerida
-    const total = redondearConsumo(it.total, u); 
-    
-    const disp=ins.existencia_actual-total;
-    let est='Cubierto';
-    if(disp<0)est='Urgente';else if(disp<=ins.punto_reorden)est='Reorden';
-    return {insumo_id:ins.id,nombre:ins.nombre,unidad:u,existencia_consumo:ins.existencia_actual,consumo_total:total,faltante:disp<0?Math.abs(disp):0,estado:est};
+    const total = redondearConsumo(it.total, u);
+    const existencia = Number(ins.existencia_actual) || 0;
+    const faltante = Math.max(0, total - existencia);
+    let est;
+    if(faltante > 0){
+      est = 'Urgente';
+    } else {
+      const disp = existencia - total;
+      const pr = Number(ins.punto_reorden) || 0;
+      if(pr <= 0){ est = disp > 0 ? 'Cubierto' : 'Reorden'; }
+      else if(disp <= pr * uU / 100){ est = 'Urgente'; }
+      else if(disp <= pr * uR / 100){ est = 'Reorden'; }
+      else { est = 'Cubierto'; }
+    }
+    return {
+      insumo_id: ins.id,
+      nombre: ins.nombre,
+      unidad: u,
+      existencia_consumo: existencia,
+      consumo_total: total,
+      faltante: faltante,
+      estado: est
+    };
   });
 
-  const detalleSub=Object.values(subConsumo).map(function(it){
-    const s=it.sub;
-    // Los subproductos se miden en unidades, aplicamos redondeo
-    const req = redondearConsumo(it.total, 'u');
-    const stock=Number(s.existencia_actual)||0;
-    const delStock=Math.min(stock,req);
-    const faltante=req-delStock;
-    let est='Cubierto';
-    if(faltante>0)est='Urgente';else if(stock<=req)est='Reorden';
-    return {subproducto_id:s.id,nombre:s.nombre,codigo:s.codigo,tipo:s.tipo||'ambos',requerido:req,stock_actual:stock,a_consumir_del_stock:delStock,faltante:faltante,estado:est};
+  const detalleSub = Object.values(subConsumo).map(function(it){
+    const s = it.sub;
+    const requerido = redondearConsumo(it.requerido, 'u');
+    const stock = Number(s.existencia_actual) || 0;
+    const delStock = redondearConsumo(it.consumido_stock, 'u');
+    const faltante = Math.max(0, it.faltante);
+    let est;
+    if(stock >= it.requerido){ est = 'Cubierto'; }
+    else { est = 'Reorden'; } // auto-producible: no es urgente por sí mismo
+    return {
+      subproducto_id: s.id,
+      nombre: s.nombre,
+      codigo: s.codigo,
+      tipo: s.tipo || 'ambos',
+      requerido: requerido,
+      stock_actual: stock,
+      a_consumir_del_stock: delStock,
+      faltante: faltante,
+      auto_producido: faltante,
+      estado: est
+    };
   });
 
-  log('[cobertura MRP] insumos:',detalle.length,'· subproductos:',detalleSub.length);
-  const estados=detalle.map(function(d){return d.estado;}).concat(detalleSub.map(function(d){return d.estado;}));
-  const eg=estados.length?peorEstado(estados):'Cubierto';
-  return {detalle:detalle,detalleSub:detalleSub,estado_general:eg};
+  const estadosIns = detalle.map(function(d){ return d.estado; });
+  const eg = estadosIns.length ? peorEstado(estadosIns) : 'Cubierto';
+
+  log('[cobertura MRP] insumos:', detalle.length, '· subproductos en árbol:', detalleSub.length);
+  return {detalle: detalle, detalleSub: detalleSub, estado_general: eg};
 }
 
 /* ============ DATA LOADER ============ */
@@ -2986,7 +3072,7 @@ async function renderDashboard(){
               const pr=Number(i.punto_reorden)||0;
               const pct=pr>0?Math.min(100,Math.round(ex/pr*100)):0;
               const color=estadoInsumo(i)==='Urgente'?'var(--danger)':'var(--warning)';
-              return '<tr><td>'+i.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+i.codigo+'</span></td>'
+              return '<tr><td>'+esc(i.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+esc(i.codigo)+'</span></td>'
                 +'<td class="num" style="color:'+color+';font-weight:600;">'+num(ex)+' '+unidadConsumo(i)+'</td>'
                 +'<td class="num">'+num(pr)+' '+unidadConsumo(i)+'</td>'
                 +'<td style="min-width:120px;"><div style="background:var(--surface-3);border-radius:6px;height:6px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+color+';"></div></div><span style="font-size:10.5px;color:var(--text-muted);">'+pct+'%</span></td>'
@@ -3038,7 +3124,7 @@ async function renderDashboard(){
           ${thSort('Valor','valor','dash_ins',true)}
           <th>Estado</th>
         </tr>
-          ${insView.map(function(i){return '<tr><td>'+i.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+i.codigo+'</span></td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num">'+money(i.costo_unitario)+'</td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td></tr>';}).join('')}
+          ${insView.map(function(i){return '<tr><td>'+esc(i.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(i.codigo)+'</span></td><td style="font-size:11.5px;">'+cadenaTexto(i)+'</td><td class="num">'+formatearExistencia(i)+'</td><td class="num">'+num(i.punto_reorden)+' '+unidadConsumo(i)+'</td><td class="num">'+money(i.costo_unitario)+'</td><td class="num">'+money((i.existencia_actual||0)*(i.costo_unitario||0))+'</td><td>'+badgeFor(estadoInsumo(i))+'</td></tr>';}).join('')}
         </table>`}
       </div>
 
@@ -3054,7 +3140,7 @@ async function renderDashboard(){
           ${thSort('Valor','valor','dash_sub',true)}
           <th>Estado</th>
         </tr>
-          ${subView.map(function(s){return '<tr><td>'+s.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+s.codigo+'</span></td><td>'+badgeTipoSub(s.tipo||'ambos')+'</td><td class="num">'+num(s.existencia_actual)+'</td><td class="num">'+money(data.costos.subCosto[s.id]||0)+'</td><td class="num">'+money((s.existencia_actual||0)*(data.costos.subCosto[s.id]||0))+'</td><td>'+badgeStockSub(s)+'</td></tr>';}).join('')}
+          ${subView.map(function(s){return '<tr><td>'+esc(s.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(s.codigo)+'</span></td><td>'+badgeTipoSub(s.tipo||'ambos')+'</td><td class="num">'+num(s.existencia_actual)+'</td><td class="num">'+money(data.costos.subCosto[s.id]||0)+'</td><td class="num">'+money((s.existencia_actual||0)*(data.costos.subCosto[s.id]||0))+'</td><td>'+badgeStockSub(s)+'</td></tr>';}).join('')}
         </table>`}
       </div>
 
@@ -3070,7 +3156,7 @@ async function renderDashboard(){
           ${thSort('Valor stock','valor','dash_paq',true)}
           <th>Estado</th>
         </tr>
-          ${paqView.map(function(p){const cu=data.costos.paqCosto[p.codigo_pt]||0;const pc=p.unidades_por_caja||1;const ex=p.existencia_actual||0;return '<tr><td>'+p.nombre+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+p.codigo_pt+'</span></td><td class="num">'+pc+'</td><td class="num">'+num(ex)+'</td><td class="num">'+money(cu)+'</td><td class="num">'+money(ex*cu)+'</td><td>'+badgeStockPT(p)+'</td></tr>';}).join('')}
+          ${paqView.map(function(p){const cu=data.costos.paqCosto[p.codigo_pt]||0;const pc=p.unidades_por_caja||1;const ex=p.existencia_actual||0;return '<tr><td>'+esc(p.nombre)+' <span class="mono" style="color:var(--text-muted);font-size:11.5px;">'+esc(p.codigo_pt)+'</span></td><td class="num">'+pc+'</td><td class="num">'+num(ex)+'</td><td class="num">'+money(cu)+'</td><td class="num">'+money(ex*cu)+'</td><td>'+badgeStockPT(p)+'</td></tr>';}).join('')}
         </table>`}
       </div>
 
@@ -3311,9 +3397,9 @@ function imprimirEtiquetas(tipo, item, cantidad, tamano, campos){
     etiquetas += '<div class="etiqueta">'
       + qrBox
       + '<div class="etiqueta-info">'
-      +(campos.codigo ? '<div class="etiqueta-codigo">'+codigo+'</div>' : '')
-      +(campos.nombre ? '<div class="etiqueta-nombre">'+nombre+'</div>' : '')
-      +(campos.unidad ? '<div class="etiqueta-unidad">'+unidad+'</div>' : '')
+      +(campos.codigo ? '<div class="etiqueta-codigo">'+esc(codigo)+'</div>' : '')
+      +(campos.nombre ? '<div class="etiqueta-nombre">'+esc(nombre)+'</div>' : '')
+      +(campos.unidad ? '<div class="etiqueta-unidad">'+esc(unidad)+'</div>' : '')
       +(campos.lote ? '<div class="etiqueta-linea"><span>Lote:</span><span class="linea"></span></div>' : '')
       +(campos.fecha ? '<div class="etiqueta-linea"><span>Fecha:</span><span class="linea"></span></div>' : '')
       + '</div>'
@@ -3448,7 +3534,7 @@ function imprimirEtiquetasPT(prod, data, plantilla, opts){
 
 function _tplEsterilProclides(prod, emp, lote, fFab, fVenc, contenido, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
   const logo = cfg.logos.proclides || 'logo-proclides.png';
-  const contList = contenido.map(c => `<div>- ${c.cant} ${c.nombre}</div>`).join('');
+  const contList = contenido.map(c => `<div>- ${c.cant} ${esc(c.nombre)}</div>`).join('');
   
   return `
     <div class="etq-wrapper" style="flex-direction:row; padding:4mm;">
@@ -3467,22 +3553,22 @@ function _tplEsterilProclides(prod, emp, lote, fFab, fVenc, contenido, cfg, isCa
       `}
       <div style="width:65mm; padding-left:4mm; display:flex; flex-direction:column; justify-content:space-between;">
         <div style="text-align:center;">
-          <div style="font-weight:bold; font-size:10pt; text-transform:uppercase; line-height:1.1; margin-bottom:2mm;">${prod.nombre}</div>
-          <div style="font-size:9pt; font-family:monospace;">${prod.codigo_pt}</div>
+          <div style="font-weight:bold; font-size:10pt; text-transform:uppercase; line-height:1.1; margin-bottom:2mm;">${esc(prod.nombre)}</div>
+          <div style="font-size:9pt; font-family:monospace;">${esc(prod.codigo_pt)}</div>
         </div>
         <div style="text-align:center;"><img src="${logo}" style="max-height:20mm; max-width:100%;"></div>
         <div style="text-align:center; margin:1mm 0;">
           ${iconosEsterilHTML()}
-          <div style="font-size:7pt; border:1px solid #000; padding:1mm; margin-top:1mm;">INVIMA: ${prod.registro_invima || 'No requiere'}</div>
+          <div style="font-size:7pt; border:1px solid #000; padding:1mm; margin-top:1mm;">INVIMA: ${esc(prod.registro_invima || 'No requiere')}</div>
         </div>
         <div style="font-size:8pt; line-height:1.5;">
-          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:18mm;">LOTE:</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm; font-weight:bold;">${lote}</div></div>
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:18mm;">LOTE:</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm; font-weight:bold;">${esc(lote)}</div></div>
           <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaFabHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fFab}</div></div>
           <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaVencHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fVenc}</div></div>
           <div style="display:flex; align-items:center;"><span style="width:18mm;">LOTE EO:</span><div style="flex:1; border:1px solid #000; height:5mm;"></div></div>
         </div>
         <div style="font-size:5.5pt; text-align:center; line-height:1.1; margin-top:1mm;">
-          Fabricado y Distribuido por:<br><b>${emp.razonSocial}</b><br>${emp.direccion}<br>${emp.telefono} · ${emp.correos.join(' / ')}
+          Fabricado y Distribuido por:<br><b>${esc(emp.razonSocial)}</b><br>${esc(emp.direccion)}<br>${esc(emp.telefono)} · ${esc(emp.correos.join(' / '))}
         </div>
       </div>
     </div>
@@ -3491,13 +3577,13 @@ function _tplEsterilProclides(prod, emp, lote, fFab, fVenc, contenido, cfg, isCa
 
 function _tplEsterilAllmed(prod, empAll, empPro, lote, fFab, fVenc, contenido, barcodeHtml, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
   const logo = cfg.logos.allmed || 'logo-allmed.png';
-  const contList = contenido.map(c => `<div>- ${c.cant} ${c.nombre}</div>`).join('');
+  const contList = contenido.map(c => `<div>- ${c.cant} ${esc(c.nombre)}</div>`).join('');
   return `
     <div class="etq-wrapper" style="flex-direction:row; padding:4mm;">
       ${!isCaja ? `
       <div style="flex:1; display:flex; flex-direction:column;">
-        <div style="font-weight:bold; font-size:11pt; margin-bottom:1mm;">${prod.nombre}</div>
-        <div style="font-size:10pt; font-family:monospace; margin-bottom:2mm;">${prod.codigo_pt}</div>
+        <div style="font-weight:bold; font-size:11pt; margin-bottom:1mm;">${esc(prod.nombre)}</div>
+        <div style="font-size:10pt; font-family:monospace; margin-bottom:2mm;">${esc(prod.codigo_pt)}</div>
         <div style="border:2px solid #000; padding:2mm; flex:1;">
           <div style="font-weight:bold; font-size:10pt; border-bottom:1px solid #000; padding-bottom:1mm; margin-bottom:2mm;">CONTENIDO</div>
           <div style="font-size:8pt; line-height:1.3;">${contList}</div>
@@ -3514,18 +3600,18 @@ function _tplEsterilAllmed(prod, empAll, empPro, lote, fFab, fVenc, contenido, b
         <div style="text-align:center;"><img src="${logo}" style="max-height:20mm; max-width:100%;"></div>
         <div style="text-align:center; margin:1mm 0;">
           ${iconosEsterilHTML()}
-          <div style="font-size:7pt; border:1px solid #000; padding:1mm; margin-top:1mm;">INVIMA: ${prod.registro_invima || 'No requiere'}</div>
+          <div style="font-size:7pt; border:1px solid #000; padding:1mm; margin-top:1mm;">INVIMA: ${esc(prod.registro_invima || 'No requiere')}</div>
         </div>
         <div style="font-size:8pt; line-height:1.5;">
-          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:18mm;">LOTE:</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm; font-weight:bold;">${lote}</div></div>
+          <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:18mm;">LOTE:</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm; font-weight:bold;">${esc(lote)}</div></div>
           <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaFabHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fFab}</div></div>
           <div style="display:flex; align-items:center; margin-bottom:1mm;"><span style="width:6mm;">${iconoFechaVencHTML()}</span><div style="flex:1; border:1px solid #000; height:5mm; text-align:center; line-height:5mm;">${fVenc}</div></div>
           <div style="display:flex; align-items:center;"><span style="width:18mm;">LOTE EO:</span><div style="flex:1; border:1px solid #000; height:5mm;"></div></div>
         </div>
         <div style="margin:1mm 0;">${barcodeHtml}</div>
         <div style="font-size:5.5pt; text-align:right; line-height:1.1;">
-          Fabricado por: <b>${empPro.razonSocial}</b><br>
-          Distribuido por: <b>${empAll.razonSocial}</b> · NIT: ${empAll.nit}<br>${empAll.direccion}
+          Fabricado por: <b>${esc(empPro.razonSocial)}</b><br>
+          Distribuido por: <b>${esc(empAll.razonSocial)}</b> · NIT: ${esc(empAll.nit)}<br>${esc(empAll.direccion)}
         </div>
       </div>
     </div>
@@ -3539,13 +3625,13 @@ function _tplNoEsterilProclidesGrande(prod, emp, lote, fVenc, barcodeHtml, cfg, 
       <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
         <div>
           <div style="text-align:left; font-size:9pt; margin-bottom:2mm;">
-            <b>Fabricado por:</b><br>${emp.razonSocial}<br>${emp.direccion}
+            <b>Fabricado por:</b><br>${esc(emp.razonSocial)}<br>${esc(emp.direccion)}
           </div>
           <table style="width:100%; font-size:9pt; border-collapse:collapse; margin-bottom:2mm;">
-            <tr><td style="width:30mm; padding:1mm 0;">Nombre del Producto:</td><td style="font-weight:bold;">${prod.nombre}</td></tr>
-            <tr><td style="padding:1mm 0;">Código PT:</td><td style="font-weight:bold;">${prod.codigo_pt}</td></tr>
+            <tr><td style="width:30mm; padding:1mm 0;">Nombre del Producto:</td><td style="font-weight:bold;">${esc(prod.nombre)}</td></tr>
+            <tr><td style="padding:1mm 0;">Código PT:</td><td style="font-weight:bold;">${esc(prod.codigo_pt)}</td></tr>
             <tr><td style="padding:1mm 0;">Marca:</td><td style="font-weight:bold;">PROCLIDES S.A.S</td></tr>
-            <tr><td style="padding:1mm 0;">Lote:</td><td style="font-weight:bold;">${lote}</td></tr>
+            <tr><td style="padding:1mm 0;">Lote:</td><td style="font-weight:bold;">${esc(lote)}</td></tr>
             <tr><td style="padding:1mm 0;">Fecha de Vencimiento:</td><td style="font-weight:bold;">${fVenc}</td></tr>
           </table>
         </div>
@@ -3560,7 +3646,7 @@ function _tplNoEsterilProclidesGrande(prod, emp, lote, fVenc, barcodeHtml, cfg, 
           ${isCaja ? `<div style="font-size:22pt; font-weight:bold; line-height:1; text-align:center;">CAJA X<br>${undsPorCaja} PAQUETES</div>` : `<div style="transform: scale(1.5); margin-top:10mm;">${iconoNoReusoHTML()}</div>`}
         </div>
         <div style="width:100%; display:flex; justify-content:flex-end; align-items:flex-end;">
-          ${isCaja ? qrHtml : `<div style="font-size:7pt; width:100%; text-align:center;">${emp.web}</div>`}
+          ${isCaja ? qrHtml : `<div style="font-size:7pt; width:100%; text-align:center;">${esc(emp.web)}</div>`}
         </div>
       </div>
     </div>
@@ -3574,10 +3660,10 @@ function _tplNoEsterilAllmed(prod, empAll, lote, fVenc, barcodeHtml, cfg, isCaja
       ${!isCaja ? `
       <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
         <div style="text-align:center; margin-bottom:2mm;"><img src="${logo}" style="max-height:18mm;"></div>
-        <div style="font-weight:bold; font-size:12pt; text-transform:uppercase; text-align:center; margin-bottom:2mm;">${prod.nombre}</div>
+        <div style="font-weight:bold; font-size:12pt; text-transform:uppercase; text-align:center; margin-bottom:2mm;">${esc(prod.nombre)}</div>
         <div style="display:flex; justify-content:space-between; font-size:9pt; margin-bottom:2mm;">
-          <span><b>PT:</b> ${prod.codigo_pt}</span>
-          <span><b>LOTE:</b> ${lote}</span>
+          <span><b>PT:</b> ${esc(prod.codigo_pt)}</span>
+          <span><b>LOTE:</b> ${esc(lote)}</span>
           <span><b>VENCE:</b> ${fVenc}</span>
         </div>
         <div style="flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
@@ -3585,7 +3671,7 @@ function _tplNoEsterilAllmed(prod, empAll, lote, fVenc, barcodeHtml, cfg, isCaja
         </div>
         <div style="font-size:8pt; text-align:center; margin-bottom:2mm;">PRESENTACIONES E IMPORTACIONES</div>
         <div style="font-size:6.5pt; text-align:center; line-height:1.2;">
-          DISTRIBUIDO POR: <b>${empAll.razonSocial}</b> · NIT: ${empAll.nit} · ${empAll.direccion}<br>${empAll.telefono} · ${empAll.web}
+          DISTRIBUIDO POR: <b>${esc(empAll.razonSocial)}</b> · NIT: ${esc(empAll.nit)} · ${esc(empAll.direccion)}<br>${esc(empAll.telefono)} · ${esc(empAll.web)}
         </div>
         <div style="border-top:2px solid #000; margin-top:2mm; padding-top:1mm; text-align:center; font-size:7pt; font-weight:bold;">
           MADE IN COLOMBIA - NO REQUIERE REGISTRO INVIMA
@@ -3598,22 +3684,22 @@ function _tplNoEsterilAllmed(prod, empAll, lote, fVenc, barcodeHtml, cfg, isCaja
       <div style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
         <div>
           <div style="text-align:center; margin-bottom:2mm;"><img src="${logo}" style="max-height:18mm;"></div>
-          <div style="font-weight:bold; font-size:14pt; text-transform:uppercase; text-align:center; margin-bottom:2mm;">${prod.nombre}</div>
+          <div style="font-weight:bold; font-size:14pt; text-transform:uppercase; text-align:center; margin-bottom:2mm;">${esc(prod.nombre)}</div>
           
           <div style="display:flex; justify-content:center; margin-bottom:2mm;">
              <div style="transform:scale(1.2);">${iconoNoReusoHTML()}</div>
           </div>
           
           <div style="display:flex; justify-content:space-between; font-size:10pt; margin-bottom:2mm;">
-            <span><b>PT:</b> ${prod.codigo_pt}</span>
-            <span><b>LOTE:</b> ${lote}</span>
+            <span><b>PT:</b> ${esc(prod.codigo_pt)}</span>
+            <span><b>LOTE:</b> ${esc(lote)}</span>
             <span><b>VENCE:</b> ${fVenc}</span>
           </div>
         </div>
         <div>
           <div style="font-size:8pt; text-align:center; margin-bottom:1mm;">PRESENTACIONES E IMPORTACIONES</div>
           <div style="font-size:7pt; text-align:center; line-height:1.2;">
-            DISTRIBUIDO POR: <b>${empAll.razonSocial}</b> · NIT: ${empAll.nit} · ${empAll.direccion}<br>${empAll.telefono} · ${empAll.web}
+            DISTRIBUIDO POR: <b>${esc(empAll.razonSocial)}</b> · NIT: ${esc(empAll.nit)} · ${esc(empAll.direccion)}<br>${esc(empAll.telefono)} · ${esc(empAll.web)}
           </div>
           <div style="border-top:2px solid #000; margin-top:2mm; padding-top:1mm; text-align:center; font-size:7.5pt; font-weight:bold;">
             MADE IN COLOMBIA - NO REQUIERE REGISTRO INVIMA
@@ -3631,16 +3717,16 @@ function _tplNoEsterilAllmed(prod, empAll, lote, fVenc, barcodeHtml, cfg, isCaja
 }
 
 function _tplNoEsterilProclidesMediana(prod, emp, lote, fVenc, barcodeHtml, cfg, isCaja, undsPorCaja, cajaNum, qrHtml){
-  const txtUnidades = isCaja ? `CAJA X ${undsPorCaja} PAQUETES` : `UNIDADES: ${undsPorCaja || 1}`;
+  const txtUnidades = isCaja ? `CAJA X ${undsPorCaja} PAQUETES` : `UNIDADES: 1`;
   return `
     <div class="etq-wrapper" style="padding:2mm; text-align:center; display:flex; flex-direction:column; height:100%;">
-      <div style="font-size:7.5pt; font-weight:bold; line-height:1.1;">${emp.razonSocial}</div>
-      <div style="font-size:6pt; line-height:1.1; margin-bottom:1.5mm;">${emp.direccion}<br>${emp.telefono} · ${emp.correos.join(' / ')}</div>
+      <div style="font-size:7.5pt; font-weight:bold; line-height:1.1;">${esc(emp.razonSocial)}</div>
+      <div style="font-size:6pt; line-height:1.1; margin-bottom:1.5mm;">${esc(emp.direccion)}<br>${esc(emp.telefono)} · ${esc(emp.correos.join(' / '))}</div>
       
       <div style="font-size:7.5pt; font-weight:bold; line-height:1.3; margin-bottom:1.5mm;">
-        REF: ${prod.nombre.toUpperCase()}<br>
-        ${prod.codigo_pt}<br>
-        LOTE: ${lote} | VENCE: ${fVenc}<br>
+        REF: ${esc(prod.nombre).toUpperCase()}<br>
+        ${esc(prod.codigo_pt)}<br>
+        LOTE: ${esc(lote)} | VENCE: ${fVenc}<br>
         ${txtUnidades}
       </div>
       
@@ -3814,21 +3900,21 @@ async function construirTimeline(limit){
     const esSub=!!m.subproducto_id;
     if(m.tipo==='Entrada'){
       icon=icono('tray-down');variant='success';
-      const nombre=esSub?(m.subproductos?m.subproductos.nombre:'Subproducto'):(m.insumos?m.insumos.nombre:'Insumo');
+      const nombre=esSub?(m.subproductos?esc(m.subproductos.nombre):'Subproducto'):(m.insumos?esc(m.insumos.nombre):'Insumo');
       titulo='Entrada · '+nombre;
-      sub='+'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?unidadConsumo(m.insumos):''))+(m.sys_proveedores?' · '+m.sys_proveedores.razon_social:(m.motivo?' · '+m.motivo:''));
+      sub='+'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?esc(unidadConsumo(m.insumos)):''))+(m.sys_proveedores?' · '+esc(m.sys_proveedores.razon_social):(m.motivo?' · '+esc(m.motivo):''));
     } else if(m.tipo==='Salida'){
       icon=icono('tray-up');variant=m.proveedor_id?'info':'danger';
-      const nombre=m.insumos?m.insumos.nombre:'Insumo';
+      const nombre=m.insumos?esc(m.insumos.nombre):'Insumo';
       titulo=(m.proveedor_id?'Devolución a proveedor · ':'Salida · ')+nombre;
-      sub='−'+num(m.cantidad)+' '+(m.insumos?unidadConsumo(m.insumos):'')+(m.motivo?' · '+m.motivo:'');
+      sub='−'+num(m.cantidad)+' '+(m.insumos?esc(unidadConsumo(m.insumos)):'')+(m.motivo?' · '+esc(m.motivo):'');
     } else if(m.tipo==='Consumo'){
       icon=icono('gear');variant='warning';
-      const nombre=esSub?(m.subproductos?m.subproductos.nombre:'Subproducto'):(m.insumos?m.insumos.nombre:'Insumo');
+      const nombre=esSub?(m.subproductos?esc(m.subproductos.nombre):'Subproducto'):(m.insumos?esc(m.insumos.nombre):'Insumo');
       titulo='Consumo · '+nombre;
-      sub='−'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?unidadConsumo(m.insumos):''))+(m.motivo?' · '+m.motivo:'');
+      sub='−'+num(m.cantidad)+' '+(esSub?'u':(m.insumos?esc(unidadConsumo(m.insumos)):''))+(m.motivo?' · '+esc(m.motivo):'');
     } else {
-      titulo=m.tipo+' · '+(m.insumos?m.insumos.nombre:'—');
+      titulo=esc(m.tipo)+' · '+(m.insumos?esc(m.insumos.nombre):'—');
       sub=num(m.cantidad);
     }
     eventos.push({fecha:m.fecha,icon:icon,variant:variant,titulo:titulo,sub:sub});
@@ -3840,8 +3926,8 @@ async function construirTimeline(limit){
       fecha:e.fecha,
       icon:icono('sparkles'),
       variant:'success',
-      titulo:'Entrega de OP · '+op+(prod?' · '+prod:''),
-      sub:'+'+num(e.cantidad)+' u entregadas'+(e.lote_entrega?' · lote '+e.lote_entrega:'')
+      titulo:'Entrega de OP · '+esc(op)+(prod?' · '+esc(prod):''),
+      sub:'+'+num(e.cantidad)+' u entregadas'+(e.lote_entrega?' · lote '+esc(e.lote_entrega):'')
     });
   });
 
@@ -3915,7 +4001,7 @@ async function renderInsumos(){
         ${thSort('Existencia','existencia','lista_insumos',true)}
         <th class="num">Reorden</th>
         ${thSort('Costo','costo','lista_insumos',true)}
-        ${thSort('Valor','valor','lista_insumos',true).replace('<th', '<th class="col-hide-md"')}
+        ${thSort('Valor','valor','lista_insumos',true,'col-hide-md')}
         <th>Estado</th><th class="actions"></th>
       </tr>
         ${view.map(function(i){
@@ -5685,25 +5771,13 @@ async function abrirModalDetalleOrden(orden){
   if (pendiente > 0) {
     showLoader('Recalculando stock en tiempo real...');
     try {
-      // Calcular cobertura solo para lo que FALTA producir
+      // Cobertura EN VIVO: solo lectura, no persiste (M6).
+      // El snapshot en ordenes_semanales queda intacto; si el usuario
+      // quiere actualizarlo, debe re-confirmar la OP.
       const res = await calcularCobertura(orden.codigo_pt, pendiente);
       insumosDet = res.detalle || [];
       subsDet = res.detalleSub || [];
       estadoReal = res.estado_general;
-
-      // Si el estado cambió (ej. de Urgente a Cubierto), lo actualizamos en la base de datos
-      if (orden.estado_cobertura !== estadoReal) {
-        await api('ordenes_semanales?id=eq.'+orden.id, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            estado_cobertura: estadoReal,
-            detalle_faltantes: {insumos: insumosDet, subproductos: subsDet}
-          })
-        });
-        // Actualizamos el objeto local
-        orden.estado_cobertura = estadoReal;
-        orden.detalle_faltantes = {insumos: insumosDet, subproductos: subsDet};
-      }
     } catch(e) {
       console.warn('Error recalculando cobertura, usando datos estáticos:', e);
       const d = orden.detalle_faltantes || {};
@@ -5755,9 +5829,9 @@ async function abrirModalDetalleOrden(orden){
                 return '<tr><td class="mono">'+(idx+1)+'</td>'+
                   '<td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(e.fecha).toLocaleString('es-CO')+'</td>'+
                   '<td class="num">'+num(e.cantidad)+' u</td>'+
-                  '<td class="mono" style="font-size:12px;">'+(e.lote_entrega||'—')+'</td>'+
-                  '<td style="color:var(--text-secondary);font-size:12px;">'+(e.motivo||'—')+'</td>'+
-                  '<td style="color:var(--text-secondary);font-size:12px;">'+(e.usuario_email||'—')+'</td>'+
+                  '<td class="mono" style="font-size:12px;">'+esc(e.lote_entrega||'—')+'</td>'+
+                  '<td style="color:var(--text-secondary);font-size:12px;">'+esc(e.motivo||'—')+'</td>'+
+                  '<td style="color:var(--text-secondary);font-size:12px;">'+esc(e.usuario_email||'—')+'</td>'+
                   '</tr>';
               }).join('')+'</table>';
           }
@@ -5781,10 +5855,10 @@ function imprimirOP(orden){
   const pendiente = proyectada - producida;
 
   const infoGrid = '<div class="print-info-grid">'
-    +'<div><div class="lbl">N° de OP</div><div class="val">'+(orden.numero_op||'—')+'</div></div>'
-    +'<div><div class="lbl">Lote</div><div class="val">'+(orden.lote||'—')+'</div></div>'
+    +'<div><div class="lbl">N° de OP</div><div class="val">'+esc(orden.numero_op||'—')+'</div></div>'
+    +'<div><div class="lbl">Lote</div><div class="val">'+esc(orden.lote||'—')+'</div></div>'
     +'<div><div class="lbl">Prioridad</div><div class="val">'+(prioridadLabel(orden.prioridad)||'—')+'</div></div>'
-    +'<div><div class="lbl">Producto</div><div class="val">'+prodNombre+'</div></div>'
+    +'<div><div class="lbl">Producto</div><div class="val">'+esc(prodNombre)+'</div></div>'
     +'<div><div class="lbl">Cantidad proyectada</div><div class="val">'+num(proyectada)+' u</div></div>'
     +'<div><div class="lbl">Estado</div><div class="val">'+(orden.estado_op||'—')+'</div></div>'
     +'<div><div class="lbl">Producido</div><div class="val">'+num(producida)+' u</div></div>'
@@ -5808,7 +5882,7 @@ function imprimirOP(orden){
         const uni = x.unidad || '';
         const ex = x.existencia_consumo != null ? num(x.existencia_consumo) : (x.existencia != null ? num(x.existencia) : '—');
         return '<tr>'
-          +'<td>'+x.nombre+'</td>'
+          +'<td>'+esc(x.nombre)+'</td>'
           +'<td class="num">'+num(x.consumo_total)+' '+uni+'</td>'
           +'<td class="num">'+ex+' '+uni+'</td>'
           +'<td class="num">'+(x.faltante>0?num(x.faltante)+' '+uni:'—')+'</td>'
@@ -5826,7 +5900,7 @@ function imprimirOP(orden){
       +'</tr></thead><tbody>'
       +subsDet.map(function(x){
         return '<tr>'
-          +'<td>'+x.nombre+' <small style="color:#666;">'+(x.codigo||'')+'</small></td>'
+          +'<td>'+esc(x.nombre)+' <small style="color:#666;">'+esc(x.codigo||'')+'</small></td>'
           +'<td>'+(x.tipo||'')+'</td>'
           +'<td class="num">'+num(x.requerido)+' u</td>'
           +'<td class="num">'+num(x.stock_actual)+'</td>'
@@ -6038,7 +6112,7 @@ function imprimirFormatoEntradaAlmacen(mov, nombreInsumo, nombreProveedor) {
           </td>
           <td colspan="2" style="width: 50%; border: none; border-bottom: 1px solid ${colorAzul}; border-right: 1px solid ${colorAzul}; text-align: center;">
             <div style="font-weight: bold; font-size: 12pt;">ENTRADA DE INSUMOS AL ALMACÉN</div>
-            <div style="font-size: 16pt; font-weight: bold; margin-top: 5px;">Nº <span style="color: red;">${mov.numero_entrada_almacen || '______'}</span></div>
+            <div style="font-size: 16pt; font-weight: bold; margin-top: 5px;">Nº <span style="color: red;">${esc(mov.numero_entrada_almacen || '______')}</span></div>
           </td>
           <td style="width: 25%; border: none; border-bottom: 1px solid ${colorAzul}; vertical-align: top; font-size: 9pt;">
             Código: FO-AP-04<br>
@@ -6050,31 +6124,31 @@ function imprimirFormatoEntradaAlmacen(mov, nombreInsumo, nombreProveedor) {
         <tr>
           <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
             <span class="form-label">Descripción del insumo o producto:</span>
-            <span class="form-value">${nombreInsumo}</span>
+            <span class="form-value">${esc(nombreInsumo)}</span>
           </td>
         </tr>
         <tr>
           <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
             <span class="form-label">Proveedor:</span>
-            <span class="form-value">${nombreProveedor || '—'}</span>
+            <span class="form-value">${esc(nombreProveedor || '—')}</span>
           </td>
         </tr>
         <tr>
           <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
             <span class="form-label">Lote (s):</span>
-            <span class="form-value">${lotesStr}</span>
+            <span class="form-value">${esc(lotesStr)}</span>
           </td>
         </tr>
         <tr>
           <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
             <span class="form-label">OC:</span>
-            <span class="form-value">${mov.numero_oc || '—'}</span>
+            <span class="form-value">${esc(mov.numero_oc || '—')}</span>
           </td>
         </tr>
         <tr>
           <td colspan="4" style="border-left:none; border-right:none; border-top:none;">
             <span class="form-label">Número de factura:</span>
-            <span class="form-value">${mov.numero_factura || '—'}</span>
+            <span class="form-value">${esc(mov.numero_factura || '—')}</span>
           </td>
         </tr>
         
@@ -6089,7 +6163,7 @@ function imprimirFormatoEntradaAlmacen(mov, nombreInsumo, nombreProveedor) {
           </td>
           <td style="width: 33%; border-right:none; text-align: center;">
             <span class="form-label" style="margin:0;">Unidad de empaque</span>
-            <div class="form-value" style="border:none; margin-top: 5px;">${mov.unidad_compra || 'UND'}</div>
+            <div class="form-value" style="border:none; margin-top: 5px;">${esc(mov.unidad_compra || 'UND')}</div>
           </td>
         </tr>
         
@@ -6109,7 +6183,7 @@ function imprimirFormatoEntradaAlmacen(mov, nombreInsumo, nombreProveedor) {
         <tr>
           <td colspan="4" style="border-left:none; border-right:none; height: 150px; vertical-align: top;">
             <span class="form-label">Observaciones:</span>
-            <div style="font-size: 10pt; margin-top: 5px;">${mov.observaciones_calidad || ''}</div>
+            <div style="font-size: 10pt; margin-top: 5px;">${esc(mov.observaciones_calidad || '')}</div>
           </td>
         </tr>
         
@@ -6147,7 +6221,7 @@ async function renderEntradas(){
         <div><label>Cantidad (<span id="ent_unidad_label">—</span>)</label><input id="ent_cantidad" type="number" step="0.0001" placeholder="1"></div>
         
         <div id="ent_costo_wrap"><label>Costo por unidad de compra</label><input id="ent_costo" type="number" step="0.01" min="0" placeholder="Opcional"></div>
-        <div id="ent_prov_wrap"><label>Proveedor</label><select id="ent_proveedor"><option value="">— Sin especificar —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
+        <div id="ent_prov_wrap"><label>Proveedor</label><select id="ent_proveedor"><option value="">— Sin especificar —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+esc(p.razon_social)+'</option>';}).join('')}</select></div>
         
         <div id="ent_lote_wrap">
           <label id="ent_lote_label">Lote</label>
@@ -6270,10 +6344,10 @@ async function renderEntradas(){
   function popularItems(){
     if(selTipo.value==='insumo'){
       if(!insumos.length){selItem.innerHTML='<option value="">No hay insumos</option>';}
-      else{selItem.innerHTML=insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join('');}
+      else{selItem.innerHTML=insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+' ('+esc(unidadConsumo(i))+')</option>';}).join('');}
     } else {
       if(!subproductos.length){selItem.innerHTML='<option value="">No hay subproductos</option>';}
-      else{selItem.innerHTML=subproductos.map(function(s){return '<option value="'+s.id+'">'+s.nombre+' ('+s.codigo+')</option>';}).join('');}
+      else{selItem.innerHTML=subproductos.map(function(s){return '<option value="'+s.id+'">'+esc(s.nombre)+' ('+esc(s.codigo)+')</option>';}).join('');}
     }
     actualizarContexto();
   }
@@ -6446,54 +6520,42 @@ async function renderEntradas(){
           if(filas.length === 0) { toast('Agregá al menos un lote con su cantidad.', 'error'); return; }
 
           const r=await withLoading(ev.currentTarget,async function(){
-            /* Llamamos al NUEVO RPC unificado (evita doble conteo y actualiza el stock general) */
-            await rpc('registrar_entrada_multi_lote',{
+            const result = await rpc('registrar_entrada_multi_lote',{
               p_insumo_id:itemId,
               p_lotes:filas,
               p_proveedor_id:proveedor_id,
-              p_costo_unitario:costo
+              p_costo_unitario:costo,
+              p_estado_calidad: estado_calidad,
+              p_numero_factura: factura,
+              p_numero_oc: oc,
+              p_numero_entrada_almacen: entrada_almacen,
+              p_cantidad_pendiente_oc: pendiente_oc,
+              p_observaciones_calidad: obs_calidad
             });
-            return {n:filas.length};
+            return {n: result.lotes_insertados};
           });
-          /* Actualizar documentos en el último movimiento (una sola vez) */
-          try {
-            const lastMov = await api(`movimientos_inventario?insumo_id=eq.${itemId}&order=fecha.desc&limit=1`);
-            if(lastMov.length > 0) {
-              await api(`movimientos_inventario?id=eq.${lastMov[0].id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  numero_factura: factura,
-                  numero_oc: oc,
-                  numero_entrada_almacen: entrada_almacen,
-                  cantidad_pendiente_oc: pendiente_oc,
-                  estado_calidad: estado_calidad,
-                  observaciones_calidad: obs_calidad
-                })
-              });
-            }
-          } catch(err) { console.warn('No se pudieron guardar los docs', err); }
 
           toast('Entrada multi-lote OK · '+r.n+' lote'+(r.n===1?'':'s'),'success');
         } else {
           /* Modo normal: 1 solo lote */
           const lote=inputLote.value.trim()||null;
-          const r=await withLoading(ev.currentTarget,async function(){return await rpc('registrar_entrada',{p_insumo_id:itemId,p_cantidad:cantidad,p_proveedor_id:proveedor_id,p_costo_unitario:costo,p_motivo:null,p_rendimiento_real:rend,p_lote_insumo:lote});});
-          
-          /* Actualizar documentos en el último movimiento */
-          try {
-            const lastMov = await api(`movimientos_inventario?insumo_id=eq.${itemId}&order=fecha.desc&limit=1`);
-            if(lastMov.length > 0) {
-              await api(`movimientos_inventario?id=eq.${lastMov[0].id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  numero_factura: factura,
-                  numero_oc: oc,
-                  numero_entrada_almacen: entrada_almacen,
-                  cantidad_pendiente_oc: pendiente_oc
-                })
-              });
-            }
-          } catch(err) { console.warn('No se pudieron guardar los docs', err); }
+          const r=await withLoading(ev.currentTarget,async function(){
+            return await rpc('registrar_entrada',{
+              p_insumo_id: itemId,
+              p_cantidad: cantidad,
+              p_proveedor_id: proveedor_id,
+              p_costo_unitario: costo,
+              p_motivo: null,
+              p_rendimiento_real: rend,
+              p_lote_insumo: lote,
+              p_estado_calidad: estado_calidad,
+              p_numero_factura: factura,
+              p_numero_oc: oc,
+              p_numero_entrada_almacen: entrada_almacen,
+              p_cantidad_pendiente_oc: pendiente_oc,
+              p_observaciones_calidad: obs_calidad
+            });
+          });
 
           const cc = r.cantidad_consumo != null ? num(r.cantidad_consumo) : '—';
         toast('Entrada OK · '+cc+' en consumo · Existencia: '+num(r.existencia_nueva),'success');
@@ -6816,15 +6878,15 @@ function imprimirReporteDespachos(despachos, fechaFiltro) {
     const cajas = caja > 1 ? Math.floor(d.cantidad / caja) : d.cantidad;
     
     tabla += `<tr>
-      <td style="border:1px solid #000; padding:6px;">${prod}</td>
-      <td style="border:1px solid #000; padding:6px; font-family:monospace;">${d.codigo_pt}</td>
-      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.fecha_vencimiento || '—'}</td>
+      <td style="border:1px solid #000; padding:6px;">${esc(prod)}</td>
+      <td style="border:1px solid #000; padding:6px; font-family:monospace;">${esc(d.codigo_pt)}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${esc(d.fecha_vencimiento || '—')}</td>
       <td style="border:1px solid #000; padding:6px; text-align:right; font-family:monospace;">${num(d.cantidad)}</td>
       <td style="border:1px solid #000; padding:6px; text-align:right; font-family:monospace;">${num(cajas)}</td>
-      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.lote_op || '—'}</td>
-      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.consecutivo || '—'}</td>
-      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${d.oc || '—'}</td>
-      <td style="border:1px solid #000; padding:6px;">${d.cliente}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${esc(d.lote_op || '—')}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${esc(d.consecutivo || '—')}</td>
+      <td style="border:1px solid #000; padding:6px; text-align:center; font-family:monospace;">${esc(d.oc || '—')}</td>
+      <td style="border:1px solid #000; padding:6px;">${esc(d.cliente)}</td>
     </tr>`;
   });
 
@@ -6869,7 +6931,7 @@ function imprimirReporteDespachos(despachos, fechaFiltro) {
 
       <div style="margin-top:20px; font-size:9.5pt;">
         <b>Observaciones:</b><br>
-        <div style="border-bottom:1px solid #000; padding:10px 0; min-height:30px;">${obs || 'Sin observaciones adicionales.'}</div>
+        <div style="border-bottom:1px solid #000; padding:10px 0; min-height:30px;">${esc(obs || 'Sin observaciones adicionales.')}</div>
       </div>
 
       ${firmas}
@@ -6917,9 +6979,9 @@ async function renderDevoluciones(){
       <div class="panel force-expanded no-scroll require-write">
         <div class="panel-header"><h3>Nueva devolución a proveedor</h3></div>
         <div class="form-grid">
-          <div><label>Insumo</label><select id="dev_insumo">${insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join(''):'<option value="">No hay insumos</option>'}</select></div>
+          <div><label>Insumo</label><select id="dev_insumo">${insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+' ('+esc(unidadConsumo(i))+')</option>';}).join(''):'<option value="">No hay insumos</option>'}</select></div>
           <div><label>Cantidad (<span id="dev_unidad_label">—</span>)</label><input id="dev_cantidad" type="number" step="0.0001" placeholder="0"></div>
-          <div><label>Proveedor</label><select id="dev_proveedor"><option value="">— Selecciona —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}</select></div>
+          <div><label>Proveedor</label><select id="dev_proveedor"><option value="">— Selecciona —</option>${proveedores.map(function(p){return '<option value="'+p.id+'">'+esc(p.razon_social)+'</option>';}).join('')}</select></div>
           <div><label>Lote a devolver <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><select id="dev_lote"><option value="">— Cualquiera (LIFO) —</option></select></div>
           <div><label>Motivo <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(opcional)</span></label><input id="dev_motivo" placeholder="Ej: producto defectuoso"></div>
         </div>
@@ -6944,7 +7006,7 @@ async function renderDevoluciones(){
       <div class="panel force-expanded no-scroll require-write">
         <div class="panel-header"><h3>Nueva devolución de cliente</h3></div>
         <div class="form-grid">
-          <div><label>Producto terminado</label><select id="devpt_producto">${productos.length?productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'" data-existencia="'+(p.existencia_actual||0)+'">'+p.nombre+' ('+p.codigo_pt+')</option>';}).join(''):'<option value="">No hay productos</option>'}</select></div>
+          <div><label>Producto terminado</label><select id="devpt_producto">${productos.length?productos.map(function(p){return '<option value="'+p.codigo_pt+'" data-caja="'+(p.unidades_por_caja||1)+'" data-existencia="'+(p.existencia_actual||0)+'">'+esc(p.nombre)+' ('+esc(p.codigo_pt)+')</option>';}).join(''):'<option value="">No hay productos</option>'}</select></div>
           <div><label>Cantidad devuelta</label><input id="devpt_cantidad" type="number" step="0.0001" placeholder="0"></div>
           <div><label>Estado del producto</label><select id="devpt_estado">
             <option value="bueno">Bueno — vuelve al stock</option>
@@ -7717,7 +7779,7 @@ function _trazaSubproductoHTML(sub, cant, data, depth, lotesPorInsumo){
   rec.forEach(function(r){
     const ins=data.insumos.find(function(x){return x.id===r.insumo_id;});
     if(!ins) return;
-    const cantReal=Number(r.cantidad_por_unidad)*cant;
+    const cantReal=Number(r.cantidad_por_unidad)*Number(r.factor_receta||1)*cant;
     const lotes=lotesPorInsumo[ins.id]||[];
     inner+=_trazaInsumoHTML(ins,cantReal,lotes);
   });
@@ -7786,7 +7848,7 @@ function imprimirProgramacionSemanal(desde, hasta, dias, fechas, ordenes, entreg
         else if (fechaStr === fin) tarea = 'Terminar';
         
         tabla += `<div style="margin-bottom:6px;">
-          <b>${numOP}:</b> ${tarea} ${num(cant)} ${prod}
+          <b>${esc(numOP)}:</b> ${tarea} ${num(cant)} ${esc(prod)}
         </div>`;
       });
     }
@@ -7817,7 +7879,7 @@ function imprimirProgramacionSemanal(desde, hasta, dias, fechas, ordenes, entreg
       const nombreDia = dias[idx].toUpperCase();
       const txtEntregas = entregasPorDia[idx].map(e => {
         const prod = e.ordenes_semanales && e.ordenes_semanales.productos_terminados ? e.ordenes_semanales.productos_terminados.nombre : 'Producto';
-        return `${num(e.cantidad)} ${prod}`;
+        return `${num(e.cantidad)} ${esc(prod)}`;
       }).join(', ');
 
       tabla += `<tr>
@@ -8421,8 +8483,8 @@ function imprimirEvaluacionProveedor(ev) {
     </div>
 
     <div class="print-info-grid">
-      <div><div class="lbl">Nombre / Razón Social</div><div class="val">${ev.proveedor_nombre}</div></div>
-      <div><div class="lbl">C.C. o NIT</div><div class="val">${ev.proveedor_nit}</div></div>
+      <div><div class="lbl">Nombre / Razón Social</div><div class="val">${esc(ev.proveedor_nombre)}</div></div>
+      <div><div class="lbl">C.C. o NIT</div><div class="val">${esc(ev.proveedor_nit)}</div></div>
       <div><div class="lbl">Fecha Evaluación</div><div class="val">${new Date(ev.fecha+'T12:00:00').toLocaleDateString('es-CO')}</div></div>
     </div>
 
@@ -8461,7 +8523,7 @@ function imprimirEvaluacionProveedor(ev) {
       </div>
       <div style="flex:2; border:1px solid #000; padding:10px; display:flex; flex-direction:column; justify-content:center;">
         <div style="font-size:8pt; text-transform:uppercase; color:#666;">RESULTADO</div>
-        <div style="font-size:14pt; font-weight:bold; color:${colorRes};">${ev.resultado.toUpperCase()}</div>
+        <div style="font-size:14pt; font-weight:bold; color:${colorRes};">${esc(ev.resultado.toUpperCase())}</div>
         <div style="font-size:8pt; color:#444; margin-top:4px;">
           ${ev.resultado === 'Regular' ? 'Condicionado. Debe presentar plan de mejora.' : (ev.resultado === 'No Confiable' ? 'Restringido. Buscar reemplazo.' : 'Proveedor confiable y recomendado.')}
         </div>
@@ -8469,10 +8531,10 @@ function imprimirEvaluacionProveedor(ev) {
     </div>
 
     <div class="print-section-title">OBSERVACIONES:</div>
-    <div style="border:1px solid #000; padding:10px; min-height:50px; font-size:9pt;">${ev.observaciones || 'Sin observaciones adicionales.'}</div>
+    <div style="border:1px solid #000; padding:10px; min-height:50px; font-size:9pt;">${esc(ev.observaciones || 'Sin observaciones adicionales.')}</div>
 
     <div class="print-signatures" style="grid-template-columns:1fr 1fr;">
-      <div class="print-signature"><div class="name">EVALUADOR</div><div class="role">${ev.evaluador_email || 'Firma'}</div></div>
+      <div class="print-signature"><div class="name">EVALUADOR</div><div class="role">${esc(ev.evaluador_email || 'Firma')}</div></div>
       <div class="print-signature"><div class="name">COORDINADORA DE OPERACIONES</div><div class="role">Firma</div></div>
     </div>
     
@@ -8866,14 +8928,14 @@ function imprimirConsolidadoMP(desde, hasta, resultado) {
   tabla += '</tr></thead><tbody>';
 
   resultado.forEach(r => {
-    const u = unidadConsumo(r.ins);
+    const u = esc(unidadConsumo(r.ins));
     // Si el faltante es 0, no mostramos el número sino un guion
     const txtFaltante = r.faltante > 0 ? `${num(r.faltante, 4)} ${u}` : '—';
     const colorFaltante = r.faltante > 0 ? '#dc3545' : '#28a745';
     
     tabla += `<tr>
-      <td style="border:1px solid #000; padding:6px; font-family:monospace;">${r.ins.codigo}</td>
-      <td style="border:1px solid #000; padding:6px;">${r.ins.nombre}</td>
+      <td style="border:1px solid #000; padding:6px; font-family:monospace;">${esc(r.ins.codigo)}</td>
+      <td style="border:1px solid #000; padding:6px;">${esc(r.ins.nombre)}</td>
       <td style="border:1px solid #000; padding:6px; text-align:right;">${num(r.requerido, 4)} ${u}</td>
       <td style="border:1px solid #000; padding:6px; text-align:right;">${num(r.stock, 4)} ${u}</td>
       <td style="border:1px solid #000; padding:6px; text-align:right; font-weight:bold; color:${colorFaltante};">${txtFaltante}</td>
@@ -9008,13 +9070,29 @@ async function renderConsolidado(){
 
           // 2. Explotar BOMs
           const requerimientos = {}; // { insumo_id: cantidad_total }
-          
+
+          // Stock mutable de subproductos: se descuenta a medida que se explota,
+          // para que múltiples OPs compartan el mismo pool. Antes de este fix
+          // se sobreestimaba la compra (no se descontaba stock intermedio).
+          const stockSubs = {};
+          data.subproductos.forEach(s => { stockSubs[s.id] = Number(s.existencia_actual) || 0; });
+
           function explotarSub(subId, cant, d) {
+            // 1. Consumir primero del stock disponible del subproducto
+            const stockDisp = stockSubs[subId] || 0;
+            const delStock = Math.min(stockDisp, cant);
+            stockSubs[subId] = stockDisp - delStock;
+            const faltante = cant - delStock;
+            if (faltante <= 0) return;  // todo cubierto por stock
+
+            // 2. Explotar faltante en insumos (respetando factor_receta)
             d.recetas.filter(r => r.subproducto_id === subId).forEach(r => {
-              requerimientos[r.insumo_id] = (requerimientos[r.insumo_id] || 0) + (r.cantidad_por_unidad * cant);
+              const req = Number(r.cantidad_por_unidad) * Number(r.factor_receta || 1) * faltante;
+              requerimientos[r.insumo_id] = (requerimientos[r.insumo_id] || 0) + req;
             });
+            // 3. Explotar hijos recursivamente
             d.hijos.filter(h => h.subproducto_padre_id === subId).forEach(h => {
-              explotarSub(h.subproducto_hijo_id, h.cantidad_por_unidad * cant, d);
+              explotarSub(h.subproducto_hijo_id, Number(h.cantidad_por_unidad) * faltante, d);
             });
           }
 
@@ -9024,11 +9102,11 @@ async function renderConsolidado(){
             if (cantOP <= 0) return;
             // Insumos directos
             data.bom.filter(b => b.codigo_pt === o.codigo_pt).forEach(b => {
-              requerimientos[b.insumo_id] = (requerimientos[b.insumo_id] || 0) + (b.cantidad_por_unidad * cantOP);
+              requerimientos[b.insumo_id] = (requerimientos[b.insumo_id] || 0) + (Number(b.cantidad_por_unidad) * cantOP);
             });
-            // Subproductos
+            // Subproductos (descuenta stock y explota faltante)
             data.paqueteSubs.filter(p => p.codigo_pt === o.codigo_pt).forEach(p => {
-              explotarSub(p.subproducto_id, p.cantidad * cantOP, data);
+              explotarSub(p.subproducto_id, Number(p.cantidad) * cantOP, data);
             });
           });
 
@@ -9133,7 +9211,7 @@ async function renderTrazabilidad(){
           <div class="panel-header"><h3>Producto terminado</h3></div>
           <div class="form-grid labels-bottom">
             <div><label>Selecciona un PT</label><select id="traza_pt">
-              ${data.productos.map(function(p){return '<option value="'+p.codigo_pt+'">'+p.nombre+' ('+p.codigo_pt+')</option>';}).join('')}
+              ${data.productos.map(function(p){return '<option value="'+p.codigo_pt+'">'+esc(p.nombre)+' ('+esc(p.codigo_pt)+')</option>';}).join('')}
             </select></div>
             <div><label>Unidades a analizar</label><input id="traza_cantidad" type="number" min="1" step="1" value="1"></div>
           </div>
@@ -9147,7 +9225,7 @@ async function renderTrazabilidad(){
           <div class="panel-header"><h3>Insumo</h3></div>
           <div class="form-grid labels-bottom">
             <div><label>Selecciona un insumo</label><select id="traza_insumo">
-              ${data.insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+i.codigo+')</option>';}).join('')}
+              ${data.insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+' ('+esc(i.codigo)+')</option>';}).join('')}
             </select></div>
           </div>
           <div class="form-actions"><button id="btnTrazaBackward">Buscar en PTs</button></div>
@@ -9574,7 +9652,7 @@ async function renderCompras(){
         <div><label>Proveedor</label>
           <select id="comp_proveedor">
             <option value="">— Todos —</option>
-            ${proveedores.map(function(p){return '<option value="'+p.id+'">'+p.razon_social+'</option>';}).join('')}
+            ${proveedores.map(function(p){return '<option value="'+p.id+'">'+esc(p.razon_social)+'</option>';}).join('')}
           </select>
         </div>
       </div>
@@ -9821,7 +9899,7 @@ async function renderMermas(){
         <div><label>Insumo</label>
           <select id="mer_insumo">
             <option value="">— Todos —</option>
-            ${insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+'</option>';}).join('')}
+            ${insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+'</option>';}).join('')}
           </select>
         </div>
       </div>
@@ -10103,7 +10181,7 @@ async function renderKardex(){
       <div class="form-grid">
         <div><label>Insumo</label><select id="kar_insumo">
           <option value="">— Selecciona un insumo —</option>
-          ${insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+i.codigo+')</option>';}).join('')}
+          ${insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+' ('+esc(i.codigo)+')</option>';}).join('')}
         </select></div>
         <div><label>Desde</label><input id="kar_desde" type="date"></div>
         <div><label>Hasta</label><input id="kar_hasta" type="date"></div>
@@ -10227,7 +10305,7 @@ async function generarKardex(insumos){
     box.innerHTML=`
       <div class="panel">
         <div class="panel-header">
-          <h3>Kardex · ${ins.nombre} <span class="mono" style="color:var(--text-muted);font-size:12px;">${ins.codigo}</span></h3>
+          <h3>Kardex · ${esc(ins.nombre)} <span class="mono" style="color:var(--text-muted);font-size:12px;">${esc(ins.codigo)}</span></h3>
         </div>
         <div class="grid-cards" style="margin:0;padding:16px 18px 0;grid-template-columns:repeat(4,minmax(0,1fr));">
           <div class="stat-card neutral"><p class="stat-label">Saldo antes del rango</p><p class="stat-value" style="font-size:18px;">${num(saldoAntesDelRango,4)} ${uCons}</p></div>
@@ -10280,11 +10358,11 @@ function imprimirKardex(){
   if(!_kardexData){ toast('Primero generá el kardex antes de imprimir.','error'); return; }
   const d = _kardexData;
   const ins = d.insumo;
-  const uCons = unidadConsumo(ins);
+  const uCons = esc(unidadConsumo(ins));
 
   const infoGrid = '<div class="print-info-grid">'
-    +'<div><div class="lbl">Insumo</div><div class="val">'+ins.nombre+'</div></div>'
-    +'<div><div class="lbl">Código</div><div class="val">'+ins.codigo+'</div></div>'
+    +'<div><div class="lbl">Insumo</div><div class="val">'+esc(ins.nombre)+'</div></div>'
+    +'<div><div class="lbl">Código</div><div class="val">'+esc(ins.codigo)+'</div></div>'
     +'<div><div class="lbl">Unidad de consumo</div><div class="val">'+uCons+'</div></div>'
     +'<div><div class="lbl">Desde</div><div class="val">'+(d.desde||'—')+'</div></div>'
     +'<div><div class="lbl">Hasta</div><div class="val">'+(d.hasta||'—')+'</div></div>'
@@ -10316,7 +10394,7 @@ function imprimirKardex(){
       return '<tr>'
         +'<td>'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td>'
         +'<td>'+f.tipo+'</td>'
-        +'<td>'+f.referencia+'</td>'
+        +'<td>'+esc(f.referencia)+'</td>'
         +'<td class="num">'+(f.entrada>0?'+'+num(f.entrada,4):'')+'</td>'
         +'<td class="num">'+(f.salida>0?'−'+num(f.salida,4):'')+'</td>'
         +'<td class="num"><b>'+num(f.saldo,4)+' '+uCons+'</b></td>'
@@ -10475,7 +10553,7 @@ async function renderBackup(){
         else if(rango==='6m'){fechaCorte=new Date(ahora);fechaCorte.setMonth(fechaCorte.getMonth()-6);}
         else if(rango==='1a'){fechaCorte=new Date(ahora);fechaCorte.setFullYear(fechaCorte.getFullYear()-1);}
         else if(rango==='0d'){fechaCorte='nunca';}
-        const isoCorte=fechaCorte==='nunca'?null:fechaCorte.toISOString();
+        const isoCorte = (fechaCorte && fechaCorte !== 'nunca') ? fechaCorte.toISOString() : null;
 
         /* Definición de tablas a exportar */
         const tareas=[
@@ -10495,11 +10573,13 @@ async function renderBackup(){
           {tabla:'despachos',archivo:'despachos.csv',tablaName:'despachos', order:'fecha.desc,id'},
           {tabla:'devoluciones_pt',archivo:'devoluciones_pt.csv',tablaName:'devoluciones_pt', order:'fecha.desc,id'},
           {tabla:'evaluaciones_proveedores',archivo:'evaluaciones_proveedores.csv',tablaName:'evaluaciones_proveedores', order:'fecha.desc,id'},
-          {tabla:'cajas_ubicacion',archivo:'cajas_ubicacion.csv',tablaName:'cajas_ubicacion', order:'id'}
+          {tabla:'cajas_ubicacion',archivo:'cajas_ubicacion.csv',tablaName:'cajas_ubicacion', order:'id'},
+          {tabla:'etiquetas_impresas',archivo:'etiquetas_impresas.csv',tablaName:'etiquetas_impresas', order:'fecha.desc,id'},
+          {tabla:'sys_config',archivo:'sys_config.csv',tablaName:'sys_config', select:'id,config,actualizado_en,actualizado_por_email', order:'id'}
         ];
-
-        if(incluirMov&&isoCorte){
-          tareas.push({tabla:'movimientos_inventario',archivo:'movimientos_inventario.csv',tablaName:'movimientos_inventario', select:'*', filter:'&fecha=gte.'+isoCorte, order:'fecha.desc'});
+        if(incluirMov && fechaCorte !== 'nunca'){
+          const movFilter = isoCorte ? ('&fecha=gte.'+isoCorte) : '';
+          tareas.push({tabla:'movimientos_inventario',archivo:'movimientos_inventario.csv',tablaName:'movimientos_inventario', select:'*', filter:movFilter, order:'fecha.desc,id'});
         }
 
         /* Fetch + CSV (Paginado para superar el límite de 1000) */
@@ -10745,7 +10825,7 @@ async function renderAuditoria(){
           <div><label>Desde</label><input id="rep_desde" type="date"></div>
           <div><label>Hasta</label><input id="rep_hasta" type="date"></div>
           <div><label>Tipo</label><select id="rep_tipo"><option value="Todos">Todos</option><option value="Entrada">Entradas</option><option value="Salida">Salidas</option><option value="Consumo">Consumos</option></select></div>
-          <div id="rep_insumo_wrap"><label>Insumo</label><select id="rep_insumo"><option value="">Todos</option>${insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+'</option>';}).join('')}</select></div>
+          <div id="rep_insumo_wrap"><label>Insumo</label><select id="rep_insumo"><option value="">Todos</option>${insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+'</option>';}).join('')}</select></div>
         </div>
       </div>
       <div id="filtrosExistencias" style="display:none;">
@@ -10824,7 +10904,7 @@ function abrirModalSalidaManual(insumos){
     size:'md',
     body:
       '<div class="form-grid" style="padding:0;">'+
-        '<div><label>Insumo</label><select id="sal_insumo">'+(insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+i.nombre+' ('+unidadConsumo(i)+')</option>';}).join(''):'<option value="">No hay insumos</option>')+'</select></div>'+
+        '<div><label>Insumo</label><select id="sal_insumo">'+(insumos.length?insumos.map(function(i){return '<option value="'+i.id+'">'+esc(i.nombre)+' ('+esc(unidadConsumo(i))+')</option>';}).join(''):'<option value="">No hay insumos</option>')+'</select></div>'+
         '<div><label>Cantidad (unidad de consumo)</label><input id="sal_cantidad" type="number" step="0.0001" placeholder="10"></div>'+
         '<div class="full-span"><label>Motivo</label><input id="sal_motivo" placeholder="Merma, ajuste, uso interno…"></div>'+
       '</div>',
@@ -10878,7 +10958,7 @@ function imprimirInformeActual(){
         return '<tr>'
           + fila.map(function(celda,i){
               const esNum = inf.headers[i] && inf.headers[i].num;
-              return '<td'+(esNum?' class="num"':'')+'>'+(celda==null?'—':String(celda))+'</td>';
+              return '<td'+(esNum?' class="num"':'')+'>'+(celda==null?'—':esc(celda))+'</td>';
             }).join('')
           + '</tr>';
       }).join('')
@@ -10938,12 +11018,12 @@ async function generarInforme(){
         const color=dif>0?'var(--danger)':(dif<0?'var(--success)':'var(--text-muted)');
         return '<tr>'
           +'<td class="mono" style="font-size:12px;">'+new Date(r.fecha).toLocaleDateString('es-CO')+'</td>'
-          +'<td>'+(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+ins.codigo+'</span>':'')+'</td>'
+          +'<td>'+esc(ins.nombre||'?')+(ins.codigo?' <span class="mono" style="color:var(--text-muted);font-size:11px;">'+esc(ins.codigo)+'</span>':'')+'</td>'
           +'<td class="num">'+money(r.costo_anterior)+'</td>'
           +'<td class="num">'+money(r.costo_nuevo)+'</td>'
           +'<td class="num" style="color:'+color+';">'+(dif>=0?'+':'')+money(dif)+'</td>'
-          +'<td style="color:var(--text-secondary);font-size:12.5px;">'+(r.motivo||'—')+'</td>'
-          +'<td style="color:var(--text-secondary);font-size:12px;">'+(r.usuario_email||'—')+'</td>'
+          +'<td style="color:var(--text-secondary);font-size:12.5px;">'+esc(r.motivo||'—')+'</td>'
+          +'<td style="color:var(--text-secondary);font-size:12px;">'+esc(r.usuario_email||'—')+'</td>'
           +'</tr>';
       }).join('')+'</table>')+'</div>';
       paginarTabla('tablaAjustesCosto');
@@ -11016,7 +11096,7 @@ async function generarInforme(){
           ];
         })
       } : null;
-      box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">'+icono('download','sm')+' Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Subproducto</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+f.item+'</td><td class="num">'+num(f.cantidad)+' '+(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+f.referencia+'</td></tr>';}).join('')+'</table>')+'</div>';
+      box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">'+icono('download','sm')+' Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Subproducto</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+esc(f.item)+'</td><td class="num">'+num(f.cantidad)+' '+esc(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+esc(f.referencia)+'</td></tr>';}).join('')+'</table>')+'</div>';
       paginarTabla('tablaInforme');
       if(filas.length){
         document.getElementById('btnExportInforme').addEventListener('click',function(){
@@ -11105,7 +11185,7 @@ async function generarInforme(){
       ];
     })
   } : null;
-  box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Insumo</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+f.item+'</td><td class="num">'+num(f.cantidad)+' '+(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+f.referencia+'</td></tr>';}).join('')+'</table>')+'</div>';
+  box.innerHTML='<div class="panel"><div class="panel-header"><h3>Informe ('+filas.length+' movimientos)</h3>'+(filas.length?'<button class="secondary small" id="btnExportInforme" title="Descargar CSV">Exportar CSV</button>':'')+'</div>'+(filas.length===0?'<div class="empty-state">No hay movimientos para estos filtros.</div>':'<table id="tablaInforme"><tr><th>Fecha</th><th>Tipo</th><th>Insumo</th><th class="num">Cantidad</th><th>Referencia</th></tr>'+filas.map(function(f){return '<tr><td class="mono" style="font-size:12px;">'+new Date(f.fecha).toLocaleDateString('es-CO')+'</td><td>'+badgeTipo(f.tipo)+'</td><td>'+esc(f.item)+'</td><td class="num">'+num(f.cantidad)+' '+esc(f.unidad||'')+'</td><td style="color:var(--text-secondary);">'+esc(f.referencia)+'</td></tr>';}).join('')+'</table>')+'</div>';
   paginarTabla('tablaInforme');
   if(filas.length){
     document.getElementById('btnExportInforme').addEventListener('click',function(){
@@ -11132,7 +11212,7 @@ async function generarConteoFisico(){
     const sorted=applySort(items,'conteo',{tipo:function(x){return x.tipo;},codigo:function(x){return x.codigo;},nombre:function(x){return x.nombre;},existencia:function(x){return x.existencia;}});
     box.innerHTML=`<div class="panel"><div class="panel-header"><h3>Conteo físico · ${items.length} ítems</h3><div style="display:flex;gap:8px;"><button class="secondary small" id="btnExportConteo" title="Descargar CSV del conteo">${icono('download','sm')} Exportar CSV</button><button class="secondary small" id="btnImprimirConteo" title="Imprimir formato en blanco para llenar a mano">${icono('printer','sm')} Imprimir formato</button><span class="require-write"><button class="secondary small" id="btnAplicarAjustes" title="Guardar ajustes">Aplicar ajustes</button></span></div></div><div class="search-box"><input id="buscar_conteo" placeholder="Buscar por código o nombre…"></div><table id="tablaConteo"><thead><tr>${thSort('Tipo','tipo','conteo')+thSort('Código','codigo','conteo')+thSort('Nombre','nombre','conteo')+'<th>Unidad</th>'+thSort('Sistema','existencia','conteo',true)+'<th class="num">Conteo físico</th><th class="num">Diferencia</th>'}</tr></thead><tbody>${sorted.map(function(it){
       const key=it.tipo+':'+it.id;
-      return '<tr data-tipo="'+it.tipo+'" data-id="'+it.id+'" data-sistema="'+it.existencia+'"><td>'+badgeTipoItem(it.tipo)+'</td><td class="mono">'+it.codigo+'</td><td>'+it.nombre+'</td><td>'+it.unidad+'</td><td class="num">'+num(it.existencia)+'</td><td class="num"><input type="number" step="0.0001" class="num-input" data-conteo="'+key+'" placeholder="—"></td><td class="num" data-dif="'+key+'">—</td></tr>';
+      return '<tr data-tipo="'+it.tipo+'" data-id="'+it.id+'" data-sistema="'+it.existencia+'"><td>'+badgeTipoItem(it.tipo)+'</td><td class="mono">'+esc(it.codigo)+'</td><td>'+esc(it.nombre)+'</td><td>'+esc(it.unidad)+'</td><td class="num">'+num(it.existencia)+'</td><td class="num"><input type="number" step="0.0001" class="num-input" data-conteo="'+key+'" placeholder="—"></td><td class="num" data-dif="'+key+'">—</td></tr>';
     }).join('')}</tbody></table></div>`;
     bindConteoInputs();
     filtrarTablaConteo('buscar_conteo','tablaConteo');

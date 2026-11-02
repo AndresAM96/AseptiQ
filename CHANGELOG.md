@@ -1,3 +1,153 @@
+# Changelog — AseptiQ
+
+Todos los cambios notables del proyecto se documentan aquí.
+Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
+Versionado según [SemVer](https://semver.org/lang/es/).
+
+---
+
+## [2.5.2] — 2026-11-02
+
+Auditoría completa de `v2.5.1` (ver `docs/auditoria_v2.5.1.md`) y ejecución del
+plan de corrección en 8 días-persona. Cierra 6 críticos, 5 altos y 8 medios.
+
+### Seguridad
+
+- **XSS almacenado (crítico #1).** Escapados todos los sinks de impresión
+  (`imprimir*`), dashboard, selects y modales. Un operador podía ejecutar
+  JavaScript con el token del admin vía `localStorage`. Cierra escalada
+  operador → admin.
+- **RLS bypass (#2).** `rol_write FOR ALL` permitía al operador `PATCH` directo
+  sobre `insumos.existencia_actual`, `movimientos_inventario` y `entregas_op`.
+  Las tablas de movimientos/lotes/entregas/despachos ahora son solo-escritura
+  vía RPC. Revocados `INSERT/UPDATE/DELETE` a `authenticated`.
+- **`GRANT EXECUTE` residual (#14).** `blindaje_seguridad.sql` daba EXECUTE a
+  `authenticated` sobre `consumir_insumo_fifo` (interna). Reemplazado por
+  `REVOKE` al final de `schema v2.5.2`, después de que existan todas las firmas.
+- **Instalación nueva rota (#3).** `validar_escritura()` solo existía en
+  `blindaje_seguridad.sql`. Movido al schema base. `REVOKE` de
+  `consumir_insumo_fifo` ya no rompe la migración (estaba antes del `DROP
+  FUNCTION`).
+
+### Corregido
+
+- **Calidad no conectada (#4).** `registrar_entrada` no recibía
+  `p_estado_calidad` desde la UI. Rechazado/Cuarentena sumaban stock.
+  Corregido en front y backend. Nuevo RPC `rectificar_calidad()` para liberar
+  Cuarentena con ajuste de stock. Trigger bloquea `UPDATE` directo a
+  `estado_calidad` (evita la mutación silenciosa).
+- **Devolución a proveedor (#5).** `p_lote=''` se interpretaba como no-nulo y
+  `UPDATE WHERE lote=''` no afectaba ninguna fila. Ahora `NULLIF(trim(p_lote))`
+  + validación de saldo real del lote. Falla explícita si el lote no existe.
+- **Backup "Todo el histórico" (#6).** `fechaCorte=null` → `null.toISOString()`
+  → TypeError. Corregido. Añadidas `etiquetas_impresas.csv` y `sys_config.csv`
+  que estaban prometidas en la UI pero no se exportaban.
+- **`ajustar_inventario` positivo inflaba lotes (#7).** Llamaba a
+  `registrar_entrada` con `v_dif` (unidades de consumo) y esta multiplicaba
+  por `factor_conversion`. `existencia_actual` quedaba correcta pero
+  `insumo_lotes.AJUSTE` y el movimiento tenían `v_dif × factor`. Ahora
+  actualización directa sin delegar.
+- **Deriva del lote `SIN LOTE` (#8).** Consumos sin lote dejaban un fantasma
+  en `insumo_lotes`. FIFO lo consumía primero cuando llegaba un lote real.
+  Ahora se decrementa explícitamente.
+- **Timestamps determinísticos (#9).** `now()` en una transacción es idéntico
+  para todos los movimientos → `order=fecha.desc&limit=1` no determinista.
+  Añadidos índices con `id` como desempate. Front usa `order=fecha.desc,id`.
+- **Ciclos en subproductos (#10).** `guardar_subproducto` solo detectaba
+  ciclos contra aristas viejas, no contra `p_hijos`. Ahora CTE recursiva
+  sobre los hijos propuestos + autoreferencia explícita.
+- **`factor_receta` en reportes (#11).** Consolidado MP y Trazabilidad
+  ignoraban el factor. Recetas con conversión subestimaban requerimientos
+  por varios órdenes de magnitud. Corregido en `_trazaSubproductoHTML` y
+  `renderConsolidado.explotarSub`.
+- **Stock negativo posible (#12).** `consumir_insumo_fifo` no validaba stock.
+  Ahora `FOR UPDATE` + check explícito. `CHECK (existencia_actual >= 0)` en
+  `insumos`, `subproductos`, `productos_terminados`. `planificar_consumo_subproducto`
+  no acumulaba consumo → reemplazado por `simular_consumo_pt` que mantiene
+  estado a través del árbol.
+- **Inactivo veía app vacía (#13).** `cargarRol` caía a `activo:true` porque
+  la policy de `profiles` no le dejaba leer su propio perfil. `current_user_role()`
+  ahora devuelve `'inactivo'` y la UI muestra el mensaje correcto.
+- **`consumir_subproducto_recursivo` sin actualizar stock (#C2).** Generaba
+  `movimientos_inventario` tipo Entrada sin tocar `subproductos.existencia_actual`.
+  Consumos infinitos sin stock. Ahora se ajusta existencia + par
+  Entrada/Consumo virtual para mantener Kardex ↔ existencia sincronizados.
+- **`abrirModalDetalleOrden` mutaba al abrir (#M6).** Hacía PATCH de cobertura
+  solo por abrir el detalle. Nuevo RPC `recalcular_cobertura_op()` de solo
+  lectura.
+- **Consolidado MP sobreestimaba compras (#11).** No descontaba stock de
+  subproductos intermedios. Ahora consume stock antes de explotar insumos.
+- **`estadoInsumo` sumaba `+1` al umbral (#menor).** Constante no escalaba
+  con la unidad (kg vs unidades). Eliminado.
+- **`thSort(...).replace('<th', 'class="col-hide-md"')` (#M1).** Generaba
+  `class` duplicado. La columna "Valor" perdía `sortable` y `num`.
+  `thSort` acepta `extraClass` como 5º argumento.
+- **Etiqueta mediana no-caja mostraba `UNIDADES: <paquetes-por-caja>` (#M2).**
+  Ahora `UNIDADES: 1`.
+- **`id="ent_motivo_wrap"` duplicado (#M3).** Eliminado el segundo bloque.
+- **`traducirError` mencionaba "migración v11" (#menor).** Reemplazado por
+  mensaje genérico.
+- **Cobertura vs backend inconsistentes (#11, remanente).** `calcularCobertura`
+  del front no explotaba subproductos recursivamente, no aplicaba
+  `factor_receta`, no consumía stock de subproductos. Ahora espeja la lógica
+  de `simular_consumo_pt`. Subproducto sin stock pero auto-producible ya
+  no marca Urgente.
+
+### Añadido
+
+- `rectificar_calidad(p_mov_id, p_nuevo_estado, p_motivo)` — libera Cuarentena
+  con ajuste de stock. Añade log a `observaciones_calidad`.
+- `simular_consumo_pt(codigo_pt, cantidad)` — reemplaza
+  `planificar_consumo_subproducto` con estado acumulativo (evita doble conteo
+  en BOMs con diamantes).
+- `recalcular_cobertura_op(orden_id)` — vista de cobertura sin persistir.
+- `system_health_check()` — verificación post-instalación (funciones sin
+  `search_path`, funciones expuestas a `anon`, tablas sin RLS).
+- `siguiente_codigo` ahora devuelve 4 dígitos (unificado con el front).
+- Trigger `mov_inv_bloquear_cambio_calidad_trg` — impide `UPDATE` a
+  `estado_calidad`. Toda rectificación pasa por `rectificar_calidad`.
+- Índice `movimientos_inventario_fecha_id_idx` para desempate estable.
+- Índices de expresión `*_sufijo_num_idx` para acelerar `siguiente_codigo`.
+
+### Cambios incompatibles
+
+- **Firma de `registrar_entrada`.** Ahora acepta 13 parámetros (antes 7):
+  `p_estado_calidad`, `p_numero_factura`, `p_numero_oc`,
+  `p_numero_entrada_almacen`, `p_cantidad_pendiente_oc`,
+  `p_observaciones_calidad`. El front fue actualizado en el mismo release.
+  **Rollback**: ver `migrations/0001_schema_v2.5.2.sql` sección Rollback.
+- **Firma de `confirmar_orden`.** Añadido `p_fecha_fin_programada date`. El
+  front deja de hacer PATCH posterior para `fecha_fin_programada`.
+- **Tablas solo-lectura para `authenticated`**: `movimientos_inventario`,
+  `insumo_lotes`, `entregas_op`, `ajustes_costo_insumo`, `despachos`,
+  `devoluciones_pt`, `etiquetas_impresas`. Toda escritura vía RPC.
+- **`consumir_insumo_fifo` ya no es invocable** desde `authenticated`. Solo
+  otros RPC `SECURITY DEFINER`.
+
+### Deprecado
+
+- `blindaje_seguridad.sql`, `parche_seguridad.sql`, `registrar_entrega_op.sql`,
+  `v2.5.0_auditoria.sql`, `v2.5.1_cajas_fifo_recursivo.sql`,
+  `schema.sql (v2.4.0)` — movidos a `archive/`.
+- `planificar_consumo_subproducto` — reemplazado por `simular_consumo_pt`.
+- `registrar_lotes_entrada` — eliminado (nunca fue usado desde el front).
+
+### Pendiente
+
+- **`cadenaTexto` / `formatearExistencia`** inyectan `n.unidad` y
+  `unidadConsumo` sin escapar. Riesgo bajo: requiere que un admin cree una
+  unidad custom con payload. Se atacará en `v2.5.3`.
+- **Composición de subproductos en `renderProductos`** inyecta
+  `ins.nombre` sin escapar en list-item. Mismo riesgo bajo.
+- **`sys_config` con logos base64** se acerca al límite de 1 MB de Supabase.
+  Migrar a Supabase Storage en `v2.5.3`.
+- **`vistos`/`silenciados` de notifs** en `sys_config` compartida. Read-modify-write
+  con pérdida de cambios entre usuarios. Migrar a `user_preferences` por user_id.
+
+### Instalación
+
+Ver `migrations/README.md`. Orden:
+
 ## [2.5.1] — Octubre 2026
 
 ### Seguridad (Crítico)
