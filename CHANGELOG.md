@@ -6,6 +6,68 @@ Versionado según [SemVer](https://semver.org/lang/es/).
 
 ---
 
+## [2.5.3] — 2026-11-02
+
+Segundo release de corrección. Cierra deudas remanentes del audit v2.5.1
+que no bloqueaban v2.5.2, más mejoras de calidad de vida.
+
+### Añadido
+
+- `rectificar_calidad(p_mov_id, p_nuevo_estado, p_motivo)` — UI en
+  Entrada mercancía: columna Calidad con badge, filtro "solo pendientes
+  de rectificar", botón ✓ en filas con estado != Aprobado. Modal con
+  select de transición, motivo obligatorio y confirmación. El stock y
+  el lote se ajustan automáticamente vía backend `0001`.
+- `user_preferences(user_id, notif_vistos, notif_silenciados)` —
+  migración `0005`. Notifs por usuario. Cierra #M6 (read-modify-write
+  entre usuarios, rol Consulta no podía limpiar su badge).
+- Bucket `logos` en Supabase Storage + migración `0006`. Los logos de
+  etiquetas ya no viven en `sys_config` como base64. Cierra #M5
+  (payload cerca de 1 MB). Botón "Migrar" en el modal de etiquetas
+  mueve los base64 existentes a Storage.
+- `_chartTheme()` — helper que resuelve CSS vars antes de pasarlas a
+  Chart.js. Aplicado a `renderChartLine`, `renderChartBar`,
+  `mostrarComparativoOP`, `renderRentabilidad`, `abrirModalCobertura`,
+  `renderChartDoughnut`. Los 6 gráficos son legibles en tema claro
+  y oscuro.
+
+### Corregido
+
+- **`fetchAllMovsInsumo` con `order=fecha.asc,id.asc`** (#9 remanente).
+  Kardex determinista cuando hay múltiples movimientos con el mismo
+  timestamp.
+- **Confirmar OP atómico** (batch 2 remanente). `confirmar_orden` ya
+  acepta `p_fecha_fin_programada`; el front hace 1 llamada en vez de
+  3 (1 RPC + 2 PATCH). Cierra ventana de OP huérfana si falla a mitad.
+- **`calcularVencimiento` respeta `vida_util_meses` por PT** (batch 13).
+  Antes usaba 35 hardcodeado; ahora lee el campo de
+  `productos_terminados`. Default sigue siendo 35 (≈ 2 años 11 meses).
+
+### Notas
+
+- **Vencimiento — edge case días 29-31.** La fórmula confirmada por
+  Calidad es "35 meses − 1 día" (aritmética). Para fabricaciones en
+  días 29, 30 o 31, JS normaliza el overflow de mes y la fecha de
+  vencimiento puede caer 1-2 días antes del "último día del mes 35"
+  esperado. Ejemplo: fabricado 2026-03-31 → vence 2029-03-02 en lugar
+  de 2029-02-28. **No se modifica el cálculo.** Si más adelante se
+  requiere "último día del mes 35", se cambia a
+  `new Date(fFab.getFullYear(), fFab.getMonth() + 36, 0)`.
+
+### Migraciones
+
+- `0005_user_preferences.sql` — tabla + policies + migración one-shot
+  desde `sys_config.config.notif`.
+- `0006_logos_storage.sql` — bucket `logos` + policies + función
+  `logos_base64_pendientes()` para detectar qué hay que migrar.
+
+### Cambios incompatibles
+
+Ninguno. El front es retrocompatible con `sys_config.config.notif` (si
+no hay fila en `user_preferences` para un usuario, arranca vacío). La
+migración de datos es opcional: `SELECT public.migrar_notif_prefs_desde_config();`
+como admin, después de aplicar `0005`.
+
 ## [2.5.2] — 2026-11-02
 
 Auditoría completa de `v2.5.1` (ver `docs/auditoria_v2.5.1.md`) y ejecución del

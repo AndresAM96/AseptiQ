@@ -2799,6 +2799,36 @@ function abrirModalUnidades(){
   });
 }
 
+/* Sube un archivo al bucket 'logos' y retorna la URL pública con cache-buster.
+   El cache-buster fuerza refresco de navegador cuando se reemplaza un logo
+   con el mismo nombre (upsert=true). */
+async function subirLogoStorage(logoId, file){
+  if(!SUPA_CLIENT) throw new Error('Cliente de Supabase no inicializado');
+  const m = file.name.match(/\.([a-z0-9]+)$/i);
+  const ext = m ? m[1].toLowerCase() : 'png';
+  const path = logoId + '.' + ext;
+  const { error } = await SUPA_CLIENT.storage
+    .from('logos')
+    .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' });
+  if(error) throw new Error('Storage upload: ' + (error.message || 'error'));
+  const { data } = SUPA_CLIENT.storage.from('logos').getPublicUrl(path);
+  if(!data || !data.publicUrl) throw new Error('No se pudo obtener la URL pública');
+  return data.publicUrl + '?t=' + Date.now();
+}
+
+/* Convierte un dataURL (data:image/png;base64,...) a Blob para subirlo a Storage. */
+function dataURLtoBlob(dataURL){
+  const parts = String(dataURL).split(',');
+  if(parts.length < 2) throw new Error('dataURL inválido');
+  const mimeMatch = parts[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+  const bstr = atob(parts[1]);
+  let n = bstr.length;
+  const u8 = new Uint8Array(n);
+  while(n--) u8[n] = bstr.charCodeAt(n);
+  return new Blob([u8], { type: mime });
+}
+
 function abrirModalDatosEtiquetas(){
   const etq = getEtiquetasConfig();
   const empresas = etq.empresas;
@@ -2821,16 +2851,24 @@ function abrirModalDatosEtiquetas(){
   }
 
   function _logoUploadHTML(id, label, dataUrl){
-    const preview = dataUrl ? '<img src="'+dataUrl+'" alt="'+label+'" class="etq-logo-preview">' : '<span class="etq-logo-empty">Sin imagen</span>';
+    const tiene = !!dataUrl;
+    const esBase64 = tiene && /^data:image\//.test(dataUrl);
+    const esURL = tiene && /^https?:\/\//.test(dataUrl);
+    const preview = tiene
+      ? '<img src="'+esc(dataUrl)+'" alt="'+esc(label)+'" class="etq-logo-preview">'
+      : '<span class="etq-logo-empty">Sin imagen</span>';
+    const badge = esBase64
+      ? '<span class="badge warning" style="font-size:9.5px;margin-left:6px;" title="Está en base64 en la config. Migrar a Storage libera espacio.">base64</span>'
+      : (esURL ? '<span class="badge success" style="font-size:9.5px;margin-left:6px;">Storage</span>' : '');
     return '<div class="etq-logo-row">'
       +'<div class="etq-logo-info">'
-        +'<div class="det-lbl">'+label+'</div>'
+        +'<div class="det-lbl">'+esc(label)+badge+'</div>'
         +'<div class="etq-logo-box">'+preview+'</div>'
       +'</div>'
       +'<div class="etq-logo-actions">'
         +'<input type="file" id="etq_logo_'+id+'" accept="image/png,image/jpeg,image/svg+xml" style="display:none;">'
         +'<button type="button" class="secondary small" data-etq-pick-logo="'+id+'">Elegir archivo</button>'
-        +'<button type="button" class="ghost small" data-etq-clear-logo="'+id+'" '+(dataUrl?'':'style="display:none;"')+'>Quitar</button>'
+        +'<button type="button" class="ghost small" data-etq-clear-logo="'+id+'" '+(tiene?'':'style="display:none;"')+'>Quitar</button>'
       +'</div>'
     +'</div>';
   }
@@ -2862,7 +2900,12 @@ function abrirModalDatosEtiquetas(){
 
     + '<div class="det-section-title">Logos</div>'
     + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">'
-      +'PNG, JPG o SVG. Peso máximo recomendado: 200 KB por archivo. Se guardan en el backend y aplican a todos los dispositivos.'
+      +'PNG, JPG o SVG. Peso máximo: 2 MB por archivo. Se suben a <b>Supabase Storage</b> (bucket público) y aplican a todos los dispositivos.'
+    +'</div>'
+    + '<div id="etq_migrar_banner" class="alert-banner warning" style="display:none;margin-bottom:14px;">'
+      +'<div class="alert-icon">!</div>'
+      +'<div class="alert-body"><strong>Logos en base64 detectados.</strong><span>Estos logos viven dentro de la config y consumen espacio. Migrarlos a Storage los libera y evita el límite de 1 MB.</span></div>'
+      +'<button type="button" class="alert-action" id="etq_migrar_storage">Migrar</button>'
     +'</div>'
     + _logoUploadHTML('proclides', 'Logo Proclides', logos.proclides)
     + _logoUploadHTML('allmed', 'Logo Allmed', logos.allmed)
@@ -2925,7 +2968,7 @@ function abrirModalDatosEtiquetas(){
         renderInvimas();
       });
 
-      /* Logos: file input → data URL */
+      /* Logos: file input → upload a Supabase Storage (bucket 'logos') */
       ['proclides','allmed','allers'].forEach(function(id){
         const input = body.querySelector('#etq_logo_'+id);
         const pickBtn = body.querySelector('[data-etq-pick-logo="'+id+'"]');
@@ -2933,29 +2976,89 @@ function abrirModalDatosEtiquetas(){
           pickBtn.addEventListener('click', function(){ input.click(); });
         }
         if(!input) return;
-        input.addEventListener('change', function(){
+        input.addEventListener('change', async function(ev){
           const file = input.files && input.files[0];
           if(!file) return;
-          if(file.size > 100*1024){
-            toast('El archivo supera 100 KB. Reducilo antes de subirlo.','error');
+          if(file.size > 2*1024*1024){
+            toast('El archivo supera 2 MB. Reducilo antes de subirlo.','error');
             input.value='';
             return;
           }
-          const reader = new FileReader();
-          reader.onload = function(ev){
-            logosLocal[id] = ev.target.result;
-            /* Actualizar preview */
-            const row = input.closest('.etq-logo-row');
-            if(row){
-              const box = row.querySelector('.etq-logo-box');
-              if(box) box.innerHTML = '<img src="'+logosLocal[id]+'" alt="logo" class="etq-logo-preview">';
-              const clearBtn = row.querySelector('[data-etq-clear-logo]');
-              if(clearBtn) clearBtn.style.display='';
-            }
-          };
-          reader.readAsDataURL(file);
+          const row = input.closest('.etq-logo-row');
+          const box = row ? row.querySelector('.etq-logo-box') : null;
+          const clearBtn = row ? row.querySelector('[data-etq-clear-logo]') : null;
+          /* Preview local inmediato mientras se sube */
+          if(box){
+            const blobUrl = URL.createObjectURL(file);
+            box.innerHTML = '<img src="'+blobUrl+'" alt="logo" class="etq-logo-preview">';
+          }
+          try{
+            const url = await subirLogoStorage(id, file);
+            logosLocal[id] = url;
+            if(box) box.innerHTML = '<img src="'+esc(url)+'" alt="logo" class="etq-logo-preview">';
+            if(clearBtn) clearBtn.style.display='';
+            toast('Logo subido a Storage.','success');
+            /* Refrescar banner de migración */
+            actualizarBannerMigracion();
+          }catch(err){
+            toast('Error al subir: '+err.message,'error');
+            input.value='';
+          }
         });
       });
+
+      /* Banner de migración de logos base64 existentes */
+      function actualizarBannerMigracion(){
+        const banner = body.querySelector('#etq_migrar_banner');
+        if(!banner) return;
+        const hayBase64 = ['proclides','allmed','allers'].some(function(k){
+          return logosLocal[k] && /^data:image\//.test(logosLocal[k]);
+        });
+        banner.style.display = hayBase64 ? 'flex' : 'none';
+      }
+      actualizarBannerMigracion();
+
+      const btnMigrar = body.querySelector('#etq_migrar_storage');
+      if(btnMigrar){
+        btnMigrar.addEventListener('click', async function(ev2){
+          const keys = ['proclides','allmed','allers'].filter(function(k){
+            return logosLocal[k] && /^data:image\//.test(logosLocal[k]);
+          });
+          if(!keys.length){ toast('Nada que migrar.','success'); return; }
+          await withLoading(ev2.currentTarget, async function(){
+            let ok=0, err=0;
+            for(const k of keys){
+              try{
+                const dataURL = logosLocal[k];
+                const blob = dataURLtoBlob(dataURL);
+                const m = dataURL.match(/^data:image\/([a-z0-9]+);/i);
+                const ext = m ? m[1].toLowerCase() : 'png';
+                const file = new File([blob], k+'.'+ext, { type: blob.type });
+                const url = await subirLogoStorage(k, file);
+                logosLocal[k] = url;
+                /* Actualizar preview in-place */
+                const input = body.querySelector('#etq_logo_'+k);
+                const row = input ? input.closest('.etq-logo-row') : null;
+                if(row){
+                  const box = row.querySelector('.etq-logo-box');
+                  if(box) box.innerHTML = '<img src="'+esc(url)+'" alt="logo" class="etq-logo-preview">';
+                  const lbl = row.querySelector('.det-lbl');
+                  if(lbl){
+                    /* Reemplazar el badge base64 por Storage */
+                    lbl.innerHTML = lbl.innerHTML.replace(/<span class="badge warning"[^>]*>base64<\/span>/, '<span class="badge success" style="font-size:9.5px;margin-left:6px;">Storage</span>');
+                  }
+                }
+                ok++;
+              }catch(err){
+                console.warn('Error migrando', k, err);
+                err++;
+              }
+            }
+            actualizarBannerMigracion();
+            toast(ok+' logo(s) migrados a Storage'+(err?' · Errores: '+err:''), err?'error':'success');
+          });
+        });
+      }
 
       /* Quitar logo */
       body.querySelectorAll('[data-etq-clear-logo]').forEach(function(btn){
@@ -2977,6 +3080,20 @@ function abrirModalDatosEtiquetas(){
       /* Guardar */
       document.getElementById('etq_guardar').addEventListener('click',async function(ev){
         syncInvimas();
+        const hayBase64 = ['proclides','allmed','allers'].some(function(k){
+          return logosLocal[k] && /^data:image\//.test(logosLocal[k]);
+        });
+        if(hayBase64){
+          const ok = await confirmar({
+            title: 'Guardar con logos en base64',
+            message: 'Hay logos que aún están en base64. Se guardarán en la config y consumirán espacio. ¿Migrar antes?',
+            icon: '!',
+            variant: 'warn',
+            okText: 'Guardar igual',
+            showCancel: true
+          });
+          if(!ok) return;
+        }
         const getVal=function(id){const el=body.querySelector('#'+id);return el?el.value:'';};
         const parseCorreos=function(str){return String(str||'').split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);};
 
@@ -3512,7 +3629,8 @@ function imprimirEtiquetasPT(prod, data, plantilla, opts){
   const empAll = etqCfg.empresas.allers;
   
   const fFab = new Date(opts.fechaFab + 'T12:00:00');
-  const fVenc = calcularVencimiento(fFab);
+  const mesesVida = (prod.vida_util_meses != null && prod.vida_util_meses > 0) ? prod.vida_util_meses : 35;
+  const fVenc = calcularVencimiento(fFab, mesesVida);
   const strFab = formatoMesAnio(fFab);
   const strVenc = formatoMesAnio(fVenc);
   const lote = opts.lote;
@@ -3885,11 +4003,14 @@ function formatoMesAnio(fecha){
   return String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
 }
 
-/* Vida útil: 3 años - 1 mes - 1 día = 35 meses - 1 día */
-function calcularVencimiento(fechaFab) {
+/* Vida útil por defecto: 35 meses - 1 día (≈ 2 años 11 meses).
+   El valor real por PT vive en productos_terminados.vida_util_meses
+   (default 35) y se pasa como segundo argumento. */
+function calcularVencimiento(fechaFab, meses){
   if(!fechaFab) return null;
+  const m = (meses == null || isNaN(meses) || meses <= 0) ? 35 : Number(meses);
   const d = new Date(fechaFab);
-  d.setMonth(d.getMonth() + 35);
+  d.setMonth(d.getMonth() + m);
   d.setDate(d.getDate() - 1);
   return d;
 }
