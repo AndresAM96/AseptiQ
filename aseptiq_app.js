@@ -5719,26 +5719,9 @@ function cerrarModalCobertura(){
           p_cantidad_cajas:null,
           p_lote:lote,
           p_prioridad:prioridad,
-          p_fecha_programada:fechaProg
+          p_fecha_programada:fechaProg,
+          p_fecha_fin_programada:fechaFinProg || null
         });
-
-        /* Actualizar la fecha fin (ya que el RPC no la recibe por retrocompatibilidad) */
-        if(fechaFinProg) {
-          await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompleto), {
-            method: 'PATCH',
-            body: JSON.stringify({ fecha_fin_programada: fechaFinProg })
-          });
-        }
-        /* Actualizar explícitamente las fechas en la BD para asegurar que se guarden */
-        if(fechaProg) {
-          await api('ordenes_semanales?numero_op=eq.'+encodeURIComponent(numeroCompleto), {
-            method: 'PATCH',
-            body: JSON.stringify({ 
-              fecha_programada: fechaProg,
-              fecha_fin_programada: fechaFinProg || null
-            })
-          });
-        }
 
         toast('Orden registrada.','success');
         cerrarModalCobertura();
@@ -6270,8 +6253,14 @@ async function renderEntradas(){
     </div>
     <div class="panel">
       <div class="panel-header"><h3>Movimientos de entrada recientes</h3></div>
+      <div class="search-box" style="border-bottom:none;padding-bottom:0;">
+        <label class="check-row" style="margin:0;white-space:nowrap;">
+          <input type="checkbox" id="chk_solo_calidad">
+          <span style="font-size:12px;">Solo pendientes de rectificar (Rechazado / Cuarentena)</span>
+        </label>
+      </div>
       ${movimientos.length===0?'<div class="empty-state">Sin movimientos.</div>':`
-      <table><tr><th>Tipo</th><th>Item</th><th class="num">Cantidad</th><th>Proveedor / Motivo</th><th>OC / Factura</th><th>Fecha</th></tr>
+      <table><tr><th>Tipo</th><th>Item</th><th class="num">Cantidad</th><th>Proveedor / Motivo</th><th>OC / Factura</th><th>Calidad</th><th>Fecha</th><th class="actions"></th></tr>
         ${movimientos.map(function(m){
           const esSub=!!m.subproducto_id;
           const tipoBadge=esSub?'<span class="badge warning">Subproducto</span>':'<span class="badge info">Insumo</span>';
@@ -6280,7 +6269,17 @@ async function renderEntradas(){
           const ref=esSub?esc(m.motivo||'—'):esc(m.sys_proveedores?m.sys_proveedores.razon_social:(m.motivo||'—'));
           const docs = esSub ? '—' : `<span style="font-size:11px;">${m.numero_oc ? 'OC: '+esc(m.numero_oc) : ''} ${m.numero_factura ? ' / Fact: '+esc(m.numero_factura) : ''}</span>`;
           const btnPrint = esSub ? '' : `<button class="ghost small icon-only" data-print-entrada="${m.id}" title="Imprimir FO-AP-04">${icono('printer')}</button>`;
-          return '<tr><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td>'+docs+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td><td class="actions">'+btnPrint+'</td></tr>';
+          const cal = m.estado_calidad || 'Aprobado';
+          const calBadge = cal === 'Aprobado'
+            ? '<span class="badge success" style="font-size:10px;">Aprobado</span>'
+            : (cal === 'Rechazado'
+              ? '<span class="badge danger" style="font-size:10px;">Rechazado</span>'
+              : '<span class="badge warning" style="font-size:10px;">Cuarentena</span>');
+          const btnRect = (!esSub && cal !== 'Aprobado')
+            ? '<button class="ghost small icon-only" data-rectificar-calidad="'+m.id+'" title="Rectificar calidad">'+icono('check-circle')+'</button>'
+            : '';
+          const rowCalFilter = cal !== 'Aprobado' ? '1' : '0';
+          return '<tr data-pendiente-rectificar="'+rowCalFilter+'"><td>'+tipoBadge+'</td><td>'+item+'</td><td class="num">'+cant+'</td><td style="color:var(--text-secondary);font-size:12px;">'+ref+'</td><td>'+docs+'</td><td>'+calBadge+'</td><td class="mono" style="font-size:12px;color:var(--text-secondary);">'+new Date(m.fecha).toLocaleDateString('es-CO')+'</td><td class="actions">'+btnRect+btnPrint+'</td></tr>';
         }).join('')}
       </table>`}
     </div>`;
@@ -6472,6 +6471,30 @@ async function renderEntradas(){
   document.getElementById('btnAbrirNuevoProveedor').addEventListener('click',function(){
     abrirModalNuevoProveedor();
   });
+
+  /* Filtro "solo pendientes de rectificar" */
+  const chkRect = document.getElementById('chk_solo_calidad');
+  if(chkRect){
+    chkRect.addEventListener('change', function(){
+      const soloPendientes = chkRect.checked;
+      document.querySelectorAll('#tablaEntradasMovs tr[data-pendiente-rectificar], .panel table tr[data-pendiente-rectificar]').forEach(function(tr){
+        if(soloPendientes && tr.getAttribute('data-pendiente-rectificar') !== '1'){
+          tr.style.display = 'none';
+        } else {
+          tr.style.display = '';
+        }
+      });
+    });
+  }
+
+  /* Botones Rectificar calidad */
+  document.querySelectorAll('[data-rectificar-calidad]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const movId = btn.dataset.rectificarCalidad;
+      const mov = movimientos.find(function(x){ return x.id === movId; });
+      if(mov) abrirModalRectificarCalidad(mov);
+    });
+  });
   document.getElementById('btnRegistrarEntrada').addEventListener('click',async function(ev){
     const tipo=selTipo.value;
     const itemId=selItem.value;
@@ -6584,6 +6607,118 @@ async function renderEntradas(){
     }catch(e){toast(e.message,'error');}
   });
 } 
+
+/* ============ RECTIFICAR CALIDAD ============ */
+async function abrirModalRectificarCalidad(mov){
+  if(!mov) return;
+
+  const estadoActual = mov.estado_calidad || 'Aprobado';
+  const esSub = !!mov.subproducto_id;
+  if(esSub){
+    toast('La rectificación de calidad solo aplica a entradas de insumos.','error');
+    return;
+  }
+
+  const nombreInsumo = mov.insumos ? mov.insumos.nombre : '(insumo)';
+  const lote = mov.lote_insumo || 'SIN LOTE';
+  const fecha = new Date(mov.fecha).toLocaleString('es-CO');
+
+  /* Mapa de transiciones posibles según estado actual */
+  const transiciones = {
+    'Aprobado':    ['Rechazado','Cuarentena'],
+    'Rechazado':   ['Aprobado','Cuarentena'],
+    'Cuarentena':  ['Aprobado','Rechazado']
+  };
+  const opciones = transiciones[estadoActual] || [];
+
+  const opcionesHTML = opciones.map(function(op){
+    const label = op === 'Aprobado'
+      ? 'Aprobado — suma stock + lote'
+      : (op === 'Rechazado'
+        ? 'Rechazado — resta stock (si estaba aprobado)'
+        : 'Cuarentena — no suma stock, retenido en bodega');
+    return '<option value="'+op+'">'+label+'</option>';
+  }).join('');
+
+  abrirModalGenerico({
+    title: 'Rectificar calidad',
+    subtitle: nombreInsumo + ' · lote ' + lote,
+    icon: icono('check-circle','lg'),
+    variant: 'warn',
+    size: 'md',
+    body:
+      '<div class="det-section-title">Movimiento</div>'
+      +'<div class="det-grid">'
+        +'<div><div class="det-lbl">Insumo</div><div class="det-val">'+esc(nombreInsumo)+'</div></div>'
+        +'<div><div class="det-lbl">Lote</div><div class="det-val mono">'+esc(lote)+'</div></div>'
+        +'<div><div class="det-lbl">Cantidad (consumo)</div><div class="det-val">'+num(mov.cantidad)+'</div></div>'
+        +'<div><div class="det-lbl">Fecha de entrada</div><div class="det-val">'+fecha+'</div></div>'
+        +'<div><div class="det-lbl">Estado actual</div><div class="det-val">'
+          +(estadoActual === 'Aprobado'
+            ? '<span class="badge success">Aprobado</span>'
+            : (estadoActual === 'Rechazado'
+              ? '<span class="badge danger">Rechazado</span>'
+              : '<span class="badge warning">Cuarentena</span>'))
+        +'</div></div>'
+        +'<div><div class="det-lbl">Factura / OC</div><div class="det-val mono" style="font-size:12px;">'
+          +(mov.numero_factura || '—')+(mov.numero_oc ? ' / ' + mov.numero_oc : '')
+        +'</div></div>'
+      +'</div>'
+      +'<div class="det-section-title">Rectificación</div>'
+      +'<div class="form-grid" style="padding:0;">'
+        +'<div class="full-span"><label>Nuevo estado</label><select id="rect_estado">'+opcionesHTML+'</select></div>'
+        +'<div class="full-span"><label>Motivo (obligatorio, queda en auditoría)</label>'
+          +'<input id="rect_motivo" placeholder="Ej: rechazo por error de digitación, se libera tras inspección de calidad"></div>'
+        +'<div class="full-span" style="font-size:11.5px;color:var(--text-muted);line-height:1.5;padding-top:6px;">'
+          +'El stock y el lote se ajustan automáticamente según la transición. La operación queda registrada en <b>observaciones_calidad</b> del movimiento con tu usuario y la fecha.'
+        +'</div>'
+      +'</div>',
+    footer:
+      '<div style="display:flex;justify-content:flex-end;gap:8px;width:100%;">'
+        +'<button class="ghost" id="rect_cancelar">Cancelar</button>'
+        +'<button id="rect_guardar">Rectificar</button>'
+      +'</div>',
+    onOpen: function(){
+      document.getElementById('rect_cancelar').addEventListener('click', cerrarModalGenerico);
+      document.getElementById('rect_guardar').addEventListener('click', async function(ev){
+        const nuevoEstado = document.getElementById('rect_estado').value;
+        const motivo = document.getElementById('rect_motivo').value.trim();
+        if(!nuevoEstado){
+          toast('Selecciona un estado.','error'); return;
+        }
+        if(!motivo){
+          toast('El motivo es obligatorio.','error'); return;
+        }
+        const confirmado = await confirmar({
+          title: 'Confirmar rectificación',
+          message: 'Vas a cambiar el estado de '+nombreInsumo+' (lote '+lote+') de "'+estadoActual+'" a "'+nuevoEstado+'". El stock se ajustará automáticamente.',
+          icon: '!',
+          variant: 'warn',
+          okText: 'Sí, rectificar'
+        });
+        if(!confirmado) return;
+        try{
+          const r = await withLoading(ev.currentTarget, async function(){
+            return await rpc('rectificar_calidad', {
+              p_mov_id: mov.id,
+              p_nuevo_estado: nuevoEstado,
+              p_motivo: motivo
+            });
+          });
+          if(r && r.sin_cambios){
+            toast('Sin cambios: el estado ya era "'+nuevoEstado+'".','success');
+          } else {
+            toast('Calidad rectificada · stock ajustado: '+(r && r.stock_ajustado ? 'sí' : 'no'),'success');
+          }
+          cerrarModalGenerico();
+          renderEntradas();
+        } catch(e){
+          toast('Error al rectificar: '+traducirError(e.message),'error');
+        }
+      });
+    }
+  });
+}
 
 /* ============ DEVOLUCIONES A PROVEEDOR ============ */
 
@@ -7277,11 +7412,30 @@ function _initChartDefaults(){
   window._chartDefaultsDone=true;
 }
 
+/* Resuelve los CSS custom properties en el momento del render.
+   Chart.js no entiende 'var(--border)' como string. */
+function _chartTheme(){
+  const cs=getComputedStyle(document.documentElement);
+  const g=function(name,fallback){return (cs.getPropertyValue(name).trim()||fallback);};
+  return {
+    border:      g('--border',         '#2b3140'),
+    text:        g('--text-secondary', '#8d95a6'),
+    textPrimary: g('--text-primary',   '#edeff3'),
+    surface3:    g('--surface-3',      '#262c3b'),
+    success:     g('--success',        '#3ddc84'),
+    warning:     g('--warning',        '#ffb020'),
+    danger:      g('--danger',         '#ff5c5c'),
+    info:        g('--info',           '#6ab7ff'),
+    accent:      g('--accent',         '#ffb020')
+  };
+}
+
 function renderChartLine(id,data){
   _destroyChart(id);
   _initChartDefaults();
   const ctx=document.getElementById(id);
   if(!ctx||typeof Chart==='undefined')return;
+  const th=_chartTheme();
   chartInstances[id]=new Chart(ctx,{
     type:'line',
     data:data,
@@ -7301,8 +7455,8 @@ function renderChartLine(id,data){
         }
       },
       scales:{
-        x:{grid:{color:'var(--border)'},ticks:{color:'var(--text-secondary)'}},
-        y:{grid:{color:'var(--border)'},ticks:{color:'var(--text-secondary)'},beginAtZero:true}
+        x:{grid:{color:th.border},ticks:{color:th.text}},
+        y:{grid:{color:th.border},ticks:{color:th.text},beginAtZero:true}
       }
     }
   });
@@ -7313,6 +7467,7 @@ function renderChartBar(id,data,horizontal){
   _initChartDefaults();
   const ctx=document.getElementById(id);
   if(!ctx||typeof Chart==='undefined')return;
+  const th=_chartTheme();
   chartInstances[id]=new Chart(ctx,{
     type:'bar',
     data:data,
@@ -7333,12 +7488,12 @@ function renderChartBar(id,data,horizontal){
         }
       },
       scales:horizontal?{
-        x:{grid:{color:'#2b3140'},ticks:{color:'#8d95a6',callback:function(v){return money(v);}},beginAtZero:true},
-        y:{grid:{display:false},ticks:{color:'#8d95a6'}}
+        x:{grid:{color:th.border},ticks:{color:th.text,callback:function(v){return money(v);}},beginAtZero:true},
+        y:{grid:{display:false},ticks:{color:th.text}}
       }:{
-        x:{grid:{color:'var(--border)'},ticks:{color:'var(--text-secondary)'}},
-        y:{grid:{color:'var(--border)'},ticks:{color:'var(--text-secondary)'},beginAtZero:true},
-        y1:{position:'right',grid:{display:false},ticks:{color:'#8d95a6'},beginAtZero:true}
+        x:{grid:{color:th.border},ticks:{color:th.text}},
+        y:{grid:{color:th.border},ticks:{color:th.text},beginAtZero:true},
+        y1:{position:'right',grid:{display:false},ticks:{color:th.text},beginAtZero:true}
       }
     }
   });
@@ -10158,7 +10313,7 @@ async function fetchAllMovsInsumo(insumoId){
   let all=[];
   let offset=0;
   while(true){
-    const chunk=await api('movimientos_inventario?insumo_id=eq.'+insumoId+'&select=*,sys_proveedores(razon_social)&order=fecha.asc&limit='+PAGE+'&offset='+offset);
+    const chunk=await api('movimientos_inventario?insumo_id=eq.'+insumoId+'&select=*,sys_proveedores(razon_social)&order=fecha.asc,id.asc&limit='+PAGE+'&offset='+offset);
     all=all.concat(chunk);
     if(chunk.length<PAGE)break;
     offset+=PAGE;
