@@ -15,6 +15,7 @@ let _cerrandoPorExpiracion = false;
 async function manejarSesionExpirada() {
   if (_cerrandoPorExpiracion) return;
   _cerrandoPorExpiracion = true;
+  if(typeof invalidarUserPrefsCache==='function') invalidarUserPrefsCache();
   
   try { if(SUPA_CLIENT) await SUPA_CLIENT.auth.signOut(); } catch(e) {}
   /* No borramos 'aseptiq_creds' aquí, para que el checkbox de recordar contraseña siga activo */
@@ -207,6 +208,66 @@ function limpiarFiltroModulo(){
   _filtroModulo = null;
 }
 
+/* ============ PREFERENCIAS DE USUARIO ============ */
+/* Caché en memoria para no consultar en cada render.
+   Se invalida al login/logout. */
+let _userPrefsCache = null;
+let _userPrefsCargando = null;
+
+async function cargarUserPrefs(force){
+  if(_userPrefsCache && !force) return _userPrefsCache;
+  if(_userPrefsCargando && !force) return _userPrefsCargando;
+
+  _userPrefsCargando = (async function(){
+    try{
+      if(!SUPA_SESSION || !SUPA_SESSION.user){
+        _userPrefsCache = {vistos:{}, silenciados:{}};
+        return _userPrefsCache;
+      }
+      const userId = SUPA_SESSION.user.id;
+      const rows = await api('user_preferences?user_id=eq.'+userId+'&select=notif_vistos,notif_silenciados');
+      if(rows && rows.length){
+        _userPrefsCache = {
+          vistos: rows[0].notif_vistos || {},
+          silenciados: rows[0].notif_silenciados || {}
+        };
+      } else {
+        _userPrefsCache = {vistos:{}, silenciados:{}};
+      }
+      return _userPrefsCache;
+    }catch(e){
+      log('No se pudo cargar user_preferences:', e);
+      _userPrefsCache = {vistos:{}, silenciados:{}};
+      return _userPrefsCache;
+    }finally{
+      _userPrefsCargando = null;
+    }
+  })();
+
+  return _userPrefsCargando;
+}
+
+async function guardarUserPrefs(prefs){
+  if(!SUPA_SESSION || !SUPA_SESSION.user) return;
+  const userId = SUPA_SESSION.user.id;
+  _userPrefsCache = prefs;
+  const payload = {
+    user_id: userId,
+    notif_vistos: prefs.vistos || {},
+    notif_silenciados: prefs.silenciados || {}
+  };
+  await api('user_preferences?on_conflict=user_id', {
+    method: 'POST',
+    headers: apiHeaders({'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body: JSON.stringify(payload)
+  });
+}
+
+function invalidarUserPrefsCache(){
+  _userPrefsCache = null;
+  _userPrefsCargando = null;
+}
+
 /* ============ CAMPANA DE NOTIFICACIONES ============ */
 let _notifData=null;
 let _notifAbierto=false;
@@ -219,11 +280,10 @@ async function actualizarCampana(){
       api('entregas_op?select=id,fecha,cantidad,lote_entrega,ordenes_semanales(numero_op)&order=fecha.desc&limit=5')
     ]);
 
-    /* Leer config para saber qué está silenciado y qué ya se vio */
-    const cfg=getConfig();
-    const notifCfg=(cfg.notif && typeof cfg.notif==='object') ? cfg.notif : {};
-    const silenciados=notifCfg.silenciados || {};
-    const vistos=notifCfg.vistos || {};
+    /* Leer preferencias del usuario actual (por fila, no de sys_config) */
+    const prefs = await cargarUserPrefs();
+    const silenciados = prefs.silenciados || {};
+    const vistos = prefs.vistos || {};
 
     /* Clasificar insumos (excluyendo silenciados) */
     const urgentes=[],reorden=[];
@@ -300,9 +360,8 @@ function renderNotifPanel(){
   if(!body||!header||!_notifData)return;
 
   const {urgentes,reorden,opsVencidas,entregasRecientes}=_notifData;
-  const cfg=getConfig();
-  const notifCfg=(cfg.notif && typeof cfg.notif==='object') ? cfg.notif : {};
-  const silenciados=notifCfg.silenciados || {};
+  const prefs = _userPrefsCache || {vistos:{}, silenciados:{}};
+  const silenciados = prefs.silenciados || {};
 
   const totalAtencion=urgentes.length+reorden.length+opsVencidas.length;
   header.textContent=totalAtencion>0
@@ -468,10 +527,9 @@ function renderNotifPanel(){
 /* Marca todas las notificaciones actuales como vistas */
 async function marcarNotifsVistas(){
   if(!_notifData) return;
-  const cfg=getConfig();
-  const notifCfg=(cfg.notif && typeof cfg.notif==='object') ? JSON.parse(JSON.stringify(cfg.notif)) : {};
-  const vistos=notifCfg.vistos || {};
-  const ahora=Date.now();
+  const prefs = await cargarUserPrefs();
+  const vistos = Object.assign({}, prefs.vistos || {});
+  const ahora = Date.now();
 
   /* Insumos */
   _notifData.urgentes.forEach(function(i){vistos['insumo:'+i.id+':'+estadoInsumo(i)]=ahora;});
@@ -482,26 +540,24 @@ async function marcarNotifsVistas(){
   _notifData.entregasRecientes.forEach(function(e){vistos['entrega:'+e.id]=ahora;});
 
   /* Limpieza: eliminar hashes mayores a 60 días para no crecer infinito */
-  const limite=ahora-60*24*60*60*1000;
+  const limite = ahora - 60*24*60*60*1000;
   Object.keys(vistos).forEach(function(k){
-    if(vistos[k]<limite) delete vistos[k];
+    if(vistos[k] < limite) delete vistos[k];
   });
 
-  notifCfg.vistos=vistos;
-  cfg.notif=notifCfg;
-  try{await saveConfig(cfg);}catch(e){log('No se pudo marcar como vistas:',e);}
+  prefs.vistos = vistos;
+  try{ await guardarUserPrefs(prefs); }
+  catch(e){ log('No se pudo marcar como vistas:', e); }
 }
 
 /* Silenciar un item (permanente) */
 async function silenciarNotif(tipo, id){
-  const cfg=getConfig();
-  const notifCfg=(cfg.notif && typeof cfg.notif==='object') ? JSON.parse(JSON.stringify(cfg.notif)) : {};
-  const silenciados=notifCfg.silenciados || {};
-  silenciados[tipo+':'+id]=true;
-  notifCfg.silenciados=silenciados;
-  cfg.notif=notifCfg;
+  const prefs = await cargarUserPrefs();
+  const silenciados = Object.assign({}, prefs.silenciados || {});
+  silenciados[tipo+':'+id] = true;
+  prefs.silenciados = silenciados;
   try{
-    await saveConfig(cfg);
+    await guardarUserPrefs(prefs);
     toast('Notificación silenciada.','success');
     await actualizarCampana();
     if(_notifAbierto) renderNotifPanel();
@@ -510,14 +566,12 @@ async function silenciarNotif(tipo, id){
 
 /* Reactivar un item silenciado */
 async function dessilenciarNotif(clave){
-  const cfg=getConfig();
-  const notifCfg=(cfg.notif && typeof cfg.notif==='object') ? JSON.parse(JSON.stringify(cfg.notif)) : {};
-  const silenciados=notifCfg.silenciados || {};
+  const prefs = await cargarUserPrefs();
+  const silenciados = Object.assign({}, prefs.silenciados || {});
   delete silenciados[clave];
-  notifCfg.silenciados=silenciados;
-  cfg.notif=notifCfg;
+  prefs.silenciados = silenciados;
   try{
-    await saveConfig(cfg);
+    await guardarUserPrefs(prefs);
     toast('Notificación reactivada.','success');
     await actualizarCampana();
     if(_notifAbierto) renderNotifPanel();
@@ -625,6 +679,7 @@ async function intentarSesionExistente(){
     document.getElementById('app').style.display='block';
     aplicarTema();
     aplicarSidebarColapsado();
+    if(typeof invalidarUserPrefsCache==='function') invalidarUserPrefsCache();
     dialogInit();
     activarNavItem(tabGuardado);
     renderTab(tabGuardado);
@@ -1581,6 +1636,7 @@ document.getElementById('connectBtn').addEventListener('click',async function(){
     if(typeof aplicarTema==='function') aplicarTema();
     if(typeof aplicarSidebarColapsado==='function') aplicarSidebarColapsado();
     if(typeof activarNavItem==='function') activarNavItem('dashboard');
+    if(typeof invalidarUserPrefsCache==='function') invalidarUserPrefsCache();
     dialogInit();
     renderTab('dashboard');
     initInactivityTracker();
@@ -2218,6 +2274,7 @@ document.querySelectorAll('.nav-item').forEach(function(btn){
 
 document.getElementById('btnCerrarSesion').addEventListener('click',async function(){
   _cerrandoPorExpiracion = true; // Evita que el listener de SIGNED_OUT muestre la alerta
+  if(typeof invalidarUserPrefsCache==='function') invalidarUserPrefsCache();
   try{ if(SUPA_CLIENT) await SUPA_CLIENT.auth.signOut(); }catch(e){}
   try{ localStorage.removeItem('aseptiq_creds'); }catch(e){}
   try{
@@ -5553,10 +5610,10 @@ function abrirModalCobertura(res,ctx){
   setTimeout(function(){
     if(typeof Chart==='undefined')return;
     _initChartDefaults();
-    const cs=getComputedStyle(document.documentElement);
-    const borderC=cs.getPropertyValue('--border').trim()||'#2b3140';
-    const textC=cs.getPropertyValue('--text-secondary').trim()||'#8d95a6';
-    const surf3=cs.getPropertyValue('--surface-3').trim()||'#262c3b';
+    const th=_chartTheme();
+    const borderC=th.border;
+    const textC=th.text;
+    const surf3=th.surface3;
 
     /* Bar horizontal: cobertura % de los insumos más críticos */
     const elCob=document.getElementById('cobChartCobertura');
@@ -7504,6 +7561,7 @@ function renderChartDoughnut(id,data){
   _initChartDefaults();
   const ctx=document.getElementById(id);
   if(!ctx||typeof Chart==='undefined')return;
+  const th=_chartTheme();
 
   /* Contenedor padre: div con position:relative y altura fija */
   const wrapper=ctx.parentElement;
@@ -7556,8 +7614,8 @@ function renderChartDoughnut(id,data){
       plugins:{
         legend:{position:'bottom'},
         tooltip:{
-          backgroundColor:getComputedStyle(document.documentElement).getPropertyValue('--surface-3').trim()||'#262c3b',
-          borderColor:getComputedStyle(document.documentElement).getPropertyValue('--border').trim()||'#2b3140',
+          backgroundColor:th.surface3,
+          borderColor:th.border,
           borderWidth:1,
           padding:10,
           callbacks:{
@@ -7851,6 +7909,7 @@ async function renderRentabilidad(){
     if(typeof Chart!=='undefined'&&dataGrafico.labels.length){
       _destroyChart('chMargen');
       _initChartDefaults();
+      const th=_chartTheme();
       chartInstances['chMargen']=new Chart(document.getElementById('chMargen'),{
         type:'bar',
         data:dataGrafico,
@@ -7861,16 +7920,16 @@ async function renderRentabilidad(){
           plugins:{
             legend:{display:false},
             tooltip:{
-              backgroundColor:'#262c3b',
-              borderColor:'#2b3140',
+              backgroundColor:th.surface3,
+              borderColor:th.border,
               borderWidth:1,
               padding:10,
               callbacks:{label:function(c){return money(c.parsed.x);}}
             }
           },
           scales:{
-            x:{grid:{color:'#2b3140'},ticks:{color:'#8d95a6',callback:function(v){return money(v);}},beginAtZero:true},
-            y:{grid:{display:false},ticks:{color:'#8d95a6'}}
+            x:{grid:{color:th.border},ticks:{color:th.text,callback:function(v){return money(v);}},beginAtZero:true},
+            y:{grid:{display:false},ticks:{color:th.text}}
           }
         }
       });
@@ -9745,6 +9804,7 @@ async function mostrarComparativoOP(analisis,insumos,subproductos,costos){
     if(typeof Chart!=='undefined'&&comp.length){
       _destroyChart('chComparativo');
       _initChartDefaults();
+      const th=_chartTheme();
       const top=comp.slice().sort(function(a,b){return Math.max(b.costo_teo,b.costo_real)-Math.max(a.costo_teo,a.costo_real);}).slice(0,8);
       chartInstances['chComparativo']=new Chart(document.getElementById('chComparativo'),{
         type:'bar',
@@ -9761,16 +9821,16 @@ async function mostrarComparativoOP(analisis,insumos,subproductos,costos){
           plugins:{
             legend:{position:'bottom'},
             tooltip:{
-              backgroundColor:'#262c3b',
-              borderColor:'#2b3140',
+              backgroundColor:th.surface3,
+              borderColor:th.border,
               borderWidth:1,
               padding:10,
               callbacks:{label:function(c){return c.dataset.label+': '+money(c.parsed.y);}}
             }
           },
           scales:{
-            x:{grid:{display:false},ticks:{color:'#8d95a6'}},
-            y:{grid:{color:'#2b3140'},ticks:{color:'#8d95a6',callback:function(v){return money(v);}},beginAtZero:true}
+            x:{grid:{display:false},ticks:{color:th.text}},
+            y:{grid:{color:th.border},ticks:{color:th.text,callback:function(v){return money(v);}},beginAtZero:true}
           }
         }
       });
